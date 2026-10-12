@@ -2,7 +2,9 @@
 
 *Build once, adapt everywhere.*
 
-Adaptive Apps redefine how applications are built and operated by enabling them to move effortlessly across cloud, edge, and hybrid environments without re-architecture or lock-in.
+Modern applications increasingly need to run across public clouds, private infrastructure, sovereign environments, and resource-constrained edge locations. However, application code and deployment definitions are often tightly coupled to a specific platform's services, APIs, and operational tooling. Moving an application to a new environment can therefore require significant re-architecture, duplicated platform integration, and separate operational processes. These challenges are especially acute for organizations that must meet data residency and regulatory requirements, operate with limited or intermittent connectivity, or modernize existing applications without rewriting them.
+
+Adaptive Apps address this problem by separating an application's intent and programming model from the environment-specific implementation of its required capabilities. Applications target explicit capability contracts rather than a particular infrastructure stack, allowing each environment to provide those capabilities using the technologies best suited to it. By combining a platform-agnostic application model, portable APIs, consistent capability portfolios, and AI-powered modernization tooling, Adaptive Apps enable applications to move across cloud, edge, and hybrid environments without re-architecture or unnecessary platform lock-in.
 
 ## Value proposition
 
@@ -20,10 +22,13 @@ Adaptive Apps redefine how applications are built and operated by enabling them 
 
 ## Architecture
 
-Adaptive Apps is comprised of four layers: application model, programming model, application platform and AI-powered tooling. Rather than redefining these concepts from the ground up, Adaptive Apps leverage proven open-source and cloud-native technologies, such as [Radius](https://docs.radapp.io/), [Dapr](https://dapr.io/), and Azure Arc, and orchestrate them into an end-to-end solution.
+Adaptive Apps is comprised of four layers: application model, (optional) programming model, platform portfolios and AI-powered tooling. Rather than redefining these concepts from the ground up, Adaptive Apps leverage proven open-source and cloud-native technologies, such as [Radius](https://docs.radapp.io/), [Dapr](https://dapr.io/), and Azure Arc, and orchestrate them into an end-to-end solution.
 
 <p align="center">
-    <img src="./docs/images/adaptive-apps-architecture.png" width="75%" />
+    <img src="./docs/images/adaptive-apps-architecture.svg" width="90%" alt="An ingress, service, and database defined in one Radius application model are mapped through environment-specific recipes to Azure, AKS everywhere, and Arc-enabled Kubernetes resources." />
+</p>
+<p align="center">
+    <em>Conceptual deployment flow based on the <a href="https://learn.microsoft.com/azure/architecture/solution-ideas/articles/adaptive-apps">Adaptive Apps solution in the Azure Architecture Center</a>.</em>
 </p>
 
 The architecture is described in additional detail on Microsoft Learn at [Build portable applications with adaptive apps](https://learn.microsoft.com/azure/architecture/solution-ideas/articles/adaptive-apps).
@@ -43,10 +48,6 @@ For an application to be truly portable, its code must avoid direct dependencies
 [Dapr](https://dapr.io/) provides this abstraction through a sidecar model that exposes platform capabilities, such as state management, messaging, and pub/sub, behind stable, portable APIs. Adaptive Apps support Dapr as the preferred programming model for new applications. In addition, Adaptive Apps provide AI-powered refactoring tools to help uplift brownfield applications by incrementally introducing the Dapr programming model.
 
 > **NOTE**: Using Dapr is not mandatory. When sufficient platform parity exists across target environments, applications may bind directly to platform-specific APIs. For example, if all required services are available across Azure and Azure Arc, an application written against Azure APIs can remain portable within that scope.
-
-### Adaptive application platform
-
-The Adaptive Application Platform provides the runtime capabilities required by Adaptive Apps, including compute, storage, messaging, networking, observability, and AI services.
 
 ### AI-powered tooling
 
