@@ -1,5 +1,5 @@
 # Reproduces the legacy `ent-ai` portfolio chart.
-# Full stack: identity + mesh + observability + governance (off by default)
+# Full stack: identity + mesh + observability + service policies (off by default)
 # + ai marker. AI workloads are deployed via Radius (Kaito).
 #
 # This is the only portfolio where agentGuardrails defaults to ON: the
@@ -16,7 +16,7 @@ features:
     mtls: true
   observability:
     enabled: true
-  governance:
+  servicePolicies:
     opa: false
     istioExtAuthz: false
   ai:

@@ -59,7 +59,7 @@ Before generating, `ada package` loads this repo's **resource-type
 catalog** — the types defined in
 [`radius/resource-types/types.yaml`](../../radius/resource-types/types.yaml)
 (`Radius.Resources/postgreSqlDatabases`, `mqttBrokers`, `aiModels`,
-`workloadIdentities`, `idProviders`, `governance`, `agentGuardrails`). The
+`workloadIdentities`, `idProviders`, `servicePolicies`, `agentGuardrails`). The
 catalog is resolved in this order:
 
 1. an explicit `--types <path>`;

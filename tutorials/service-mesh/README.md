@@ -263,9 +263,9 @@ istioctl x describe pod -n $APP_NAMESPACE <pod-name>
 
 ## 7. What's next
 
-* **Governance (OPA)** — author `AuthorizationPolicy` resources, either
+* **Service policies (OPA)** — author `AuthorizationPolicy` resources, either
   natively (`core` / `core-ai`) or delegated to OPA via `action: CUSTOM`
-  (`ent` / `ent-ai`). See the [governance tutorial](../governance/README.md)
+  (`ent` / `ent-ai`). See the [service policies tutorial](../service-policies/README.md)
   *(coming soon)*.
 * **Observability** — query distributed traces in Zipkin and Envoy metrics in
   Prometheus to see policies and timeouts in action. *(tutorial coming)*

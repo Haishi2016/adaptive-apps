@@ -39,8 +39,8 @@ jobs:
             tag: recipes/ai-agent-kaito:latest
           - file: radius/recipes/ai-agent/azure-openai.bicep
             tag: recipes/ai-agent-azure-openai:latest
-          - file: radius/recipes/governance/kubernetes-opa.bicep
-            tag: recipes/governance-opa:latest
+          - file: radius/recipes/service-policies/kubernetes-opa.bicep
+            tag: recipes/service-policies-opa:latest
           - file: radius/recipes/agent-guardrails/kubernetes-agt-sidecar.bicep
             tag: recipes/agent-guardrails-agt:latest
     steps:

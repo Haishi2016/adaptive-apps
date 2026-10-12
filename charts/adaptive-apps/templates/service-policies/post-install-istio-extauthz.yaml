@@ -14,7 +14,7 @@
 
   Runs only when both opa.enabled and istioExtAuthz.enabled are true.
 */}}
-{{- if and .Values.features.governance.opa .Values.features.governance.istioExtAuthz }}
+{{- if and .Values.features.servicePolicies.opa .Values.features.servicePolicies.istioExtAuthz }}
 ---
 apiVersion: v1
 kind: ServiceAccount

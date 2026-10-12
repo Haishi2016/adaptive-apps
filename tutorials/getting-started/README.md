@@ -35,7 +35,7 @@ export AKS_OIDC_ISSUER=$(az aks show \
       -o tsv)
 ```
 
-| Portfolio | Identity | Service mesh (Istio) | Observability | Governance (OPA) | On-cluster AI (Kaito) |
+| Portfolio | Identity | Service mesh (Istio) | Observability | Service policies (OPA) | On-cluster AI (Kaito) |
 | --- | :-: | :-: | :-: | :-: | :-: |
 | `min` | ✓ | ✗ | ✗ | ✗ | ✗ |
 | `core` | ✓ | ✓ | ✓ | ✗ | ✗ |
@@ -377,9 +377,9 @@ Portfolio-specific operational tutorials build on this baseline:
 * **Service mesh** (`core`, `ent`, `core-ai`, `ent-ai`): authoring
   `AuthorizationPolicy` and `VirtualService` resources, mTLS troubleshooting.
   See [Service mesh — operator tutorial](../service-mesh/README.md).
-* **Governance** (`ent`, `ent-ai`): enabling OPA via
-  `--set features.governance.opa=true --set features.governance.istioExtAuthz=true`
-  and writing Rego policies. See [Governance (OPA + Istio) — operator tutorial](../governance/README.md).
+* **Service policies** (`ent`, `ent-ai`): enabling OPA via
+  `--set features.servicePolicies.opa=true --set features.servicePolicies.istioExtAuthz=true`
+  and writing Rego policies. See [Service Policies (OPA + Istio) — operator tutorial](../service-policies/README.md).
 * **AI** (`*-ai`): swapping Kaito models, sizing GPU memory, switching between
   local and cloud `aiProvider`. *(tutorial coming)*
 * **Observability**: querying traces in Zipkin and metrics in Prometheus,

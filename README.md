@@ -20,7 +20,7 @@ Adaptive Apps redefine how applications are built and operated by enabling them 
 
 ## Architecture
 
-Adaptive Apps is comprised of four layers: application model, programming model, application platform and AI-powered tooling. Rather than redefining these concepts from the ground up, Adaptive Apps leverage proven open-source and cloud-native technologies, such as [Radius](https://docs.radapp.io/), [Dapr](https://dapr.io/), and Azure Arc, and orchestrate them into an end-to-end solution.
+Adaptive Apps is comprised of four layers: application model, (optional) programming model, capability portfolio and AI-powered tooling. Rather than redefining these concepts from the ground up, Adaptive Apps leverage proven open-source and cloud-native technologies, such as [Radius](https://docs.radapp.io/), [Dapr](https://dapr.io/), and Azure Arc, and orchestrate them into an end-to-end solution.
 
 <p align="center">
     <img src="./docs/images/adaptive-apps-architecture.png" width="75%" />
@@ -44,10 +44,6 @@ For an application to be truly portable, its code must avoid direct dependencies
 
 > **NOTE**: Using Dapr is not mandatory. When sufficient platform parity exists across target environments, applications may bind directly to platform-specific APIs. For example, if all required services are available across Azure and Azure Arc, an application written against Azure APIs can remain portable within that scope.
 
-### Adaptive application platform
-
-The Adaptive Application Platform provides the runtime capabilities required by Adaptive Apps, including compute, storage, messaging, networking, observability, and AI services.
-
 ### AI-powered tooling
 
 Adaptive Apps adopt and extend AI-enabled tools to simplify adoption and modernization.
@@ -68,7 +64,7 @@ A horiztonal comparison of portfolios is available [here](./docs/portfolios/over
 
 As a starting point, we define six portfolios, as summarized in the following table:
 
-| Portfolio | Identity | Service mesh (Istio) | Observability | Governance (OPA) | On-cluster AI (Kaito) |
+| Portfolio | Identity | Service mesh (Istio) | Observability | Service policies (OPA) | On-cluster AI (Kaito) |
 | --- | :-: | :-: | :-: | :-: | :-: |
 | [`min`](./docs/portfolios/min.md) | ✓ | ✗ | ✗ | ✗ | ✗ |
 | [`core`](./docs/portfolios/core.md) | ✓ | ✓ | ✓ | ✗ | ✗ |
@@ -106,7 +102,7 @@ Follow our [Getting Started tutorial](./tutorials/getting-started/README.md) to 
 ### Additional tutorials
 
 * [Generate Radius artifacts with the `ada` CLI](./tutorials/cli/README.md) — turn a `docker-compose.yml` into an `app.bicep`, comparing the `compose`, `llm`, and `skill` strategies and the critic loop.
-* [Governance](./tutorials/governance/README.md) — author `AuthorizationPolicy` (native and OPA-delegated) for the `ent`/`ent-ai` portfolios.
+* [Service Policies](./tutorials/service-policies/README.md) — author `AuthorizationPolicy` (native and OPA-delegated) for the `ent`/`ent-ai` portfolios.
 * [Service mesh](./tutorials/service-mesh/README.md) — enroll the app namespace in Istio and verify mesh traffic.
 
 ## Adaptive Apps MicroHack
@@ -128,6 +124,7 @@ In short: this repository is the **product**, and the MicroHack is the **hands-o
 
 ## Topics
 
+* [Adaptive AI Components](./docs/adaptive-ai/overview.md)
 * [Agent Guardrails](./docs/agents/guard-rail.md)
 * [Authentication](./docs/authentication/README.md)
 * [Data Sync](./docs/data-sync/README.md)
