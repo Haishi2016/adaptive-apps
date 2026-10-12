@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="780" viewBox="0 0 1200 780" role="img" aria-labelledby="title description">
+  <title id="title">Adaptive Apps conceptual architecture</title>
+  <desc id="description">Application code and a Radius application model define ingress, service, and database resources once. The Radius control plane maps those resources through environment-specific recipes to Azure, AKS everywhere, and Arc-enabled Kubernetes implementations.</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#17253d" flood-opacity="0.14" />
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#52677d" />
+    </marker>
+    <style>
+      .heading { font: 700 27px "Segoe UI", Arial, sans-serif; fill: #17253d; }
+      .section { font: 700 19px "Segoe UI", Arial, sans-serif; fill: #ffffff; }
+      .label { font: 600 17px "Segoe UI", Arial, sans-serif; fill: #17253d; }
+      .body { font: 15px "Segoe UI", Arial, sans-serif; fill: #34495e; }
+      .small { font: 14px "Segoe UI", Arial, sans-serif; fill: #52677d; }
+      .chip { font: 600 14px "Segoe UI", Arial, sans-serif; fill: #183b56; }
+      .inverseSmall { font: 14px "Segoe UI", Arial, sans-serif; fill: #ffffff; }
+      .arrow { fill: none; stroke: #52677d; stroke-width: 2.5; marker-end: url(#arrow); }
+      .card { filter: url(#shadow); }
+    </style>
+  </defs>
+
+  <rect width="1200" height="780" fill="#f7f9fc" />
+  <text x="600" y="42" text-anchor="middle" class="heading">One application model, multiple target environments</text>
+
+  <g class="card">
+    <rect x="175" y="70" width="650" height="190" rx="12" fill="#ffffff" stroke="#2970b8" stroke-width="2" />
+    <path d="M187 70 H813 A12 12 0 0 1 825 82 V111 H175 V82 A12 12 0 0 1 187 70 Z" fill="#2970b8" />
+    <text x="500" y="98" text-anchor="middle" class="section">Adaptive Application</text>
+
+    <rect x="205" y="130" width="590" height="38" rx="7" fill="#e8f3fc" stroke="#6aa6d8" />
+    <text x="500" y="155" text-anchor="middle" class="label">Application code</text>
+
+    <text x="500" y="194" text-anchor="middle" class="small">Radius application model</text>
+    <rect x="205" y="207" width="150" height="34" rx="6" fill="#d9f1ee" />
+    <text x="280" y="229" text-anchor="middle" class="chip">Ingress</text>
+    <path d="M355 224 H397" class="arrow" />
+    <rect x="407" y="207" width="150" height="34" rx="6" fill="#d9f1ee" />
+    <text x="482" y="229" text-anchor="middle" class="chip">Service</text>
+    <path d="M557 224 H599" class="arrow" />
+    <rect x="609" y="207" width="156" height="34" rx="6" fill="#d9f1ee" />
+    <text x="687" y="229" text-anchor="middle" class="chip">Database</text>
+  </g>
+
+  <g class="card">
+    <rect x="855" y="70" width="220" height="190" rx="12" fill="#fff7e8" stroke="#d69224" stroke-width="2" />
+    <text x="965" y="108" text-anchor="middle" class="label">AI-powered tooling</text>
+    <line x1="885" y1="125" x2="1045" y2="125" stroke="#e2b15e" />
+    <text x="965" y="154" text-anchor="middle" class="body">Author the model</text>
+    <text x="965" y="184" text-anchor="middle" class="body">Modernize code</text>
+    <text x="965" y="214" text-anchor="middle" class="body">Deploy consistently</text>
+    <path d="M855 214 H825" class="arrow" />
+  </g>
+
+  <path d="M500 260 V294" class="arrow" />
+
+  <g class="card">
+    <rect x="125" y="304" width="950" height="82" rx="12" fill="#7356a8" />
+    <text x="600" y="337" text-anchor="middle" class="section">Radius Control Plane</text>
+    <text x="600" y="365" text-anchor="middle" class="inverseSmall">Select a target environment and resolve each portable resource through its recipe</text>
+  </g>
+
+  <path d="M600 386 V410" fill="none" stroke="#52677d" stroke-width="2.5" />
+  <path d="M600 410 H220 V435" class="arrow" />
+  <path d="M600 410 V435" class="arrow" />
+  <path d="M600 410 H980 V435" class="arrow" />
+
+  <g class="card">
+    <rect x="40" y="445" width="350" height="290" rx="12" fill="#ffffff" stroke="#4b8dc5" stroke-width="2" />
+    <path d="M52 445 H378 A12 12 0 0 1 390 457 V488 H40 V457 A12 12 0 0 1 52 445 Z" fill="#2970b8" />
+    <text x="215" y="474" text-anchor="middle" class="section">Azure</text>
+    <text x="215" y="516" text-anchor="middle" class="small">Radius environment / capability portfolio</text>
+
+    <rect x="62" y="540" width="120" height="42" rx="6" fill="#e9f6ef" />
+    <text x="122" y="557" text-anchor="middle" class="chip">Ingress</text>
+    <text x="122" y="574" text-anchor="middle" class="small">recipe</text>
+    <path d="M182 561 H208" class="arrow" />
+    <rect x="218" y="540" width="148" height="42" rx="6" fill="#e7f1fb" />
+    <text x="292" y="566" text-anchor="middle" class="body">Azure Front Door</text>
+
+    <rect x="62" y="596" width="120" height="42" rx="6" fill="#e9f6ef" />
+    <text x="122" y="613" text-anchor="middle" class="chip">Service</text>
+    <text x="122" y="630" text-anchor="middle" class="small">recipe</text>
+    <path d="M182 617 H208" class="arrow" />
+    <rect x="218" y="596" width="148" height="42" rx="6" fill="#e7f1fb" />
+    <text x="292" y="622" text-anchor="middle" class="body">AKS pod</text>
+
+    <rect x="62" y="652" width="120" height="42" rx="6" fill="#e9f6ef" />
+    <text x="122" y="669" text-anchor="middle" class="chip">Database</text>
+    <text x="122" y="686" text-anchor="middle" class="small">recipe</text>
+    <path d="M182 673 H208" class="arrow" />
+    <rect x="218" y="652" width="148" height="42" rx="6" fill="#e7f1fb" />
+    <text x="292" y="678" text-anchor="middle" class="body">Cosmos DB</text>
+  </g>
+
+  <g class="card">
+    <rect x="425" y="445" width="350" height="290" rx="12" fill="#ffffff" stroke="#57a879" stroke-width="2" />
+    <path d="M437 445 H763 A12 12 0 0 1 775 457 V488 H425 V457 A12 12 0 0 1 437 445 Z" fill="#3d8f65" />
+    <text x="600" y="474" text-anchor="middle" class="section">AKS everywhere</text>
+    <text x="600" y="516" text-anchor="middle" class="small">Radius environment / capability portfolio</text>
+
+    <rect x="447" y="540" width="120" height="42" rx="6" fill="#e9f6ef" />
+    <text x="507" y="557" text-anchor="middle" class="chip">Ingress</text>
+    <text x="507" y="574" text-anchor="middle" class="small">recipe</text>
+    <path d="M567 561 H593" class="arrow" />
+    <rect x="603" y="540" width="148" height="42" rx="6" fill="#e9f6ef" />
+    <text x="677" y="566" text-anchor="middle" class="body">Gateway API</text>
+
+    <rect x="447" y="596" width="120" height="42" rx="6" fill="#e9f6ef" />
+    <text x="507" y="613" text-anchor="middle" class="chip">Service</text>
+    <text x="507" y="630" text-anchor="middle" class="small">recipe</text>
+    <path d="M567 617 H593" class="arrow" />
+    <rect x="603" y="596" width="148" height="42" rx="6" fill="#e9f6ef" />
+    <text x="677" y="622" text-anchor="middle" class="body">Kubernetes pod</text>
+
+    <rect x="447" y="652" width="120" height="42" rx="6" fill="#e9f6ef" />
+    <text x="507" y="669" text-anchor="middle" class="chip">Database</text>
+    <text x="507" y="686" text-anchor="middle" class="small">recipe</text>
+    <path d="M567 673 H593" class="arrow" />
+    <rect x="603" y="652" width="148" height="42" rx="6" fill="#e9f6ef" />
+    <text x="677" y="678" text-anchor="middle" class="body">PostgreSQL</text>
+  </g>
+
+  <g class="card">
+    <rect x="810" y="445" width="350" height="290" rx="12" fill="#ffffff" stroke="#d7833d" stroke-width="2" />
+    <path d="M822 445 H1148 A12 12 0 0 1 1160 457 V488 H810 V457 A12 12 0 0 1 822 445 Z" fill="#c46f2d" />
+    <text x="985" y="474" text-anchor="middle" class="section">Arc-enabled Kubernetes</text>
+    <text x="985" y="516" text-anchor="middle" class="small">Radius environment / capability portfolio</text>
+
+    <rect x="832" y="540" width="120" height="42" rx="6" fill="#e9f6ef" />
+    <text x="892" y="557" text-anchor="middle" class="chip">Ingress</text>
+    <text x="892" y="574" text-anchor="middle" class="small">recipe</text>
+    <path d="M952 561 H978" class="arrow" />
+    <rect x="988" y="540" width="148" height="42" rx="6" fill="#fff1e5" />
+    <text x="1062" y="566" text-anchor="middle" class="body">Gateway API</text>
+
+    <rect x="832" y="596" width="120" height="42" rx="6" fill="#e9f6ef" />
+    <text x="892" y="613" text-anchor="middle" class="chip">Service</text>
+    <text x="892" y="630" text-anchor="middle" class="small">recipe</text>
+    <path d="M952 617 H978" class="arrow" />
+    <rect x="988" y="596" width="148" height="42" rx="6" fill="#fff1e5" />
+    <text x="1062" y="622" text-anchor="middle" class="body">Kubernetes pod</text>
+
+    <rect x="832" y="652" width="120" height="42" rx="6" fill="#e9f6ef" />
+    <text x="892" y="669" text-anchor="middle" class="chip">Database</text>
+    <text x="892" y="686" text-anchor="middle" class="small">recipe</text>
+    <path d="M952 673 H978" class="arrow" />
+    <rect x="988" y="652" width="148" height="42" rx="6" fill="#fff1e5" />
+    <text x="1062" y="678" text-anchor="middle" class="body">PostgreSQL</text>
+  </g>
+</svg>
