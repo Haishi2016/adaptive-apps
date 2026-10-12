@@ -27,9 +27,6 @@ Adaptive Apps is comprised of four layers: application model, (optional) program
 <p align="center">
     <img src="./docs/images/adaptive-apps-architecture.svg" width="90%" alt="An ingress, service, and database defined in one Radius application model are mapped through environment-specific recipes to Azure, AKS everywhere, and Arc-enabled Kubernetes resources." />
 </p>
-<p align="center">
-    <em>Conceptual deployment flow based on the <a href="https://learn.microsoft.com/azure/architecture/solution-ideas/articles/adaptive-apps">Adaptive Apps solution in the Azure Architecture Center</a>.</em>
-</p>
 
 The architecture is described in additional detail on Microsoft Learn at [Build portable applications with adaptive apps](https://learn.microsoft.com/azure/architecture/solution-ideas/articles/adaptive-apps).
 
