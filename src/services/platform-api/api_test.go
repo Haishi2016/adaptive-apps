@@ -82,11 +82,11 @@ func newFixture(t *testing.T) fixture {
 	s := native("ConfigMap", "configmaps", "snapshot", nil, nil)
 	s.SetUID("snapshot-uid")
 	s.SetLabels(map[string]string{"adaptive.jplck.io/resource": "agent-release", "adaptive.jplck.io/agent": "demo"})
-	s.SetAnnotations(map[string]string{"radius.resource.id": "/radius/agentReleases/demo-v1"})
+	s.SetAnnotations(map[string]string{"radius.resource.id": "/radius/agents/demo"})
 	s.Object["immutable"] = true
 	s.SetCreationTimestamp(metav1.NewTime(time.Unix(100, 0)))
 	capture(s, map[string]any{
-		"radiusResourceId": "/radius/agentReleases/demo-v1",
+		"radiusResourceId": "/radius/agents/demo",
 		"binding":          map[string]any{"identity": map[string]any{"ownerUid": "agent-uid"}},
 		"agentName":        "demo", "agentUid": "agent-uid", "version": "v1", "workload": "demo-v1", "claim": "state-v1", "gateway": "agent-ingress",
 		"endpoint":   "https://adaptive.local/agents/demo/versions/v1",

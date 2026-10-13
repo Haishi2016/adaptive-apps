@@ -1,8 +1,8 @@
 {
-  "recipeArchive": "http://agent-artifacts.radius-system.svc.cluster.local:8080/REPLACE_WITH_ARCHIVE_SHA256/recipes.tgz",
-  "recipeRegistry": "agent-recipe-registry.radius-system.svc.cluster.local:5000/recipes",
-  "imageRegistry": "adaptive.local/adaptive",
-  "imageTag": "dev",
+  "recipeArchive": "https://github.com/Haishi2016/adaptive-apps/releases/download/recipes-REPLACE_WITH_COMMIT_SHA/recipes.tgz",
+  "recipeRegistry": "ghcr.io/haishi2016/adaptive-apps/recipes",
+  "imageRegistry": "ghcr.io/haishi2016/adaptive-apps",
+  "imageTag": "latest",
   "models": [{
     "name": "local-chat",
     "properties": {

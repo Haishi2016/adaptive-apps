@@ -403,6 +403,10 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
         println!();
     }
 
+    if args.chart_root.is_some() {
+        build_local_chart_dependencies(Path::new(&resolution.chart_ref), args.dry_run)?;
+    }
+
     ui::command(&render_command(&helm));
 
     if args.dry_run {
@@ -639,6 +643,27 @@ fn resolve_local(chart_root: &Path, args: &BootstrapArgs) -> Result<Resolution> 
 fn require_file(path: &Path, what: &str) -> Result<()> {
     if !path.is_file() {
         return Err(anyhow!("missing {what}: {}", path.display()));
+    }
+    Ok(())
+}
+
+fn build_local_chart_dependencies(chart: &Path, dry_run: bool) -> Result<()> {
+    let mut command = Command::new("helm");
+    command
+        .arg("dependency")
+        .arg("build")
+        .arg(chart)
+        .arg("--skip-refresh");
+    ui::command(&render_command(&command));
+    if dry_run {
+        ui::dry_run("not building local chart dependencies");
+        return Ok(());
+    }
+    let status = command
+        .status()
+        .with_context(|| "failed to spawn helm dependency build")?;
+    if !status.success() {
+        bail!("helm dependency build exited with status {status}");
     }
     Ok(())
 }

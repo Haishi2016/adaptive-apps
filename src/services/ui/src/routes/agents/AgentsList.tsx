@@ -14,6 +14,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Agent, listAgents, listAgentVersions } from '../../api/client';
+import { embeddedMode } from '../../auth/config';
 
 function ReleaseInventory({ name }: { name: string }): JSX.Element {
   const query = useQuery({ queryKey: ['agent-versions', name], queryFn: () => listAgentVersions(name), refetchInterval: 10_000 });
@@ -100,7 +101,7 @@ export function AgentsList(): JSX.Element {
           {({ item, rowId }) => (
             <DataGridRow<Agent>
               key={rowId}
-              onClick={() => navigate(`/agents/${encodeURIComponent(item.name)}/${item.type}`)}
+              onClick={() => navigate(`${embeddedMode() ? '' : '/agents'}/${encodeURIComponent(item.name)}/${item.type}`)}
               className="clickable-row"
             >
               {({ renderCell }) => <DataGridCell>{renderCell(item)}</DataGridCell>}

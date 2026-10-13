@@ -22,3 +22,6 @@ resource identity 'Radius.Resources/agentIdentities@2025-08-01-preview' = {
   }
 }
 output identityRef string = identity.properties.identityRef
+output identity object = identity.properties.identity
+output secretRef string = identity.properties.secretRef
+output serviceAccountName string = identity.properties.serviceAccountName

@@ -422,6 +422,7 @@ pub fn prepare(
     }
     let admin = secret(&private, "keycloak-admin-password")?;
     let login = secret(&private, "keycloak-config-client-secret")?;
+    let trading = secret(&private, "adaptive-trading-client-secret")?;
     let gateway = secret(&private, "model-gateway-master-key")?;
     let database = secret(&private, "keycloak-db-password")?;
     let cert = private.join("ui-tls.crt");
@@ -525,6 +526,7 @@ pub fn prepare(
         "credentials.parameters.json",
         json!({
             "keycloakAdminPassword": admin, "keycloakConfigClientSecret": login,
+            "adaptiveTradingClientSecret": trading,
             "graphClientCertificate": graph_certificate, "graphClientCertificatePassword": graph_password
         }),
     )?;
@@ -539,7 +541,10 @@ pub fn prepare(
             "recipeConfig": executor,
             "loginRecipeConfig": {
                 "env": {"KEYCLOAK_URL": keycloak, "KEYCLOAK_REALM": "adaptive", "KEYCLOAK_CLIENT_ID": "adaptive-login-config"},
-                "envSecrets": {"KEYCLOAK_CLIENT_SECRET": {"source": store, "key": "keycloak-config-client-secret"}}
+                "envSecrets": {
+                    "KEYCLOAK_CLIENT_SECRET": {"source": store, "key": "keycloak-config-client-secret"},
+                    "TF_VAR_adaptive_trading_client_secret": {"source": store, "key": "adaptive-trading-client-secret"}
+                }
             },
             "platform": {
                 "adapterImage": images["dac-adapter"], "sidecarImage": SIDECAR,
@@ -556,7 +561,12 @@ pub fn prepare(
         json!({
             "environment": environment, "loginEnvironment": login_environment,
             "keycloakPublicUrl": "https://localhost:8444",
-            "login": {"uiOrigin": "https://localhost:8443", "platformRoles": ["agent.invoke"], "connected": false},
+            "login": {
+                "uiOrigin": "https://localhost:8443",
+                "tradingOrigin": "http://localhost:3000",
+                "platformRoles": ["agent.invoke"],
+                "connected": false
+            },
             "models": config.models
         }),
     )?;
@@ -591,7 +601,7 @@ pub fn prepare(
         &json!({
             "apiVersion": "v1", "kind": "List", "items": [
                 {"apiVersion":"v1","kind":"Secret","metadata":{"name":"adaptive-keycloak-admin","namespace":namespace},"stringData":{"username":"admin","password":admin}},
-                {"apiVersion":"v1","kind":"Secret","metadata":{"name":"adaptive-keycloak-login-config","namespace":namespace},"stringData":{"client-secret":login}},
+                {"apiVersion":"v1","kind":"Secret","metadata":{"name":"adaptive-keycloak-login-config","namespace":namespace},"stringData":{"client-secret":login,"adaptive-trading-client-secret":trading}},
                 {"apiVersion":"v1","kind":"Secret","metadata":{"name":"model-gateway-auth","namespace":namespace},"stringData":{"master-key":gateway,"credential":format!("Bearer {gateway}")}},
                 {"apiVersion":"v1","kind":"Secret","type":"kubernetes.io/tls","metadata":{"name":"adaptive-ui-tls","namespace":namespace},"stringData":{"tls.crt":fs::read_to_string(&cert)?,"tls.key":fs::read_to_string(&key)?}}
             ]
@@ -693,10 +703,16 @@ mod tests {
         .unwrap();
         let prepared = prepare(&config, &root, "demo-test", "demo", "adaptive").unwrap();
         let before = fs::read(prepared.private.join("secrets.json")).unwrap();
+        let trading_secret =
+            fs::read(prepared.private.join("adaptive-trading-client-secret")).unwrap();
         prepare(&config, &root, "demo-test", "demo", "adaptive").unwrap();
         assert_eq!(
             before,
             fs::read(prepared.private.join("secrets.json")).unwrap()
+        );
+        assert_eq!(
+            trading_secret,
+            fs::read(prepared.private.join("adaptive-trading-client-secret")).unwrap()
         );
         let environment: Value = serde_json::from_slice(
             &fs::read(prepared.private.join("environment.parameters.json")).unwrap(),
@@ -707,6 +723,11 @@ mod tests {
             "http://demo-keycloak.demo-test.svc.cluster.local:8080"
         );
         assert_eq!(environment["parameters"]["connected"]["value"], false);
+        assert_eq!(
+            environment["parameters"]["loginRecipeConfig"]["value"]["envSecrets"]
+                ["TF_VAR_adaptive_trading_client_secret"]["key"],
+            "adaptive-trading-client-secret"
+        );
         assert!(prepare(&config, &root, "other", "demo", "adaptive").is_err());
         #[cfg(unix)]
         {

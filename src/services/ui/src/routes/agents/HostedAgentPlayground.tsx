@@ -12,8 +12,10 @@ import { AgentGuardrails } from '../guardrails/Guardrails';
 import { useConnectivityFaultStore } from '../../state/connectivityFault';
 import { useAgentConversation } from './useAgentConversation';
 import { AgentReleases } from './AgentReleases';
+import { embeddedMode } from '../../auth/config';
 
 export function HostedAgentPlayground(): JSX.Element {
+  const embedded = embeddedMode();
   const { name = '' } = useParams();
   const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
@@ -28,7 +30,7 @@ export function HostedAgentPlayground(): JSX.Element {
     <section className="page playground-page">
       <div className="playground-titlebar">
         <div className="playground-titlebar-group">
-          <Button appearance="transparent" onClick={() => navigate('/agents')}>
+          <Button appearance="transparent" onClick={() => navigate(embedded ? '/' : '/agents')}>
             ← Agents
           </Button>
           <Text as="h1" size={500} weight="semibold">
@@ -81,8 +83,8 @@ export function HostedAgentPlayground(): JSX.Element {
           <TabList selectedValue={tab} onTabSelect={(_, data) => setTab(data.value)}>
             <Tab value="chat">Chat</Tab>
             <Tab value="monitor">Monitor</Tab>
-            <Tab value="guardrails">Guardrails</Tab>
-            <Tab value="a2a">A2A</Tab>
+            {!embedded ? <Tab value="guardrails">Guardrails</Tab> : null}
+            {!embedded ? <Tab value="a2a">A2A</Tab> : null}
           </TabList>
           <div hidden={tab !== 'chat'} className="tab-pane">
             <ChatPanel
@@ -98,12 +100,12 @@ export function HostedAgentPlayground(): JSX.Element {
           <div hidden={tab !== 'monitor'} className="tab-pane">
             <MonitorPanel name={name} visible={tab === 'monitor'} />
           </div>
-          <div hidden={tab !== 'guardrails'} className="tab-pane">
+          {!embedded ? <div hidden={tab !== 'guardrails'} className="tab-pane">
             <AgentGuardrails name={name} version={agent?.version ?? undefined} visible={tab === 'guardrails'} />
-          </div>
-          <div hidden={tab !== 'a2a'} className="tab-pane">
+          </div> : null}
+          {!embedded ? <div hidden={tab !== 'a2a'} className="tab-pane">
             <A2APanel name={name} />
-          </div>
+          </div> : null}
         </main>
         <aside className="playground-info">
           <AgentInfoPanel

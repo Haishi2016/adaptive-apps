@@ -266,7 +266,7 @@ spec:
                 valueType: StringArray
                 values: ["agent.invoke"]
               - name: azp
-                values: ["adaptive-ui"]
+                values: ["adaptive-ui", "adaptive-trading"]
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway

@@ -6,7 +6,9 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const target = env.AGENT_INGRESS_URL ?? 'http://127.0.0.1:8091';
+  const embedded = env.VITE_EMBEDDED === 'true';
   return {
+    base: embedded ? '/agents/' : '/',
     plugins: [react()],
     server: {
       proxy: {

@@ -4,6 +4,10 @@ export function authEnabled(): boolean {
   return import.meta.env.VITE_AUTH_ENABLED === 'true';
 }
 
+export function embeddedMode(): boolean {
+  return import.meta.env.VITE_EMBEDDED === 'true';
+}
+
 export function oidcSettings(): UserManagerSettings {
   const authority = import.meta.env.VITE_KEYCLOAK_AUTHORITY?.trim().replace(/\/+$/, '');
   if (!authority) {

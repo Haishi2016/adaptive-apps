@@ -6,7 +6,8 @@ chart; applications do not deploy another Keycloak.
 
 The optional [native agent capability](../docs/agents/native-radius.md) uses
 `agents-env.bicep`, `agent-services.bicep`, `agents.bicep`,
-`agent-identity.bicep` and `agent-release.bicep`. These deploy native resources,
+and `agent-identity.bicep`. Agent declarations contain append-only immutable
+releases and explicit promotion state. These deploy native resources,
 not an agent operator or lifecycle CRDs. The trading application remains unchanged.
 `agent-models.bicep` provides separately owned KAITO/vLLM, Foundry-model and
 priority-based hybrid declarations using actual primary model outputs.

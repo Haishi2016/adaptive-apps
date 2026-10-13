@@ -4,6 +4,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
+import { embeddedMode } from './auth/config';
 import './styles.css';
 import { adaptiveTheme } from './theme';
 
@@ -28,7 +29,7 @@ void enableMocking().then(() => {
     <React.StrictMode>
       <FluentProvider theme={adaptiveTheme}>
         <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
+          <BrowserRouter basename={embeddedMode() ? '/agents' : undefined}>
             <App />
           </BrowserRouter>
         </QueryClientProvider>

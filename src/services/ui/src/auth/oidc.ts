@@ -1,5 +1,5 @@
 import { UserManager, WebStorageStateStore, type User } from 'oidc-client-ts';
-import { authEnabled, oidcSettings } from './config';
+import { authEnabled, embeddedMode, oidcSettings } from './config';
 
 export type AuthUser = User['profile'];
 
@@ -77,6 +77,11 @@ export async function accessToken(): Promise<string | undefined> {
 }
 
 export async function authenticatedFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (embeddedMode()) {
+    const headers = new Headers(init?.headers);
+    headers.delete('Authorization');
+    return fetch(url, { ...init, headers, credentials: 'same-origin' });
+  }
   const token = authEnabled()
     ? await accessToken()
     : localStorage.getItem('adaptive.authToken') ?? import.meta.env.VITE_AUTH_TOKEN;

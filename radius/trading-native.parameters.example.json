@@ -1,0 +1,18 @@
+{
+  "parameters": {
+    "authPassword": { "value": "REPLACE_IN_PRIVATE_COPY" },
+    "oidcClientId": { "value": "adaptive-trading" },
+    "oidcClientSecret": { "value": "REPLACE_IN_PRIVATE_COPY" },
+    "appBaseUrl": { "value": "http://localhost:3000" },
+    "oidcIssuer": { "value": "https://localhost:8444/realms/adaptive" },
+    "oidcAuthEndpoint": { "value": "http://min-ai-keycloak.min-ai.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/auth" },
+    "oidcBrowserAuthEndpoint": { "value": "https://localhost:8444/realms/adaptive/protocol/openid-connect/auth" },
+    "oidcTokenEndpoint": { "value": "http://min-ai-keycloak.min-ai.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/token" },
+    "oidcUserInfoEndpoint": { "value": "http://min-ai-keycloak.min-ai.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/userinfo" },
+    "enableNativeAgents": { "value": true },
+    "nativeAgentNamespace": { "value": "min-ai" },
+    "nativeAgentGatewayUrl": { "value": "http://agent-ingress.min-ai.svc.cluster.local:8080" },
+    "nativeUiImage": { "value": "adaptive.local/adaptive/ui-embedded:dev" },
+    "enableIstioInjection": { "value": false }
+  }
+}

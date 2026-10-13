@@ -42,6 +42,18 @@ param imageRegistry string = 'ghcr.io/microsoft/adaptive-apps'
 @description('Container image tag for all three application services.')
 param imageTag string = 'latest'
 
+@description('Enable the native-agent pages and authenticated gateway proxy under /agents. Disabled by default.')
+param enableNativeAgents bool = false
+
+@description('Internal native agent gateway base URL. Required when enableNativeAgents is true.')
+param nativeAgentGatewayUrl string = ''
+
+@description('Embedded native UI image. Defaults to the ui-embedded image using the trading registry and tag.')
+param nativeUiImage string = ''
+
+@description('Namespace owning the separately deployed native agent environment. Informational; this template never takes ownership of it.')
+param nativeAgentNamespace string = 'adaptive'
+
 @description('Username for the local (password-based) frontend login.')
 param authUsername string = 'admin'
 
@@ -175,6 +187,7 @@ var effectiveOidcUserInfoEndpoint = oidcUserInfoEndpoint != ''
 var isLocalAi = aiProvider == 'local'
 var hasAi = aiProvider != ''
 var guardrailsActive = enableAgentGuardrails && hasAi
+var effectiveNativeUiImage = nativeUiImage != '' ? nativeUiImage : '${imageRegistry}/ui-embedded:${imageTag}'
 
 // ---------------------------------------------------------------------------
 // Agent guardrails — deterministic coordinates.
@@ -544,8 +557,12 @@ resource frontend 'Applications.Core/containers@2023-10-01-preview' = {
         AUTH_USERNAME:  { value: authUsername }
         AUTH_PASSWORD:  { value: authPassword }
         SESSION_SECRET: { value: sessionSecret }
+        NATIVE_AGENT_URL: { value: enableNativeAgents ? nativeAgentGatewayUrl : '' }
+        NATIVE_UI_URL: { value: enableNativeAgents ? 'http://native-agents-ui:8080' : '' }
+        NATIVE_AGENT_NAMESPACE: { value: enableNativeAgents ? nativeAgentNamespace : '' }
       }
     }
+
     extensions: kubernetesMetadataExtension
     connections: {
       backend:  { source: backend.id }
@@ -559,5 +576,24 @@ resource frontend 'Applications.Core/containers@2023-10-01-preview' = {
       mqtt:     { source: tradingMqtt.id }
       identity: { source: frontendIdentity.id }
     }
+  }
+}
+
+resource nativeAgentsUi 'Applications.Core/containers@2023-10-01-preview' = if (enableNativeAgents) {
+  name: 'native-agents-ui'
+  properties: {
+    application: tradingApp.id
+    container: {
+      image: effectiveNativeUiImage
+      ports: {
+        http: {
+          containerPort: 8080
+        }
+      }
+      env: {
+        POD_NAMESPACE: { value: nativeAgentNamespace }
+      }
+    }
+    extensions: kubernetesMetadataExtension
   }
 }

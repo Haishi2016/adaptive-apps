@@ -5,6 +5,8 @@ import { server } from '../mocks/server';
 import { renderWithProviders } from './testUtils';
 
 describe('App', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   it('shows only supported navigation and defaults unknown routes to Models', async () => {
     renderWithProviders(<App />, { route: '/evaluations/new' });
 
@@ -22,5 +24,19 @@ describe('App', () => {
     expect(await screen.findByText('Fault status unavailable')).toBeInTheDocument();
     expect(screen.queryByText('No outage injected')).not.toBeInTheDocument();
     unmount();
+  });
+
+  it('uses the trading shell in embedded mode without independent controls', async () => {
+    vi.stubEnv('VITE_EMBEDDED', 'true');
+    renderWithProviders(<App />);
+
+    expect(await screen.findByText('Trading Agents')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Back to Trading/ })).toHaveAttribute('href', '/');
+    const links = within(screen.getByRole('navigation', { name: 'Primary' })).getAllByRole('link');
+    expect(links.map((link) => link.textContent)).toEqual(['Agents']);
+    expect(screen.queryByText('Models')).not.toBeInTheDocument();
+    expect(screen.queryByText('Tools')).not.toBeInTheDocument();
+    expect(screen.queryByText('Guardrails')).not.toBeInTheDocument();
+    expect(screen.queryByText(/outage/i)).not.toBeInTheDocument();
   });
 });

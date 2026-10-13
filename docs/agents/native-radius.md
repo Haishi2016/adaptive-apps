@@ -11,9 +11,8 @@ trading recipes remain independent of the native-agent environment.
 
 | Declaration | Native implementation | Retention |
 | --- | --- | --- |
-| `agents` | Logical ConfigMap: kind, identity binding and explicit active version | Retained |
+| `agents` | Logical ConfigMap plus append-only immutable release map; singleton StatefulSet, Service, HTTPRoute, SecurityPolicy, Lua header boundary and NetworkPolicy per release | Logical metadata, release captures and state PVCs retained; runtimes independently deletable |
 | `agentIdentities` | Keycloak client, optional Entra blueprint/principal/Agent ID, Secret, binding ConfigMap and ServiceAccount | Independent protected Terraform state |
-| `agentReleases` | Immutable ConfigMap capture; singleton StatefulSet, Service, HTTPRoute, SecurityPolicy, Lua header boundary and NetworkPolicy | Capture and state PVC retained; runtime independently deletable |
 | `aiModels` | Gateway configuration; KAITO/vLLM inference, existing inference Service, remote Foundry binding or virtual priority group | Weights/cache retained |
 | `agentGuardrails` | Immutable native policy ConfigMap | Retained; release captures exact content |
 | `keycloakLogins` | Existing-realm PKCE client and optional reviewed Entra federation | Separate administrator environment |
@@ -25,7 +24,8 @@ logical agents, retained identities and explicit releases, not either Helm
 release. Superseded native H2/Keycloak, collector and platform Terraform
 implementations have been removed.
 
-Native ValidatingAdmissionPolicies keep logical kind/ownership immutable,
+Native ValidatingAdmissionPolicies keep logical kind/ownership and the published
+release set append-only, require promotion in a later update,
 prevent a second runtime replica (including the scale subresource), reject
 cross-agent identity bindings and prohibit replacing published pod content.
 Native names derive from logical UID and explicit version. A second Radius
@@ -187,10 +187,9 @@ orchestration layer.
 | `agents-env.bicep` | Environment and recipe bindings |
 | `credentials.bicep` | Shared provisioning secret store |
 | `agent-services.bicep` | Explicit models and separately owned browser login |
-| `agents.bicep` | Logical agent and promotion intent; `recipes/agents/logical.bicep` |
+| `agents.bicep` | Logical agent, append-only releases and promotion intent; `recipes/agents/logical.bicep` |
 | `agent-identity.bicep` | Independently retained identity; `recipes/identity-{local,connected}` |
 | `agent-policy.bicep` | Immutable policy; `recipes/agent-guardrails/native-policy.bicep` |
-| `agent-release.bicep` | Explicit immutable release; `recipes/agents/release.bicep` |
 
 Bicep can compose declarations, including multiple separately owned Radius
 applications. Keeping these small entrypoints separate makes selective
@@ -202,9 +201,10 @@ credentials and platform resources owned by a disposable release.
    `rad resource-type create --from-file radius/resource-types/types.yaml`.
    Generate its existing extension:
    `rad bicep publish-extension --from-file radius/resource-types/types.yaml --target radius/types.tgz`.
-2. Publish `agent-logical` at `0.4.0`, and `agent-release` and `agent-policy` at `0.3.0`,
+2. Publish `agent` at `0.5.0`, `agent-policy` at `0.3.0`,
    and `agent-model` at `0.4.0`, using `rad bicep publish`.
-   Their files are `recipes/agents/{logical,release}.bicep`,
+   Their files are `recipes/agents/logical.bicep` (which includes the internal
+   `release.bicep` module),
    `recipes/ai-agent/native-gateway.bicep` and
    `recipes/agent-guardrails/native-policy.bicep`. Use the loopback registry
    address for publication, but the cluster-local address in environment
@@ -221,7 +221,7 @@ credentials and platform resources owned by a disposable release.
    parameters, portfolio values and native Secret declarations. Existing
    credentials are reused; mismatching generated inputs fail for explicit review.
    Secrets are `adaptive-keycloak-admin` (`username`, `password`), `adaptive-keycloak-login-config`
-   (`client-secret`), `model-gateway-auth` (`master-key` and matching Envoy
+   (`client-secret`, `adaptive-trading-client-secret`), `model-gateway-auth` (`master-key` and matching Envoy
    `credential`) and the UI TLS Secret. Do not regenerate existing credentials.
    Give the Radius executor native workload permissions and narrowly scoped
    access to these provisioning secrets. Connected Graph provisioning uses
@@ -248,15 +248,18 @@ credentials and platform resources owned by a disposable release.
    `adaptive-apps` 0.2.0 with the `agent-platform` 0.3.0 dependency.
    `ada oidc demo-users` optionally creates `alice`/`bob` with only the API
    client invocation role. Native UI clients remain Terraform-owned; the
-   existing confidential trading client is separate.
-7. Deploy `radius/agents.bicep`, initially with `activeVersion=''`. Deploy
+   confidential `adaptive-trading` BFF client is added in the same realm while
+   the existing public `adaptive-ui` PKCE client remains unchanged.
+7. Deploy `radius/agents.bicep`, initially with `activeVersion=''` and
+   `releases={}`. Deploy
    `radius/agent-identity.bicep` independently, then update the logical
    declaration's `identityRef` to its returned retained binding.
-8. Deploy `radius/agent-release.bicep` with the exact logical name, opaque
-   version, immutable image digest and native definition. Wait for the native
-   readiness gates and verify direct authenticated invocation. Explicitly
-   update `activeVersion` using `radius/agents.bicep` only after qualification.
-   Publish subsequent versions as separate applications/resources.
+8. Append a version-keyed release to `radius/agents.bicep` with its immutable
+   image digest, identity binding and native definition, leaving
+   `activeVersion` unchanged. Wait for the native readiness gates and verify
+   direct authenticated invocation. In a later deployment, explicitly update
+   `activeVersion`. Append subsequent versions to the same Radius agent;
+   removing or changing a published release is rejected.
    Publish a new immutable chart/recipe version for changes rather than
    replacing an already published archive.
 
@@ -276,6 +279,16 @@ TLS Secret and `environmentJson` (`name`, optional `description`,
 API, Responses and model traffic retain their separate native ingress boundaries.
 Grant approved human users the `adaptive-platform-api` client role `agent.invoke`.
 Audience claims alone do not grant invocation.
+
+The optional trading integration deploys the same UI build in embedded mode as
+an independent `Applications.Core/containers` service. Vite uses base
+`/agents/`; the trading BFF serves it under the trading origin, performs the
+single confidential OIDC flow, keeps tokens server-side, refreshes them once
+under concurrency, and attaches the bearer only to exact read/invoke routes.
+It removes inbound Cookie/Authorization headers before proxying. Embedded mode
+has Agents, releases, prompt/hosted playground and Monitor only, plus **Back to
+Trading**; it does not expose independent login, Models, Tools, Guardrails or
+outage controls. Local trading-password users receive an explicit 403.
 
 Prompt definitions supply `runtimeImage`, `model`, `instructions` and optional
 captured built-in tool objects. Hosted definitions supply `image`, `model` and
@@ -634,9 +647,9 @@ invocation or a complete multi-release cloud lifecycle.
 
 `radius/recipes/foundry-release` is a stock Terraform recipe using pinned
 AzAPI 2.9.0 and the native data-plane type `Microsoft.Foundry/agents@v1`.
-`radius/foundry-env.bicep` binds it to the existing
-`Radius.Resources/agentReleases` type; `radius/foundry-agent.bicep` authors the
-logical metadata and first release. There is no operator, management emulator,
+`radius/foundry-env.bicep` binds it to `Radius.Resources/agents`;
+`radius/foundry-agent.bicep` authors one agent containing the first release.
+There is no operator, management emulator,
 image build or invocation proxy.
 
 Dispatch remains **prompt → native Foundry prompt agent** and
@@ -649,16 +662,13 @@ Secret/ServiceAccount references. Foundry manages the cloud blueprint and
 agent identity; the project identity pulls the image, and the native runtime
 identity receives required downstream permissions. `nativeIdentity` returns
 the actual provider client/principal and blueprint IDs, not edge identity
-substitutes. The logical recipe's explicit cloud mode omits the edge
-`radius.identity.id` annotation rather than referencing a nonexistent identity
-resource.
+substitutes.
 
 ### Initial-deployment ownership limitation
 
 AzAPI manages one **named agent**, not an independently owned resource per
 native version. Therefore this recipe is deliberately limited to one explicitly
-configured initial Radius release ID and canonical `<agent>-<release>` resource
-name per logical agent. An immutable Terraform capture rejects changed
+configured initial release entry per Radius agent. An immutable Terraform capture rejects changed
 definitions, bindings or target configuration; other release IDs are rejected
 before a provider operation. The native version must be `1`, and its concrete
 identifier is returned separately from the Radius release label.
@@ -671,8 +681,10 @@ fencing.
 
 Both capture and native agent use `prevent_destroy`: application deletion must
 fail rather than delete the agent, identity and retained versions. Cloud
-retirement, additional versions and promotion require a separately implemented
-and qualified lifecycle. The recipe's endpoint output is a native URL, not a
+retirement and additional versions require a separately implemented and
+qualified lifecycle. Promotion records the already published initial release
+in a later Radius update; it does not issue another provider write.
+The recipe's endpoint output is a native URL, not a
 readiness assertion; provider write success does not prove `active`, effective
 guardrails or successful invocation.
 
@@ -696,17 +708,15 @@ an Envoy compatibility route or silently rebuild the image.
 ### Source delivery and remaining live gate
 
 The environment requires an explicitly selected existing `projectEndpoint`,
-existing full `raiPolicyId`, `initialReleaseId`, published `logicalRecipe`,
-immutable `releaseRecipe` archive and native Azure `recipeConfig` credentials.
+existing full `raiPolicyId`, `initialReleaseId`, immutable `agentRecipe`
+archive and native Azure `recipeConfig` credentials.
 No project or registry is chosen or provisioned automatically. Use the existing
 Radius credential-store/workload-identity patterns; no browser bearer or Azure
 API key belongs in these parameters.
 
-Publish the updated logical Bicep recipe as `agent-logical:0.4.0` through the
-existing native artifact path; never overwrite its earlier immutable tag.
 Include `foundry-release` and its reviewed `.terraform.lock.hcl` in the immutable
 Terraform archive, excluding `.terraform`, test files and state. Point
-`releaseRecipe` to `<immutable-archive-url>//foundry-release`.
+`agentRecipe` to `<immutable-archive-url>//foundry-release`.
 Deliver the environment once, then the authored agent declaration:
 
 ```bash

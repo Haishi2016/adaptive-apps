@@ -10,20 +10,35 @@ This tutorial walks you through the step of deploying an Adaptive Apps portfolio
 * [helm](https://helm.sh/)
 * [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
 * [rad](https://docs.radapp.io/guides/tooling/rad-cli/howto-rad-cli/)
+* The integrated native-agent path additionally requires Terraform
+  1.15.7–1.15.x, Kubernetes 1.33+, persistent storage and enforced
+  NetworkPolicies.
 * For the trading sample's cloud variant, an optional provider key. Native
   Foundry models instead require reviewed gateway workload identity and scoped
   inference access; no Azure API key is used.
 
 
-## 1. Choose your portfolio
+## 1. Choose your sample and portfolio
 
-Pick a portfolio and export it. **Every subsequent step references `$PORTFOLIO`** — re-export it in any new terminal you open.
+Choose the standard trading sample or the same trading sample with the native
+agent pages enabled.
 
 ```bash
+# Standard trading sample:
+export SAMPLE=trading
 export PORTFOLIO=min          # or: core | ent | min-ai | core-ai | ent-ai
+
+# OR integrated trading + native agents:
+export SAMPLE=trading-native
+export PORTFOLIO=min-ai       # native local-model path requires an AI portfolio
+
 export RELEASE=$PORTFOLIO     # Helm release name; defaults to the portfolio
 export NAMESPACE=$PORTFOLIO   # Kubernetes namespace for the portfolio
+export PLATFORM=k3s           # or: k8s | aks | arc | azure-local
 ```
+
+Every subsequent step references these variables. Re-export them in each new
+terminal. The native-agent path works on local k3s; Arc is not required.
 
 If your target is AKS, define a few more environment variables:
 ```bash
@@ -53,13 +68,13 @@ export AKS_OIDC_ISSUER=$(az aks show \
 
 ## 2. Bring up the platform
 
-This section gets you from "empty cluster context" to "Radius is installed,
-the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
+This section gets you from an empty cluster context to an installed portfolio
+and Radius environment. Pick **one**:
 
 | Option | What it covers | When to use |
 | --- | --- | --- |
 | OPTION 1 — `ada` CLI | Helm install **+** Radius install **+** Keycloak OIDC client provisioning. On `--platform k3s` it also creates a local k3d cluster. | Recommended for all platforms. On k8s / AKS / Arc / Azure Local you prepare the cluster yourself first, then point `ada` at the existing `kubectl` context. |
-| OPTION 2 — Manual | Same steps, one shell command at a time | When you want to see what's happening, or to script just one of the sub-steps. |
+| OPTION 2 — Manual | Standard trading platform, one shell command at a time | When you want to inspect or script the standard trading setup. Use OPTION 1 for the integrated native-agent path. |
 
 ### 2.1 OPTION 1 — Use the `ada` CLI
 
@@ -77,11 +92,33 @@ the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
    | `arc` | no | passthrough — standard kubectl context |
    | `azure-local` | no | passthrough — standard kubectl context |
 
-3. Run:
+3. If you selected `SAMPLE=trading-native`, prepare its artifacts and retained
+   private inputs:
 
     ```bash
-    export PLATFORM=k3s   # or: k8s | aks | arc | azure-local
+    helm dependency build charts/adaptive-apps --skip-refresh
 
+    # Build/import images and publish recipes first:
+    # docs/agents/native-radius.md#local-artifact-and-executor-preparation
+    cp radius/agents.example.json agents.json
+    # Replace REPLACE_WITH_COMMIT_SHA with a commit published by
+    # .github/workflows/publish-recipes.yml.
+
+    ada init \
+      --agents-config agents.json \
+      --namespace "$NAMESPACE" \
+      --release "$RELEASE"
+    ```
+
+    The example local model requires a GPU. Complete
+    [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md), or configure
+    a reviewed remote model. There is no automatic CPU fallback.
+
+4. Bootstrap the selected sample.
+
+   For `SAMPLE=trading`:
+
+    ```bash
     ada bootstrap \
       --portfolio $PORTFOLIO \
       --platform $PLATFORM \
@@ -92,7 +129,22 @@ the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
       --keep-port-forward
     ```
 
-    If your are using AKS, you need to pass in three additional parameters:
+   For `SAMPLE=trading-native`:
+
+    ```bash
+    ada bootstrap \
+      --portfolio "$PORTFOLIO" \
+      --platform "$PLATFORM" \
+      --release "$RELEASE" \
+      --namespace "$NAMESPACE" \
+      --chart-root charts \
+      --with-radius \
+      --with agents \
+      --agents-config agents.json \
+      --demo-users
+    ```
+
+    If you are using AKS, pass three additional parameters:
     `--azure-subscription`, `--resource-group`, and `--aks-cluster`. `ada`
     uses the rg/cluster pair to discover the active Istio add-on revision
     and (with `--with-radius`) to federate the Radius service accounts.
@@ -130,112 +182,17 @@ the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
     `adaptive-apps` OIDC client, prints an `export OIDC_*` block, and (with
     `--keep-port-forward`) holds the port-forward open in the foreground.
 
-4. Copy the `export OIDC_*` lines into the terminal you'll use for step 3 and
-skip ahead to [3 Deploy the sample app](#3-deploy-the-sample-app).
+5. Continue to [3 Deploy the sample app](#3-deploy-the-sample-app).
 
-#### Native agent application choice
-
-For native prompt/hosted agents, use **`min-ai` plus `--with agents`** rather
-than a second platform installation. Prepare the same cluster/context above;
-connected Arc additionally follows [the signer/federation guide](../common/prepare-arc.md).
-Kubernetes 1.33+, enforced NetworkPolicies and persistent storage are required.
-The native k3d branch selects K3s v1.35.5, not k3d's older default.
-Use a fresh development cluster or explicitly reset an old standalone demo;
-the CLI refuses overlapping Helm owners. Do not delete unrelated workloads,
-cloud identities or reviewed provisioning credentials.
-
-Build this branch's CLI (`cd cli && cargo build --release`) until CLI 0.2.0 is
-published. Publish the immutable native recipes/archive and build/import
-images using [native artifact preparation](../../docs/agents/native-radius.md#local-artifact-and-executor-preparation).
-These are ordinary local delivery commands, not AI/CI requirements.
-The existing public `radius/agents.example.json` is the configuration template:
-replace its archive placeholder, select imported image tags or explicit digest
-references, and save it as `agents.json`. Build the UI with the documented
-exact HTTPS issuer; no browser client secret belongs in that image.
-Select explicit `models`: the example uses pinned Qwen3-0.6B on KAITO/vLLM.
-Prepare [GPU serving](../common/prepare-gpu-kaito.md) first, or select a Foundry
-model with [reviewed gateway workload identity](../../docs/agents/native-radius.md#models).
-There is no implicit CPU model or Azure API-key fallback.
-
-```bash
-export PORTFOLIO=min-ai RELEASE=min-ai NAMESPACE=min-ai
-helm dependency build charts/adaptive-apps --skip-refresh
-ada init --agents-config agents.json --namespace "$NAMESPACE" --release "$RELEASE"
-ada bootstrap --portfolio "$PORTFOLIO" --platform k8s \
-  --release "$RELEASE" --namespace "$NAMESPACE" --chart-root charts \
-  --with-radius --with agents --agents-config agents.json --demo-users
-```
-
-Select the actual platform, including `k3s` for CLI-created k3d. Native bootstrap
-prepares private inputs, installs stock Envoy before Radius and the optional
-portfolio resources, waits for shared PostgreSQL-backed Keycloak, deploys
-models/native login through Radius, and checks final workload rollouts.
-The trading environment remains separate. Native logical agents, retained
-identities and immutable releases are authored using the same
-[Radius application entrypoints](../../docs/agents/native-radius.md#authored-delivery-order);
-the CLI does not allocate releases or invent agent definitions.
-
-Project `.adaptive/private/` contains generated credentials, TLS, secure
-parameter files, portfolio values and `secrets.json`; `--state-dir` selects a
-different project directory. Files are mode 0600 and the directory mode 0700
-on Unix. Existing secrets/passwords are reused, not regenerated.
-`ada oidc demo-users --namespace "$NAMESPACE" --release "$RELEASE"` can repeat
-optional user setup. Passwords are in `private/demo-users.json`, not terminal
-output. Users get only the `adaptive-platform-api` **client role** `agent.invoke`.
-Use the password file belonging to the selected installation's `--state-dir`.
-Independent demo clusters have different credentials even when both use
-localhost ports 8443/8444; changing a port-forward does not synchronize users.
-After switching installations, use a fresh browser session to avoid cached
-tokens from the other realm. Do not reset passwords to resolve a state-directory
-or port-forward mismatch.
-Native UI login is public authorization-code/S256 PKCE in realm `adaptive`;
-browser federation, Kubernetes OIDC and Agent ID blueprints are distinct.
-
-For the manual equivalent, use that same `ada init` input preparation, then
-ordinary commands rather than a second generator:
-
-```bash
-kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f .adaptive/private/secrets.json
-helm upgrade --install adaptive-envoy oci://docker.io/envoyproxy/gateway-helm \
-  --version v1.9.2 -n envoy-gateway-system --create-namespace \
-  --set config.envoyGateway.extensionApis.enableLua=true --wait --timeout 10m
-helm upgrade --install "$RELEASE" charts/adaptive-apps -n "$NAMESPACE" \
-  -f "charts/adaptive-apps/profiles/$PORTFOLIO.yaml" \
-  -f .adaptive/private/portfolio.values.json
-rad environment create agents --group adaptive --kubernetes-namespace "$NAMESPACE"
-rad deploy radius/agents-env.bicep --group adaptive --environment agents \
-  --parameters @.adaptive/private/environment.parameters.json
-rad deploy radius/credentials.bicep --group adaptive --environment agents \
-  --parameters @.adaptive/private/credentials.parameters.json
-kubectl -n "$NAMESPACE" rollout status "deployment/$RELEASE-keycloak" --timeout=300s
-# Verify realm adaptive is responding before the login recipe executes.
-rad deploy radius/agent-services.bicep --group adaptive --environment agents \
-  --parameters @.adaptive/private/services.parameters.json
-kubectl -n "$NAMESPACE" rollout status deployment --timeout=15m
-ada oidc demo-users --namespace "$NAMESPACE" --release "$RELEASE"
-```
-
-Complete the existing Radius workspace/group/type registration and artifact
-prerequisites before those declarations. Add the ordinary AKS mesh overrides
-when applicable; rendering another portfolio does not establish its live gates.
-On a fresh cluster, install Envoy before Radius's artifact preparation so the
-Gateway API CRDs have one compatible v1.6.1 owner. Existing provider-owned
-incompatible CRDs require an explicit qualified upgrade, not forced adoption.
-The first Helm install must not wait on gateway configuration created by the
-subsequent Radius model declaration.
-
-Use [native browser access](../../docs/agents/native-radius.md#local-browser-access-and-users)
-to forward HTTPS ports 8443/8444 and trust the generated localhost certificate.
-Deleting a release retains identity/state/shared services. Full demo reset is
-an explicit, separately scoped operation, not normal application cleanup.
+   For the standard sample, copy the printed `export OIDC_*` lines into that
+   terminal. The integrated native path instead uses the retained
+   `adaptive-trading` client created by `ada init` and deployed by bootstrap.
 
 ### 2.2 OPTION 2 — Manual
 
-For the native-agent application, use the manual equivalent in
-[Native agent application choice](#native-agent-application-choice). The
-following steps are the trading application's confidential-client variant;
-both use the same portfolio Keycloak, not competing shared-service owners.
+The manual steps below install the standard trading path. For the integrated
+native-agent path, use OPTION 1 so `ada` can prepare retained credentials,
+immutable recipe inputs, Envoy and the native Radius environments in order.
 
 #### 2.2.1 Prepare the cluster
 
@@ -390,7 +347,7 @@ cd -
 > `$FRONTEND_CLIENT_ID` to `rad deploy radius/app.bicep` as parameters
 > wired to the bicep's workload-identity inputs.
 
-### 3.1 Pick an AI provider
+### 3.1 Configure the trading AI provider
 
 Pick how the sample app's AI agent reaches a model. The choice is
 **independent of the portfolio** — any portfolio can use either provider:
@@ -420,7 +377,44 @@ AI_PARAMS=(--parameters aiProvider=openai --parameters aiModelName=gpt-4o --para
 > for the per-portfolio matrix. The guardrails parameter is a no-op on
 > non-AI portfolios.
 
-Deploy:
+### 3.2 Publish a native agent (only for `SAMPLE=trading-native`)
+
+Skip this subsection for `SAMPLE=trading`.
+
+Create the logical agent and its independently retained identity:
+
+```bash
+export GROUP=adaptive
+export AGENT_ENV=agents
+
+rad deploy radius/agents.bicep \
+  --group "$GROUP" \
+  --environment "$AGENT_ENV" \
+  --parameters agentName=writer kind=prompt activeVersion= releases='{}'
+
+rad deploy radius/agent-identity.bicep \
+  --group "$GROUP" \
+  --environment "$AGENT_ENV" \
+  --parameters agentName=writer
+```
+
+Record the identity outputs. Add release `v1` to the same agent's `releases`
+map with that identity binding, `model: local-chat`, a pinned `runtimeImage`
+and prompt instructions. Redeploy with `activeVersion=''`.
+
+Verify the candidate:
+
+```bash
+kubectl -n "$NAMESPACE" get statefulset,pvc,httproute,securitypolicy
+```
+
+Invoke `/agents/writer/versions/v1/responses` from the agent playground. After
+that succeeds, redeploy the unchanged release map with `activeVersion=v1`.
+Publishing and promotion must be separate updates.
+
+### 3.3 Deploy the selected sample
+
+For `SAMPLE=trading`, deploy with the parameters prepared above:
 
 ```bash
 rad deploy radius/app.bicep \
@@ -442,11 +436,38 @@ rad deploy radius/app.bicep \
   "${AI_PARAMS[@]}"
 ```
 
+For `SAMPLE=trading-native`, start from the checked-in parameter template:
+
+```bash
+cp radius/trading-native.parameters.example.json \
+  .adaptive/private/trading-native.parameters.json
+```
+
+In the private copy:
+
+1. Set `authPassword`.
+2. Set `oidcClientSecret` to the contents of
+   `.adaptive/private/adaptive-trading-client-secret`.
+3. If you changed the default namespace, update the Keycloak and
+   `agent-ingress.<namespace>.svc.cluster.local` values.
+
+Deploy the same trading application with native pages enabled:
+
+```bash
+rad deploy radius/app.bicep \
+  --group adaptive \
+  --environment trading \
+  --parameters @.adaptive/private/trading-native.parameters.json \
+  "${AI_PARAMS[@]}"
+```
+
 **Istio portfolios only** (`core`, `ent`, `core-ai`, `ent-ai`) — the app
 namespace isn't enrolled in the mesh yet, so pods come up without sidecars.
 That's fine for getting the app running; enroll the namespace when you're
 ready to exercise mTLS, `AuthorizationPolicy`, and traffic shaping by
 following the [service mesh tutorial](../service-mesh/README.md).
+
+### 3.4 Open and test the application
 
 Expose the frontend and open it:
 
@@ -457,6 +478,22 @@ rad resource expose Applications.Core/containers frontend -a adaptive-apps --por
 Browse to <http://localhost:3000>. Log in with the local admin account
 (`admin` / `admin`), or click **Sign in with OIDC** to authenticate through
 Keycloak.
+
+For `SAMPLE=trading-native`, keep the native Keycloak browser endpoint
+available on `localhost:8444`:
+
+```bash
+service=$(kubectl -n envoy-gateway-system get services \
+  -l "gateway.envoyproxy.io/owning-gateway-name=ui-ingress,gateway.envoyproxy.io/owning-gateway-namespace=$NAMESPACE" \
+  -o jsonpath='{.items[0].metadata.name}')
+
+kubectl -n envoy-gateway-system port-forward --address 127.0.0.1 \
+  "service/$service" 8444:8444
+```
+
+Sign in with OIDC, select **Agents** in the trading header, open `writer`,
+invoke it, select a release and open Monitor. Local password users can use the
+trading pages but cannot access native-agent routes.
 
 > **`aiProvider=local`:** The Kaito-managed model pod may take several
 > minutes to become ready while the model is downloaded. Watch
@@ -474,6 +511,11 @@ kubectl delete namespace $NAMESPACE
 # Local k3s only (uses the `k3s` cluster name created by `--platform k3s`):
 k3d cluster delete k3s
 ```
+
+For `SAMPLE=trading-native`, deleting the trading application does not delete
+retained agent identities, immutable release captures or release state. Delete
+the entire disposable k3d cluster for a full local reset; do not treat ordinary
+application deletion as release pruning.
 
 ---
 

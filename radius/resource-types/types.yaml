@@ -17,7 +17,7 @@
 namespace: Radius.Resources
 types:
   agents:
-    description: Retained logical prompt/hosted agent metadata. Radius declares promotion explicitly.
+    description: Retained logical agent with append-only immutable releases and explicit promotion.
     apiVersions:
       '2025-08-01-preview':
         schema:
@@ -28,10 +28,69 @@ types:
             kind: {type: string, enum: [prompt, hosted]}
             activeVersion: {type: string, pattern: '^$|^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'}
             identityRef: {type: string}
+            releases:
+              type: object
+              additionalProperties:
+                type: object
+                properties:
+                  binding:
+                    type: object
+                    nullable: true
+                    properties:
+                      identity: {type: object}
+                      identityRef: {type: string}
+                      secretRef: {type: string}
+                      serviceAccountName: {type: string}
+                    required: [identity, identityRef, secretRef, serviceAccountName]
+                  definition:
+                    type: object
+                    properties:
+                      kind: {type: string, enum: [prompt, hosted]}
+                      model: {type: string, minLength: 1}
+                      image: {type: string, pattern: '^[^@ ]+@sha256:[a-f0-9]{64}$'}
+                      runtimeImage: {type: string, pattern: '^[^@ ]+@sha256:[a-f0-9]{64}$'}
+                      instructions: {type: string}
+                      description: {type: string}
+                      temperature: {type: string, pattern: '^([01](\.[0-9]+)?|2(\.0+)?)$'}
+                      top_p: {type: string, pattern: '^(0(\.[0-9]+)?|1(\.0+)?)$'}
+                      tools:
+                        type: array
+                        items: {type: object}
+                      environment:
+                        type: object
+                        additionalProperties: {type: string}
+                    required: [kind, model]
+                  governance:
+                    type: object
+                    properties:
+                      config: {type: string}
+                      digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+                      mode: {type: string, enum: [audit, enforce]}
+                      reference: {type: string}
+                      content: {type: string}
+                    required: [config, digest, mode, reference, content]
+                  resources: {type: object}
+                  stateSize: {type: string}
+                required: [binding, definition]
+            publishedVersions:
+              type: array
+              readOnly: true
+              items: {type: string}
             agentName: {type: string, readOnly: true}
             agentUid: {type: string, readOnly: true}
             namespace: {type: string, readOnly: true}
-          required: [environment, application, kind]
+            endpoint: {type: string, readOnly: true}
+            nativeVersion: {type: string, readOnly: true}
+            nativeName: {type: string, readOnly: true}
+            nativeIdentity:
+              type: object
+              readOnly: true
+              properties:
+                clientId: {type: string}
+                principalId: {type: string}
+                blueprintId: {type: string}
+                blueprintPrincipalId: {type: string}
+          required: [environment, application, kind, releases]
   agentIdentities:
     description: Independently retained Keycloak identity and optional paired Entra Agent ID/blueprint.
     apiVersions:
@@ -54,69 +113,6 @@ types:
             identityMode: {type: string, readOnly: true}
             namespace: {type: string, readOnly: true}
           required: [environment, application, agentName, agentResourceId, agentUid]
-  agentReleases:
-    description: Immutable edge release or retained initial Foundry deployment; recipe-specific lifecycle gates apply.
-    apiVersions:
-      '2025-08-01-preview':
-        schema:
-          type: object
-          properties:
-            environment: {type: string}
-            application: {type: string}
-            agentName: {type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'}
-            agentUid: {type: string}
-            version: {type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'}
-            binding:
-              type: object
-              nullable: true
-              properties:
-                identity: {type: object}
-                identityRef: {type: string}
-                secretRef: {type: string}
-                serviceAccountName: {type: string}
-              required: [identity, identityRef, secretRef, serviceAccountName]
-            definition:
-              type: object
-              properties:
-                kind: {type: string, enum: [prompt, hosted]}
-                model: {type: string, minLength: 1}
-                image: {type: string, pattern: '^[^@ ]+@sha256:[a-f0-9]{64}$'}
-                runtimeImage: {type: string, pattern: '^[^@ ]+@sha256:[a-f0-9]{64}$'}
-                instructions: {type: string}
-                description: {type: string}
-                temperature: {type: string, pattern: '^([01](\.[0-9]+)?|2(\.0+)?)$'}
-                top_p: {type: string, pattern: '^(0(\.[0-9]+)?|1(\.0+)?)$'}
-                tools:
-                  type: array
-                  items: {type: object}
-                environment:
-                  type: object
-                  additionalProperties: {type: string}
-              required: [kind, model]
-            governance:
-              type: object
-              properties:
-                config: {type: string}
-                digest: {type: string, pattern: '^[a-f0-9]{64}$'}
-                mode: {type: string, enum: [audit, enforce]}
-                reference: {type: string}
-                content: {type: string}
-              required: [config, digest, mode, reference, content]
-            resources: {type: object}
-            stateSize: {type: string}
-            captureName: {type: string, readOnly: true}
-            endpoint: {type: string, readOnly: true}
-            nativeVersion: {type: string, readOnly: true}
-            nativeName: {type: string, readOnly: true}
-            nativeIdentity:
-              type: object
-              readOnly: true
-              properties:
-                clientId: {type: string}
-                principalId: {type: string}
-                blueprintId: {type: string}
-                blueprintPrincipalId: {type: string}
-          required: [environment, application, agentName, agentUid, version, binding, definition]
   keycloakLogins:
     description: Native PKCE browser login and optional reviewed Entra federation in an existing realm.
     apiVersions:
@@ -128,6 +124,7 @@ types:
             application: {type: string}
             realm: {type: string}
             uiOrigin: {type: string}
+            tradingOrigin: {type: string}
             keycloakPublicUrl: {type: string}
             platformRoles:
               type: array
@@ -141,6 +138,7 @@ types:
             issuer: {type: string, readOnly: true}
             discoveryUrl: {type: string, readOnly: true}
             uiClientId: {type: string, readOnly: true}
+            tradingClientId: {type: string, readOnly: true, nullable: true}
             entraRedirectUri: {type: string, readOnly: true, nullable: true}
             connectedLoginEnabled: {type: boolean, readOnly: true}
           required: [environment, application, uiOrigin, keycloakPublicUrl, platformRoles]

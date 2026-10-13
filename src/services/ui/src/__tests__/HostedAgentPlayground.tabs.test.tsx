@@ -9,6 +9,21 @@ import { renderWithProviders } from './testUtils';
 describe('HostedAgentPlayground tabs', () => {
   afterEach(() => {
     localStorage.clear();
+    vi.unstubAllEnvs();
+  });
+
+  it('limits the embedded playground to chat and monitor', async () => {
+    vi.stubEnv('VITE_EMBEDDED', 'true');
+    renderWithProviders(
+      <Routes><Route path="/:name/hosted" element={<HostedAgentPlayground />} /></Routes>,
+      { route: '/trip-scout/hosted' },
+    );
+    await screen.findByLabelText('Message the hosted agent...');
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.getByRole('tab', { name: 'Chat' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Monitor' })).toBeInTheDocument();
+    expect(screen.queryByText('Guardrails')).not.toBeInTheDocument();
+    expect(screen.queryByText('A2A')).not.toBeInTheDocument();
   });
 
   it('preserves chat draft while switching to Monitor and back', async () => {

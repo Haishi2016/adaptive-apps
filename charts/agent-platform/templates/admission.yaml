@@ -31,14 +31,20 @@ spec:
         object.data.name.matches('^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$') &&
         'kind' in object.data && object.data.kind in ['prompt', 'hosted'] &&
         'activeVersion' in object.data &&
-        object.data.activeVersion.matches('^$|^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$')
+        object.data.activeVersion.matches('^$|^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$') &&
+        'releases' in object.data &&
+        object.data.releases.matches('^$|^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?(,[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?)*$')
       message: Logical agent name, kind and explicit release identifier must satisfy the native contract.
     - expression: >-
-        oldObject == null ||
+        oldObject == null ? object.data.activeVersion == '' :
         (object.data.name == oldObject.data.name && object.data.kind == oldObject.data.kind &&
         object.metadata.annotations['radius.resource.id'] == oldObject.metadata.annotations['radius.resource.id'] &&
-        object.metadata.annotations['radius.identity.id'] == oldObject.metadata.annotations['radius.identity.id'])
-      message: Logical agent type and Radius ownership are immutable.
+        object.metadata.annotations['radius.identity.id'] == oldObject.metadata.annotations['radius.identity.id'] &&
+        oldObject.data.releases.split(',').all(version,
+        version == '' || object.data.releases.split(',').exists(candidate, candidate == version)) &&
+        (object.data.activeVersion == oldObject.data.activeVersion ||
+        oldObject.data.releases.split(',').exists(version, version == object.data.activeVersion)))
+      message: Logical ownership and published releases are immutable; promote only a previously published release in a separate update.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

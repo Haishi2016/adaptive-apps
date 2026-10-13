@@ -14,7 +14,7 @@ env:
 
 jobs:
   publish-recipes:
-    name: Publish Radius recipes to GHCR
+    name: Publish Bicep recipes to GHCR
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -42,9 +42,7 @@ jobs:
           - file: radius/recipes/agent-guardrails/kubernetes-agt-sidecar.bicep
             tag: recipes/agent-guardrails-agt:latest
           - file: radius/recipes/agents/logical.bicep
-            tag: recipes/agent-logical:0.3.0
-          - file: radius/recipes/agents/release.bicep
-            tag: recipes/agent-release:0.3.0
+            tag: recipes/agent:0.5.0
           - file: radius/recipes/ai-agent/native-gateway.bicep
             tag: recipes/agent-model:0.4.0
           - file: radius/recipes/agent-guardrails/native-policy.bicep
@@ -70,3 +68,117 @@ jobs:
           rad bicep publish \
             --file ${{ matrix.file }} \
             --target br:${{ env.RECIPE_REGISTRY }}/${{ matrix.tag }}
+
+  publish-terraform-recipes:
+    name: Publish Terraform recipe archive
+    needs: publish-recipes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Package immutable Terraform recipes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          tar \
+            --sort=name \
+            --mtime="@${epoch}" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --exclude='.terraform' \
+            --exclude='*.tfstate' \
+            --exclude='*.tfstate.*' \
+            --exclude='tests' \
+            -C radius/recipes \
+            -cf - \
+            identity \
+            identity-local \
+            identity-connected \
+            keycloak-login \
+            foundry-release |
+            gzip -n > dist/recipes.tgz
+          (
+            cd dist
+            sha256sum recipes.tgz > recipes.tgz.sha256
+          )
+
+      - name: Create native recipe manifest
+        shell: bash
+        env:
+          RELEASE_TAG: recipes-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          archive_sha="$(cut -d ' ' -f 1 dist/recipes.tgz.sha256)"
+          archive_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/recipes.tgz"
+          jq -n \
+            --arg revision "$GITHUB_SHA" \
+            --arg archive "$archive_url" \
+            --arg archiveSha256 "$archive_sha" \
+            --arg registry "${RECIPE_REGISTRY}/recipes" \
+            '{
+              schemaVersion: 1,
+              revision: $revision,
+              terraform: {
+                archive: $archive,
+                sha256: $archiveSha256,
+                modules: [
+                  "identity",
+                  "identity-local",
+                  "identity-connected",
+                  "keycloak-login",
+                  "foundry-release"
+                ]
+              },
+              bicep: {
+                registry: $registry,
+                recipes: {
+                  agent: "0.5.0",
+                  agentModel: "0.4.0",
+                  agentPolicy: "0.3.0"
+                }
+              }
+            }' > dist/native-recipes.json
+
+      - name: Publish immutable recipe release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: recipes-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            mkdir -p existing
+            gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir existing \
+              --pattern recipes.tgz.sha256 \
+              --pattern native-recipes.json
+            cmp dist/recipes.tgz.sha256 existing/recipes.tgz.sha256
+            cmp dist/native-recipes.json existing/native-recipes.json
+            echo "Verified existing immutable release $RELEASE_TAG"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Radius recipes ${GITHUB_SHA}" \
+              --notes "Immutable Radius Terraform recipes and native recipe manifest for commit ${GITHUB_SHA}." \
+              --latest=false \
+              dist/recipes.tgz \
+              dist/recipes.tgz.sha256 \
+              dist/native-recipes.json
+          fi
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-recipes-${{ github.sha }}
+          path: |
+            dist/recipes.tgz
+            dist/recipes.tgz.sha256
+            dist/native-recipes.json
+          if-no-files-found: error

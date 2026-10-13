@@ -120,7 +120,7 @@ spec:
 {{- else }}
               - name: azp
                 valueType: String
-                values: ["adaptive-ui"]
+                values: ["adaptive-ui", "adaptive-trading"]
               - name: roles
                 valueType: StringArray
                 values: ["agent.invoke"]

@@ -10,6 +10,8 @@ param agentName string
 param kind string = 'prompt'
 param activeVersion string = ''
 param identityRef string = ''
+@description('Append-only immutable releases keyed by explicit version.')
+param releases object = {}
 
 resource app 'Applications.Core/applications@2023-10-01-preview' = {
   name: '${agentName}-logical'
@@ -23,6 +25,7 @@ resource agent 'Radius.Resources/agents@2025-08-01-preview' = {
     kind: kind
     activeVersion: activeVersion
     identityRef: identityRef
+    releases: releases
   }
 }
 output agentUid string = agent.properties.agentUid

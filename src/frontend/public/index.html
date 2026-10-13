@@ -221,6 +221,7 @@
           <div class="status" id="status">Connecting...</div>
         </div>
         <div id="user-info" style="display:flex;align-items:center;gap:12px;font-size:14px;">
+          <a id="agents-link" href="/agents" hidden style="color:#fff;text-decoration:none;border:1px solid #6b7280;padding:4px 12px;border-radius:4px;">Agents</a>
           <span id="user-name"></span>
           <a href="/auth/logout" style="color:#9ca3af;text-decoration:none;border:1px solid #4b5563;padding:4px 12px;border-radius:4px;">Sign out</a>
         </div>
@@ -530,6 +531,7 @@
         try {
           const me = await fetchJson("/auth/me");
           document.getElementById("user-name").textContent = me.displayName;
+          document.getElementById("agents-link").hidden = !me.nativeAgents;
         } catch (e) { /* ignore */ }
 
         mqttClient = mqtt.connect(config.mqttWsUrl);

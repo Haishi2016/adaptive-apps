@@ -13,51 +13,39 @@ variable "context" {
       name = string
       id   = string
       properties = object({
-        agentName = string
-        agentUid  = string
-        version   = string
-        binding = object({
-          identity           = any
-          identityRef        = string
-          secretRef          = string
-          serviceAccountName = string
-        })
-        definition = object({
-          kind         = string
-          model        = string
-          image        = optional(string)
-          runtimeImage = optional(string)
-          instructions = optional(string, "")
-          description  = optional(string, "")
-          temperature  = optional(string)
-          top_p        = optional(string)
-          tools        = optional(list(any), [])
-          environment  = optional(map(string), {})
-        })
-        governance = optional(any)
-        resources  = optional(any)
-        stateSize  = optional(string)
+        environment       = string
+        application       = string
+        kind              = string
+        activeVersion     = optional(string, "")
+        identityRef       = optional(string, "")
+        releases          = map(any)
+        publishedVersions = optional(list(string), [])
       })
     })
   })
   validation {
-    condition     = var.context.resource.properties.binding == null
+    condition     = length(var.context.resource.properties.releases) == 1 && contains(keys(var.context.resource.properties.releases), var.initial_release_id)
+    error_message = "This proof accepts exactly one explicitly configured initial release embedded in the logical agent."
+  }
+  validation {
+    condition     = var.context.resource.properties.releases[var.initial_release_id].binding == null
     error_message = "Foundry supplies native identity. Set binding=null; never copy edge identity, Secret or ServiceAccount bindings."
   }
   validation {
-    condition = (
-      var.context.resource.properties.version == var.initial_release_id &&
-      var.context.resource.name == "${var.context.resource.properties.agentName}-${var.initial_release_id}"
+    condition = var.context.resource.properties.activeVersion == "" || contains(
+      var.context.resource.properties.publishedVersions,
+      var.context.resource.properties.activeVersion
     )
-    error_message = "This environment accepts only its explicitly configured initial release and canonical Radius resource name; additional releases are unsupported."
+    error_message = "Publish a release in one deployment before promoting it in a later update."
   }
   validation {
     condition = (
-      contains(["prompt", "hosted"], var.context.resource.properties.definition.kind) &&
-      length(var.context.resource.properties.definition.tools) == 0 &&
-      var.context.resource.properties.governance == null &&
-      var.context.resource.properties.stateSize == null &&
-      length(coalesce(var.context.resource.properties.resources, {})) == 0
+      contains(["prompt", "hosted"], var.context.resource.properties.kind) &&
+      var.context.resource.properties.releases[var.initial_release_id].definition.kind == var.context.resource.properties.kind &&
+      length(try(var.context.resource.properties.releases[var.initial_release_id].definition.tools, [])) == 0 &&
+      try(var.context.resource.properties.releases[var.initial_release_id].governance, null) == null &&
+      try(var.context.resource.properties.releases[var.initial_release_id].stateSize, null) == null &&
+      length(try(var.context.resource.properties.releases[var.initial_release_id].resources, {})) == 0
     )
     error_message = "The initial Foundry proof supports prompt/hosted definitions without tools, edge governance, PVC state or edge resource settings. Configure native RAI and sandbox size separately."
   }
@@ -98,8 +86,24 @@ variable "memory" {
 }
 
 locals {
-  p           = var.context.resource.properties
-  def         = local.p.definition
+  logical   = var.context.resource.properties
+  release   = local.logical.releases[var.initial_release_id]
+  agent_uid = sha256(var.context.resource.id)
+  p = merge(local.release, {
+    agentName = var.context.resource.name
+    agentUid  = local.agent_uid
+    version   = var.initial_release_id
+  })
+  def = merge({
+    image        = null
+    runtimeImage = null
+    instructions = ""
+    description  = ""
+    temperature  = null
+    top_p        = null
+    tools        = []
+    environment  = {}
+  }, local.p.definition)
   endpoint    = trimsuffix(var.project_endpoint, "/")
   native_name = "${local.p.agentName}-${substr(sha256(local.p.agentUid), 0, 10)}"
   definitions = {
@@ -214,8 +218,11 @@ output "result" {
   value = {
     resources = []
     values = {
-      nativeName    = azapi_data_plane_resource.agent.name
-      nativeVersion = azapi_data_plane_resource.agent.output.versions.latest.version
+      agentName         = var.context.resource.name
+      agentUid          = local.agent_uid
+      publishedVersions = keys(local.logical.releases)
+      nativeName        = azapi_data_plane_resource.agent.name
+      nativeVersion     = azapi_data_plane_resource.agent.output.versions.latest.version
       nativeIdentity = {
         clientId             = azapi_data_plane_resource.agent.output.versions.latest.instance_identity.client_id
         principalId          = azapi_data_plane_resource.agent.output.versions.latest.instance_identity.principal_id

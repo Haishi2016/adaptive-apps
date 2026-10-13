@@ -46,6 +46,11 @@ jobs:
               VITE_AUTH_ENABLED=true
               VITE_KEYCLOAK_AUTHORITY=${{ vars.NATIVE_KEYCLOAK_AUTHORITY || 'https://localhost:8444/realms/adaptive' }}
               VITE_KEYCLOAK_CLIENT_ID=adaptive-ui
+          - directory: src/services/ui/
+            image: adaptive-apps/ui-embedded
+            build_args: |
+              VITE_EMBEDDED=true
+              VITE_AUTH_ENABLED=false
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

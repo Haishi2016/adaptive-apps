@@ -20,19 +20,25 @@ variables {
   rai_policy_id      = "/subscriptions/fixture/resourceGroups/fixture/providers/Microsoft.CognitiveServices/accounts/fixture/raiPolicies/default"
   context = {
     resource = {
-      name = "writer-v1"
-      id   = "/planes/radius/local/resourceGroups/proof/providers/Radius.Resources/agentReleases/writer-v1"
+      name = "writer"
+      id   = "/planes/radius/local/resourceGroups/proof/providers/Radius.Resources/agents/writer"
       properties = {
-        agentName = "writer"
-        agentUid  = "retained-logical-agent"
-        version   = "v1"
-        binding   = null
-        definition = {
-          kind         = "prompt"
-          model        = "gpt-4o-mini"
-          instructions = "Write clearly."
-          runtimeImage = "edge/prompt@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-          temperature  = "0.7"
+        environment   = "/environments/proof"
+        application   = "/applications/writer"
+        kind          = "prompt"
+        activeVersion = ""
+        identityRef   = ""
+        releases = {
+          v1 = {
+            binding = null
+            definition = {
+              kind         = "prompt"
+              model        = "gpt-4o-mini"
+              instructions = "Write clearly."
+              runtimeImage = "edge/prompt@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              temperature  = "0.7"
+            }
+          }
         }
       }
     }
@@ -54,7 +60,7 @@ run "native_prompt" {
     error_message = "Capture the concrete native version without claiming ARM or Kubernetes runtime ownership."
   }
   assert {
-    condition     = azapi_data_plane_resource.agent.name == "writer-${substr(sha256(var.context.resource.properties.agentUid), 0, 10)}"
+    condition     = azapi_data_plane_resource.agent.name == "writer-${substr(sha256(output.result.values.agentUid), 0, 10)}"
     error_message = "Native identity must derive from the retained logical UID, not a release label or an existing unrelated agent name."
   }
   assert {
@@ -71,19 +77,55 @@ run "identical_replay" {
   }
 }
 
+run "promote_published_release" {
+  command = apply
+  variables {
+    context = {
+      resource = merge(var.context.resource, {
+        properties = merge(var.context.resource.properties, {
+          activeVersion     = "v1"
+          publishedVersions = ["v1"]
+        })
+      })
+    }
+  }
+  assert {
+    condition     = output.result.values.nativeVersion == run.native_prompt.result.values.nativeVersion
+    error_message = "Promotion must not republish or mutate the retained release."
+  }
+}
+
+run "reject_unpublished_promotion" {
+  command = plan
+  variables {
+    context = {
+      resource = merge(var.context.resource, {
+        properties = merge(var.context.resource.properties, { activeVersion = "v1" })
+      })
+    }
+  }
+  expect_failures = [var.context]
+}
+
 run "reject_changed_definition" {
   command = plan
   variables {
     context = {
       resource = {
-        name = "writer-v1"
-        id   = "/planes/radius/local/resourceGroups/proof/providers/Radius.Resources/agentReleases/writer-v1"
+        name = "writer"
+        id   = "/planes/radius/local/resourceGroups/proof/providers/Radius.Resources/agents/writer"
         properties = {
-          agentName  = "writer"
-          agentUid   = "retained-logical-agent"
-          version    = "v1"
-          binding    = null
-          definition = { kind = "prompt", model = "gpt-4o-mini", instructions = "Changed." }
+          environment   = "/environments/proof"
+          application   = "/applications/writer"
+          kind          = "prompt"
+          activeVersion = ""
+          identityRef   = ""
+          releases = {
+            v1 = {
+              binding    = null
+              definition = { kind = "prompt", model = "gpt-4o-mini", instructions = "Changed." }
+            }
+          }
         }
       }
     }
@@ -105,25 +147,31 @@ run "native_hosted" {
   variables {
     context = {
       resource = {
-        name = "editor-v1"
-        id   = "/planes/radius/local/resourceGroups/proof/providers/Radius.Resources/agentReleases/editor-v1"
+        name = "editor"
+        id   = "/planes/radius/local/resourceGroups/proof/providers/Radius.Resources/agents/editor"
         properties = {
-          agentName = "editor"
-          agentUid  = "retained-hosted-agent"
-          version   = "v1"
-          binding   = null
-          definition = {
-            kind        = "hosted"
-            model       = "gpt-4o-mini"
-            image       = "fixture.azurecr.io/editor@sha256:77292ef9596a27c259b7edd5cd73a5b0fcb45c74424b1b6a754b0de9e2c04620"
-            environment = { WRITER_NAME = "writer" }
+          environment   = "/environments/proof"
+          application   = "/applications/editor"
+          kind          = "hosted"
+          activeVersion = ""
+          identityRef   = ""
+          releases = {
+            v1 = {
+              binding = null
+              definition = {
+                kind        = "hosted"
+                model       = "gpt-4o-mini"
+                image       = "fixture.azurecr.io/editor@sha256:77292ef9596a27c259b7edd5cd73a5b0fcb45c74424b1b6a754b0de9e2c04620"
+                environment = { WRITER_NAME = "writer" }
+              }
+            }
           }
         }
       }
     }
   }
   assert {
-    condition     = azapi_data_plane_resource.agent.body.definition.container_configuration.image == var.context.resource.properties.definition.image
+    condition     = azapi_data_plane_resource.agent.body.definition.container_configuration.image == var.context.resource.properties.releases.v1.definition.image
     error_message = "Hosted deployment must preserve the exact input OCI manifest digest."
   }
   assert {
@@ -157,19 +205,25 @@ run "reject_edge_bindings" {
   variables {
     context = {
       resource = {
-        name = "writer-v1"
-        id   = "radius-release"
+        name = "writer"
+        id   = "/radius/agents/writer"
         properties = {
-          agentName = "writer"
-          agentUid  = "retained-logical-agent"
-          version   = "v1"
-          binding = {
-            identity           = {}
-            identityRef        = "edge-identity"
-            secretRef          = "edge-secret"
-            serviceAccountName = "edge-service-account"
+          environment   = "/environments/proof"
+          application   = "/applications/writer"
+          kind          = "prompt"
+          activeVersion = ""
+          identityRef   = ""
+          releases = {
+            v1 = {
+              binding = {
+                identity           = {}
+                identityRef        = "edge-identity"
+                secretRef          = "edge-secret"
+                serviceAccountName = "edge-service-account"
+              }
+              definition = { kind = "prompt", model = "gpt-4o-mini" }
+            }
           }
-          definition = { kind = "prompt", model = "gpt-4o-mini" }
         }
       }
     }

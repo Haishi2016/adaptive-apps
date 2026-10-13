@@ -27,10 +27,13 @@ image COMPONENT:
     case "{{COMPONENT}}" in
       prompt-agent|editor) path="agents/{{COMPONENT}}" ;;
       dac-adapter|governance-sidecar|platform-api|ui) path="services/{{COMPONENT}}" ;;
+      ui-embedded) path="services/ui" ;;
       *) printf 'Unsupported native agent component: %s\n' "{{COMPONENT}}" >&2; exit 1 ;;
     esac
     if [[ "{{COMPONENT}}" == ui ]]; then
       docker build --build-arg VITE_AUTH_ENABLED=true --build-arg VITE_KEYCLOAK_AUTHORITY="${VITE_KEYCLOAK_AUTHORITY:?Set the exact HTTPS realm issuer}" --build-arg VITE_KEYCLOAK_CLIENT_ID=adaptive-ui -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" "$path"
+    elif [[ "{{COMPONENT}}" == ui-embedded ]]; then
+      docker build --build-arg VITE_EMBEDDED=true --build-arg VITE_AUTH_ENABLED=false -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" "$path"
     elif [[ "{{COMPONENT}}" == dac-adapter || "{{COMPONENT}}" == platform-api ]]; then
       docker build -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" "$path"
     else

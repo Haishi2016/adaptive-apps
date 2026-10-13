@@ -17,11 +17,13 @@ import { ToolsList } from './routes/tools/ToolsList';
 import { PlatformGuardrails } from './routes/guardrails/Guardrails';
 import { useConnectivityFaultStore } from './state/connectivityFault';
 import { getPlatformGuardrails } from './api/client';
+import { embeddedMode } from './auth/config';
 
 const tenantName = import.meta.env.VITE_TENANT_NAME ?? 'adaptive-edge';
 
 export function App(): JSX.Element {
   const location = useLocation();
+  const embedded = embeddedMode();
 
   // The OAuth redirect lands here before authentication completes, so it must
   // bypass the gate (which would otherwise show the sign-in screen).
@@ -30,18 +32,20 @@ export function App(): JSX.Element {
   }
   if (location.pathname === '/auth/entra-callback') return <EntraCallback />;
 
-  return (
+  const shell = <Shell embedded={embedded} />;
+  return embedded ? shell : (
     <AuthGate>
-      <Shell />
+      {shell}
     </AuthGate>
   );
 }
 
-function Shell(): JSX.Element {
+function Shell({ embedded }: { embedded: boolean }): JSX.Element {
   const governance = useQuery({
     queryKey: ['guardrails'],
     queryFn: getPlatformGuardrails,
     refetchInterval: 30_000,
+    enabled: !embedded,
   });
   const faultEnabled = useConnectivityFaultStore((state) => state.enabled);
   const faultError = useConnectivityFaultStore((state) => state.error);
@@ -50,22 +54,25 @@ function Shell(): JSX.Element {
   const stop = useConnectivityFaultStore((state) => state.stop);
 
   useEffect(() => {
+    if (embedded) return undefined;
     start();
     return stop;
-  }, [start, stop]);
+  }, [embedded, start, stop]);
+
+  const agentsRoot = embedded ? '/' : '/agents';
 
   return (
     <div className="app-shell">
       <header className="topbar">
         <div className="brand-lockup">
           <div className="brand-glyph">A</div>
-          <Text weight="semibold">Adaptive AI</Text>
-          <span className="crumb">/</span>
-          <Text weight="semibold">{tenantName}</Text>
+          <Text weight="semibold">{embedded ? 'Trading Agents' : 'Adaptive AI'}</Text>
+          {!embedded ? <><span className="crumb">/</span><Text weight="semibold">{tenantName}</Text></> : null}
         </div>
         <div className="topbar-search">Search with AI (Ctrl + K)</div>
         <div className="topbar-actions">
-          <Badge appearance="outline">Runtime only</Badge>
+          {embedded ? <a href="/" className="nav-entry">← Back to Trading</a> : <Badge appearance="outline">Runtime only</Badge>}
+          {!embedded ? <>
           <Badge
             appearance="tint"
             color={governance.isError ? 'warning' : governance.data?.enabled ? 'brand' : 'subtle'}
@@ -79,13 +86,15 @@ function Shell(): JSX.Element {
           </Badge>
           <RedButtonToggle />
           <UserMenu />
+          </> : null}
         </div>
       </header>
       <div className="body-shell">
         <nav className="sidebar" aria-label="Primary">
-          <NavLink to="/agents" className={({ isActive }) => `nav-entry ${isActive ? 'active' : ''}`}>
+          <NavLink to={agentsRoot} end className={({ isActive }) => `nav-entry ${isActive ? 'active' : ''}`}>
             Agents
           </NavLink>
+          {!embedded ? <>
           <NavLink to="/tools" className={({ isActive }) => `nav-entry ${isActive ? 'active' : ''}`}>
             Tools
           </NavLink>
@@ -96,18 +105,19 @@ function Shell(): JSX.Element {
             Guardrails
           </NavLink>
           <FoundryProjectCard />
+          </> : null}
         </nav>
         <main className="content-shell">
           <Routes>
-            <Route path="/" element={<Navigate to="/models" replace />} />
-            <Route path="/models" element={<ModelsList />} />
-            <Route path="/models/:modelId/playground" element={<ModelPlayground />} />
-            <Route path="/agents" element={<AgentsList />} />
-            <Route path="/agents/:name/prompt" element={<PromptAgentPlayground />} />
-            <Route path="/agents/:name/hosted" element={<HostedAgentPlayground />} />
-            <Route path="/tools" element={<ToolsList />} />
-            <Route path="/guardrails" element={<PlatformGuardrails />} />
-            <Route path="*" element={<Navigate to="/models" replace />} />
+            <Route path="/" element={embedded ? <AgentsList /> : <Navigate to="/models" replace />} />
+            {!embedded ? <Route path="/models" element={<ModelsList />} /> : null}
+            {!embedded ? <Route path="/models/:modelId/playground" element={<ModelPlayground />} /> : null}
+            {!embedded ? <Route path="/agents" element={<AgentsList />} /> : null}
+            <Route path={embedded ? '/:name/prompt' : '/agents/:name/prompt'} element={<PromptAgentPlayground />} />
+            <Route path={embedded ? '/:name/hosted' : '/agents/:name/hosted'} element={<HostedAgentPlayground />} />
+            {!embedded ? <Route path="/tools" element={<ToolsList />} /> : null}
+            {!embedded ? <Route path="/guardrails" element={<PlatformGuardrails />} /> : null}
+            <Route path="*" element={<Navigate to={embedded ? '/' : '/models'} replace />} />
           </Routes>
         </main>
       </div>

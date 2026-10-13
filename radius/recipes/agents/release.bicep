@@ -309,7 +309,7 @@ resource authorization 'gateway.envoyproxy.io/SecurityPolicy@v1alpha1' = {
         operation: { methods: ['POST'] }
         principal: { jwt: { provider: 'keycloak', claims: [
           { name: 'roles', valueType: 'StringArray', values: ['agent.invoke'] }
-          { name: 'azp', values: ['adaptive-ui'] }
+          { name: 'azp', values: ['adaptive-ui', 'adaptive-trading'] }
         ] } }
       }], empty(peers) ? [] : [{
         name: 'local-peer-invoke'

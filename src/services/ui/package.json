@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:embedded": "tsc --noEmit && VITE_EMBEDDED=true vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx && tsc --noEmit",
     "test": "vitest",

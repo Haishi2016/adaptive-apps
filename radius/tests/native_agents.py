@@ -29,7 +29,6 @@ class NativeAgents(unittest.TestCase):
             "radius/foundry-agent.bicep",
             "radius/agents.bicep",
             "radius/agent-identity.bicep",
-            "radius/agent-release.bicep",
             "radius/agent-services.bicep",
             "radius/agent-models.bicep",
             "radius/credentials.bicep",
@@ -124,6 +123,7 @@ class NativeAgents(unittest.TestCase):
         for name in ["graphClientCertificate", "graphClientCertificatePassword"]:
             self.assertEqual(credentials["parameters"][name]["defaultValue"], "")
         self.assertIn("empty(parameters('graphClientCertificate'))", json.dumps(credentials))
+        self.assertIn("adaptive-trading-client-secret", json.dumps(credentials))
         deployments = [obj for obj in self.resources if obj["kind"] == "Deployment"]
         keycloak = [obj for obj in deployments if obj["metadata"]["name"].endswith("-keycloak")]
         collector = [obj for obj in deployments if obj["metadata"]["name"] == "otel-collector"]
@@ -141,7 +141,32 @@ class NativeAgents(unittest.TestCase):
         self.assertEqual(parsed["service"]["pipelines"]["traces"]["exporters"], ["otlp/traces"])
         release = self.compiled["radius/recipes/agents/release.bicep"]["resources"]
         self.assertIn("app.kubernetes.io/component", json.dumps(release))
-        self.assertNotIn("agentPlatforms", (ROOT / "radius/resource-types/types.yaml").read_text())
+        catalogue = yaml.safe_load((ROOT / "radius/resource-types/types.yaml").read_text())
+        self.assertNotIn("agentPlatforms", catalogue["types"])
+        self.assertNotIn("agentReleases", catalogue["types"])
+        agent = catalogue["types"]["agents"]["apiVersions"]["2025-08-01-preview"]["schema"]
+        self.assertIn("releases", agent["properties"])
+        self.assertIn("releases", agent["required"])
+        login = catalogue["types"]["keycloakLogins"]["apiVersions"]["2025-08-01-preview"]["schema"]
+        self.assertIn("tradingOrigin", login["properties"])
+        self.assertIn("tradingClientId", login["properties"])
+
+    def test_trading_integration_is_opt_in_and_uses_same_authorization_boundary(self):
+        app = self.compiled["radius/app.bicep"]
+        self.assertFalse(app["parameters"]["enableNativeAgents"]["defaultValue"])
+        serialized = json.dumps(app)
+        self.assertIn("ui-embedded", serialized)
+        self.assertIn("NATIVE_AGENT_URL", serialized)
+        self.assertIn("NATIVE_UI_URL", serialized)
+        policies = "\n".join(
+            (ROOT / path).read_text()
+            for path in [
+                "charts/agent-platform/templates/ui.yaml",
+                "charts/agent-platform/templates/model-ingress.yaml",
+                "radius/recipes/agents/release.bicep",
+            ]
+        )
+        self.assertIn('["adaptive-ui", "adaptive-trading"]', policies)
 
     def test_gpu_models_and_keyless_gateway(self):
         compiled = self.compiled["radius/recipes/ai-agent/native-gateway.bicep"]
@@ -174,16 +199,18 @@ class NativeAgents(unittest.TestCase):
     def test_foundry_deployment_is_separate_from_edge(self):
         environment = self.compiled["radius/foundry-env.bicep"]["resources"]
         recipes = environment["environment"]["properties"]["properties"]["recipes"]
-        release = recipes["Radius.Resources/agentReleases"]["default"]
-        self.assertEqual(release["templateKind"], "terraform")
-        self.assertIn("project_endpoint", release["parameters"])
-        self.assertTrue(recipes["Radius.Resources/agents"]["default"]["parameters"]["foundryManagedIdentity"])
+        agent_recipe = recipes["Radius.Resources/agents"]["default"]
+        self.assertEqual(agent_recipe["templateKind"], "terraform")
+        self.assertIn("project_endpoint", agent_recipe["parameters"])
+        self.assertNotIn("Radius.Resources/agentReleases", recipes)
         self.assertNotIn("Radius.Resources/agentIdentities", recipes)
         declared = self.compiled["radius/foundry-agent.bicep"]["resources"]
-        self.assertIsNone(declared["release"]["properties"]["properties"]["binding"])
+        releases = declared["agent"]["properties"]["properties"]["releases"]
+        self.assertEqual(len(releases), 1)
+        self.assertIsNone(next(iter(releases.values()))["binding"])
         self.assertIn("nativeVersion", self.compiled["radius/foundry-agent.bicep"]["outputs"])
         logical = self.compiled["radius/recipes/agents/logical.bicep"]
-        self.assertFalse(logical["parameters"]["foundryManagedIdentity"]["defaultValue"])
+        self.assertIn("platform", logical["parameters"])
 
     def test_ordinary_profiles_do_not_install_another_native_stack(self):
         for profile in ["min", "min-ai", "core", "core-ai", "ent", "ent-ai"]:
@@ -287,13 +314,20 @@ class NativeAgents(unittest.TestCase):
                 for entry in runtime["spec"]["validations"]
             )
         )
+        metadata = next(
+            obj for obj in policies if obj["metadata"]["name"].endswith("-agent-metadata")
+        )
+        lifecycle = metadata["spec"]["validations"][1]["expression"]
+        self.assertIn("oldObject.data.releases", lifecycle)
+        self.assertIn("object.data.activeVersion", lifecycle)
         envs = self.compiled["radius/agents-env.bicep"]["resources"]
         self.assertNotEqual(
             envs["environment"]["properties"]["properties"]["compute"]["namespace"],
             envs["loginEnvironment"]["properties"]["properties"]["compute"]["namespace"],
         )
         recipes = envs["environment"]["properties"]["properties"]["recipes"]
-        for kind in ["agents", "agentReleases", "agentIdentities", "aiModels"]:
+        self.assertNotIn("Radius.Resources/agentReleases", recipes)
+        for kind in ["agents", "agentIdentities", "aiModels"]:
             parameters = recipes[f"Radius.Resources/{kind}"]["default"]["parameters"]
             self.assertIn("namespace", json.dumps(parameters))
         for recipe in ["agents/logical", "agents/release", "ai-agent/native-gateway"]:
