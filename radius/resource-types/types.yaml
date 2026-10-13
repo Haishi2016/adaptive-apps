@@ -55,7 +55,7 @@ types:
             namespace: {type: string, readOnly: true}
           required: [environment, application, agentName, agentResourceId, agentUid]
   agentReleases:
-    description: Immutable native singleton runtime, direct authorized Responses ingress and retained state.
+    description: Immutable edge release or retained initial Foundry deployment; recipe-specific lifecycle gates apply.
     apiVersions:
       '2025-08-01-preview':
         schema:
@@ -68,6 +68,7 @@ types:
             version: {type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'}
             binding:
               type: object
+              nullable: true
               properties:
                 identity: {type: object}
                 identityRef: {type: string}
@@ -105,6 +106,16 @@ types:
             stateSize: {type: string}
             captureName: {type: string, readOnly: true}
             endpoint: {type: string, readOnly: true}
+            nativeVersion: {type: string, readOnly: true}
+            nativeName: {type: string, readOnly: true}
+            nativeIdentity:
+              type: object
+              readOnly: true
+              properties:
+                clientId: {type: string}
+                principalId: {type: string}
+                blueprintId: {type: string}
+                blueprintPrincipalId: {type: string}
           required: [environment, application, agentName, agentUid, version, binding, definition]
   keycloakLogins:
     description: Native PKCE browser login and optional reviewed Entra federation in an existing realm.

@@ -202,7 +202,7 @@ credentials and platform resources owned by a disposable release.
    `rad resource-type create --from-file radius/resource-types/types.yaml`.
    Generate its existing extension:
    `rad bicep publish-extension --from-file radius/resource-types/types.yaml --target radius/types.tgz`.
-2. Publish `agent-logical`, `agent-release` and `agent-policy` at `0.3.0`,
+2. Publish `agent-logical` at `0.4.0`, and `agent-release` and `agent-policy` at `0.3.0`,
    and `agent-model` at `0.4.0`, using `rad bicep publish`.
    Their files are `recipes/agents/{logical,release}.bicep`,
    `recipes/ai-agent/native-gateway.bicep` and
@@ -613,23 +613,131 @@ helper shell syntax passed. The isolated shared-portfolio browser proof remains
 separate from the original foundation; its Monitor hierarchy check is not yet
 qualified.
 
+Read-only Jaeger inspection later on 2026-10-13 confirmed that the shared
+collector receives actual SDK spans under the correct release service names.
+Prompt traces contain `invoke_agent writer` with a child `chat local-chat`, and
+hosted-to-prompt calls preserve the trace and parent IDs. They do not contain
+the required intermediate `agent_run` span. This is a native instrumentation
+shape gap, not absent collector delivery; do not manufacture or rename spans
+to pass the gate. The min-ai collector also has no metrics pipeline, while
+the image's SDK emits metrics, producing explicit HTTP 404 export errors.
+After CPU-model retirement, the isolated setup's old gateway configuration
+still references the removed CPU backend; it is not a currently qualified
+inference installation. The host cluster's GPU/Foundry proof remains separate.
+
 ## Pending Foundry 1:1 agent-hosting proof
 
-**Status: planned, not implemented or live-qualified.** Track this separately
-from calling Foundry models through the edge gateway.
+**Status: initial-deployment source implemented and tested, not live-qualified.**
+Track this separately from calling Foundry models through the edge gateway.
+The cloud gate currently covers native deployment, not unchanged editor peer
+invocation or a complete multi-release cloud lifecycle.
 
-The recommended implementation is one custom **Foundry-target release recipe**
-bound to the existing `Radius.Resources/agentReleases` type by a cloud
-environment. Preserve explicit Radius releases and logical prompt/hosted
-kinds; do not add another operator, management emulator or image-build path.
-Dispatch on the declared kind: **prompt → native Foundry prompt agent** and
-**hosted → native Foundry hosted agent**. Never deploy the prompt-runtime image
-as a hosted substitute for a prompt agent.
-Prefer genuine supported Azure provider resources. Where agent-version
-operations are data-plane-only, use the smallest official Foundry SDK/API
-integration inside a stock Radius recipe, with durable actual provider IDs.
-Verify that API/lifecycle contract before selecting the Bicep or Terraform
-implementation.
+`radius/recipes/foundry-release` is a stock Terraform recipe using pinned
+AzAPI 2.9.0 and the native data-plane type `Microsoft.Foundry/agents@v1`.
+`radius/foundry-env.bicep` binds it to the existing
+`Radius.Resources/agentReleases` type; `radius/foundry-agent.bicep` authors the
+logical metadata and first release. There is no operator, management emulator,
+image build or invocation proxy.
+
+Dispatch remains **prompt → native Foundry prompt agent** and
+**hosted → native Foundry hosted agent**. Prompt instructions/model/sampling
+become a prompt definition; the edge `runtimeImage` is not deployed.
+Hosted images must use an ACR URL retaining the original SHA-256 manifest
+digest and Responses container protocol 2.0.0.
+`binding: null` explicitly selects native Foundry identity instead of fake edge
+Secret/ServiceAccount references. Foundry manages the cloud blueprint and
+agent identity; the project identity pulls the image, and the native runtime
+identity receives required downstream permissions. `nativeIdentity` returns
+the actual provider client/principal and blueprint IDs, not edge identity
+substitutes. The logical recipe's explicit cloud mode omits the edge
+`radius.identity.id` annotation rather than referencing a nonexistent identity
+resource.
+
+### Initial-deployment ownership limitation
+
+AzAPI manages one **named agent**, not an independently owned resource per
+native version. Therefore this recipe is deliberately limited to one explicitly
+configured initial Radius release ID and canonical `<agent>-<release>` resource
+name per logical agent. An immutable Terraform capture rejects changed
+definitions, bindings or target configuration; other release IDs are rejected
+before a provider operation. The native version must be `1`, and its concrete
+identifier is returned separately from the Radius release label.
+The native name includes a hash of the retained logical UID, not the release
+label; it is returned as `nativeName`. This avoids adopting unrelated existing
+agents that happen to share a display name. Use new proof-only logical names
+and one deployment owner. Do not import/adopt existing
+agents, run another writer, or interpret Terraform locking as distributed
+fencing.
+
+Both capture and native agent use `prevent_destroy`: application deletion must
+fail rather than delete the agent, identity and retained versions. Cloud
+retirement, additional versions and promotion require a separately implemented
+and qualified lifecycle. The recipe's endpoint output is a native URL, not a
+readiness assertion; provider write success does not prove `active`, effective
+guardrails or successful invocation.
+
+### Current Responses routing difference
+
+Both images use native Responses hosts and serve `/responses`. Public routing
+differs:
+
+| Target | Public Responses path | Version selection |
+| --- | --- | --- |
+| Edge Envoy | `/agents/{name}/versions/{version}/responses` | Explicit URL version |
+| Foundry | `/api/projects/{project}/agents/{name}/endpoint/protocols/openai/responses` | Native endpoint selector; candidate-specific session |
+
+The unchanged editor validates an exact edge-style peer base path in
+`src/agents/editor/src/editor/agent.py` before sending a request. It rejects
+native Foundry project-prefixed endpoints, and it does not create/pass a native
+candidate session. Deployment of the same image can be tested without claiming
+that its writer/auditor calls work in Foundry. Do not hide this limitation with
+an Envoy compatibility route or silently rebuild the image.
+
+### Source delivery and remaining live gate
+
+The environment requires an explicitly selected existing `projectEndpoint`,
+existing full `raiPolicyId`, `initialReleaseId`, published `logicalRecipe`,
+immutable `releaseRecipe` archive and native Azure `recipeConfig` credentials.
+No project or registry is chosen or provisioned automatically. Use the existing
+Radius credential-store/workload-identity patterns; no browser bearer or Azure
+API key belongs in these parameters.
+
+Publish the updated logical Bicep recipe as `agent-logical:0.4.0` through the
+existing native artifact path; never overwrite its earlier immutable tag.
+Include `foundry-release` and its reviewed `.terraform.lock.hcl` in the immutable
+Terraform archive, excluding `.terraform`, test files and state. Point
+`releaseRecipe` to `<immutable-archive-url>//foundry-release`.
+Deliver the environment once, then the authored agent declaration:
+
+```bash
+rad deploy radius/foundry-env.bicep \
+  --parameters .adaptive/private/foundry-env.parameters.json
+rad deploy radius/foundry-agent.bicep \
+  --parameters .adaptive/private/foundry-prompt.parameters.json
+rad deploy radius/foundry-agent.bicep \
+  --parameters .adaptive/private/foundry-hosted.parameters.json
+```
+
+The private parameter files are explicit authored inputs, not generated
+installation defaults. A prompt `definition` has `kind: prompt`, the selected
+native model deployment and matching instructions. A hosted `definition` has
+`kind: hosted`, its unchanged ACR image digest, the required `model` contract
+field and reviewed native environment bindings. Nonempty tools, edge governance,
+PVC state, edge resource settings, prompt container environment and
+platform-reserved identity variables fail explicitly. The existing native RAI
+policy is used; tool/skill parity and Graph OBO remain unqualified.
+
+Eight Radius compilation/chart checks and ten mocked Terraform lifecycle
+checks cover dispatch, digest preservation, replay, immutable input rejection,
+extra release rejection, unexpected native versions, edge-binding rejection,
+untrusted project URLs, foreign guardrails and invalid sandbox sizes.
+Mocks and rendered files are not live proof.
+
+Current contract references:
+[native Terraform deployment](https://learn.microsoft.com/azure/foundry/agents/how-to/deploy-hosted-agent-terraform),
+[runtime contract](https://learn.microsoft.com/azure/foundry/agents/concepts/hosted-agent-contract),
+[native identity and endpoint migration](https://learn.microsoft.com/azure/foundry/agents/how-to/migrate-hosted-agent-preview),
+and [endpoint/version management](https://learn.microsoft.com/azure/foundry/agents/how-to/manage-hosted-agent).
 
 1. Verify the current Foundry native prompt and hosted-version APIs, Responses
    support, identity/blueprint support and cloud model/peer bindings. Preserve
@@ -641,17 +749,20 @@ implementation.
    and billing/compute scope. Mirror the existing hosted editor OCI image with
    an **identical manifest digest**, without rebuilding; verify registry pull
    and inference permissions. The prompt runtime image remains edge-only.
-3. Implement the minimal cloud recipe and required target bindings. Supply
+3. Qualify the initial cloud recipe and required target bindings. Supply
    native cloud DAC/configuration rather than edge Keycloak/adapter endpoints,
    sidecars or PVC paths. Replaying identical desired state must not allocate
-   another version or replace a logical identity.
-4. Deploy and invoke **both native Foundry kinds**. Verify the prompt resource
+   another version or replace a logical identity. Additional release ownership,
+   promotion and retirement are separate from this initial-deployment proof.
+4. Deploy **both native Foundry kinds**. Verify the prompt resource
    really has prompt kind and matching supported definition content, and the
    hosted resource uses the unchanged OCI digest. Verify provider provenance,
-   active pinned versions, foreground Responses, native SSE, real cloud
-   identity/model access and applicable peer calls. Prove scoped
-   retirement/retention, preserve unrelated projects and record sanitized
-   evidence in the existing guides.
+   active concrete versions and real native identity. Test prompt foreground
+   Responses/SSE and model access. Record unchanged editor peer invocation as
+   unqualified because of its URL/session assumptions. Preserve unrelated
+   projects and record sanitized evidence in the existing guides. Do not claim
+   retirement, promotion, tool/skill/OBO or full multi-release portability from
+   a successful initial deployment.
 
 The portability gates differ by kind: **prompt agents require native kind and
 definition/content parity; hosted agents require unchanged image-digest parity**.

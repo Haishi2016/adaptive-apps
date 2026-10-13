@@ -25,6 +25,8 @@ class NativeAgents(unittest.TestCase):
             "radius/recipes/ai-agent/native-gateway.bicep",
             "radius/recipes/agent-guardrails/native-policy.bicep",
             "radius/agents-env.bicep",
+            "radius/foundry-env.bicep",
+            "radius/foundry-agent.bicep",
             "radius/agents.bicep",
             "radius/agent-identity.bicep",
             "radius/agent-release.bicep",
@@ -168,6 +170,20 @@ class NativeAgents(unittest.TestCase):
         declared = self.compiled["radius/agent-models.bicep"]["resources"]
         self.assertIn("local", json.dumps(declared["hybrid"]))
         self.assertIn("cloud", json.dumps(declared["hybrid"]))
+
+    def test_foundry_deployment_is_separate_from_edge(self):
+        environment = self.compiled["radius/foundry-env.bicep"]["resources"]
+        recipes = environment["environment"]["properties"]["properties"]["recipes"]
+        release = recipes["Radius.Resources/agentReleases"]["default"]
+        self.assertEqual(release["templateKind"], "terraform")
+        self.assertIn("project_endpoint", release["parameters"])
+        self.assertTrue(recipes["Radius.Resources/agents"]["default"]["parameters"]["foundryManagedIdentity"])
+        self.assertNotIn("Radius.Resources/agentIdentities", recipes)
+        declared = self.compiled["radius/foundry-agent.bicep"]["resources"]
+        self.assertIsNone(declared["release"]["properties"]["properties"]["binding"])
+        self.assertIn("nativeVersion", self.compiled["radius/foundry-agent.bicep"]["outputs"])
+        logical = self.compiled["radius/recipes/agents/logical.bicep"]
+        self.assertFalse(logical["parameters"]["foundryManagedIdentity"]["defaultValue"])
 
     def test_ordinary_profiles_do_not_install_another_native_stack(self):
         for profile in ["min", "min-ai", "core", "core-ai", "ent", "ent-ai"]:

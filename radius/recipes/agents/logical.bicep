@@ -1,5 +1,7 @@
 param context object
 param namespace string
+@description('Foundry owns cloud identity; do not advertise a nonexistent edge identity resource.')
+param foundryManagedIdentity bool = false
 
 var p = context.resource.properties
 var identityId = replace(context.resource.id, '/agents/', '/agentIdentities/')
@@ -17,10 +19,11 @@ resource agent 'core/ConfigMap@v1' = {
       'adaptive.jplck.io/resource': 'agent'
       'app.kubernetes.io/managed-by': 'radius'
     }
-    annotations: {
+    annotations: union({
       'radius.resource.id': context.resource.id
+    }, foundryManagedIdentity ? {} : {
       'radius.identity.id': identityId
-    }
+    })
   }
   data: {
     name: context.resource.name

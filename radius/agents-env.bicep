@@ -39,7 +39,7 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
       'Radius.Resources/agents': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/agent-logical:0.3.0'
+          templatePath: '${recipeRegistry}/agent-logical:0.4.0'
           plainHttp: plainHttp
           parameters: { namespace: namespace }
         }
