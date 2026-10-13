@@ -574,6 +574,87 @@ publish. Session-only qualification helpers are not an installation dependency.
 No existing installation ownership handover was performed. Restart fencing,
 SDK stored-state caller isolation and durable telemetry replay remain separate
 gates. Six existing SDK isolation tests remain expected failures; denied stored
-Responses must not be exposed. Cloud-model inference/UAMI authorization,
-human Entra federation/OBO, evaluation Jobs and same-image cloud hosting remain
-unqualified; this local demo does not complete those capabilities.
+Responses must not be exposed. Human Entra federation/OBO, evaluation Jobs and
+same-image cloud hosting remain separate gates; the later model evidence below
+does not qualify those capabilities.
+
+### GPU, keyless Foundry models and login evidence
+
+Later on 2026-10-13, the existing host cluster exposed one real RTX 3090 GPU.
+Stock KAITO 0.10.0 deployed pinned Qwen3-0.6B through Radius; the retained cache,
+actual GPU allocation and recreated desired serving arguments were verified.
+The CPU model was retired through Radius in both the host and isolated setup
+proof; only its obsolete weight PVCs were removed.
+
+The existing gateway's Radius owner deployed the corrected multi-model chart,
+without a platform ownership handover or identity/credential regeneration.
+The chart regression fixes router settings accidentally rendered inside the
+model include loop. An exact current-cluster federation was added to the
+reviewed gateway identity without replacing its previous federation.
+Real Foundry `gpt-4o-mini` inference uses renewable
+`WorkloadIdentityCredential`, not an Azure API key.
+
+Gateway provenance headers verified local-first hybrid selection. Stopping the
+actual KAITO workload produced Foundry fallback for ordinary and streaming
+requests; KAITO recovered with unchanged Workspace/cache UIDs. Local, Foundry
+and hybrid SSE all reached `[DONE]`. Unchanged prompt/hosted releases and pinned
+peer calls passed for both local users, including native Responses streaming
+and stored/background/reference/guardrail denials.
+
+Both Alice and Bob passed trusted-browser PKCE login. Their original and
+isolated-proof password files differ; restored localhost forwarding selects the
+original demo and its `.adaptive/private/demo-users.json`. Neither account was
+disabled or locked, and no password reset was needed.
+
+Evidence is in `.adaptive/diagnostics/native-model-proof.json`,
+`native-model-fallback.json`, `native-invocation.json` and `native-browser.json`.
+Seven native compilation/render checks, CLI tests/clippy, chart lint and GPU
+helper shell syntax passed. The isolated shared-portfolio browser proof remains
+separate from the original foundation; its Monitor hierarchy check is not yet
+qualified.
+
+## Pending Foundry 1:1 agent-hosting proof
+
+**Status: planned, not implemented or live-qualified.** Track this separately
+from calling Foundry models through the edge gateway.
+
+The recommended implementation is one custom **Foundry-target release recipe**
+bound to the existing `Radius.Resources/agentReleases` type by a cloud
+environment. Preserve explicit Radius releases and logical prompt/hosted
+kinds; do not add another operator, management emulator or image-build path.
+Dispatch on the declared kind: **prompt → native Foundry prompt agent** and
+**hosted → native Foundry hosted agent**. Never deploy the prompt-runtime image
+as a hosted substitute for a prompt agent.
+Prefer genuine supported Azure provider resources. Where agent-version
+operations are data-plane-only, use the smallest official Foundry SDK/API
+integration inside a stock Radius recipe, with durable actual provider IDs.
+Verify that API/lifecycle contract before selecting the Bicep or Terraform
+implementation.
+
+1. Verify the current Foundry native prompt and hosted-version APIs, Responses
+   support, identity/blueprint support and cloud model/peer bindings. Preserve
+   prompt instructions, model selection and supported tool/skill content;
+   explicitly flag unsupported features rather than silently dropping them.
+   Establish idempotent explicit-release mapping and pin native endpoint
+   routing so creating a candidate cannot silently promote it.
+2. Select an explicitly approved Foundry project, region, registry, identities
+   and billing/compute scope. Mirror the existing hosted editor OCI image with
+   an **identical manifest digest**, without rebuilding; verify registry pull
+   and inference permissions. The prompt runtime image remains edge-only.
+3. Implement the minimal cloud recipe and required target bindings. Supply
+   native cloud DAC/configuration rather than edge Keycloak/adapter endpoints,
+   sidecars or PVC paths. Replaying identical desired state must not allocate
+   another version or replace a logical identity.
+4. Deploy and invoke **both native Foundry kinds**. Verify the prompt resource
+   really has prompt kind and matching supported definition content, and the
+   hosted resource uses the unchanged OCI digest. Verify provider provenance,
+   active pinned versions, foreground Responses, native SSE, real cloud
+   identity/model access and applicable peer calls. Prove scoped
+   retirement/retention, preserve unrelated projects and record sanitized
+   evidence in the existing guides.
+
+The portability gates differ by kind: **prompt agents require native kind and
+definition/content parity; hosted agents require unchanged image-digest parity**.
+A native Foundry prompt agent has no user-supplied OCI image. The edge
+prompt-runtime container is an edge implementation detail, not the cloud
+deployment artifact.
