@@ -1,0 +1,73 @@
+{{- if .Values.foundation }}
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: adaptive
+  namespace: {{ .Release.Namespace }}
+spec:
+  filterOrder:
+    - name: envoy.filters.http.ext_authz
+      after: envoy.filters.http.rbac
+    - name: envoy.filters.http.lua
+      after: envoy.filters.http.ext_authz
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: ClusterIP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: adaptive
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: adaptive
+    namespace: {{ .Release.Namespace }}
+{{- range $name := list "agent-ingress" }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  gatewayClassName: adaptive
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 8080
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ $name }}-default-deny
+  namespace: {{ $.Release.Namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $name }}
+  authorization:
+    defaultAction: Deny
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  type: ExternalName
+  externalName: envoy-{{ $.Release.Namespace }}-{{ $name }}-{{ printf "%s/%s" $.Release.Namespace $name | sha256sum | trunc 8 }}.envoy-gateway-system.svc.cluster.local
+  clusterIP: ""
+  ports:
+    - name: http
+      port: 8080
+{{- end }}
+{{- end }}

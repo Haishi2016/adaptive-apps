@@ -1,0 +1,49 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 192
+    spike_limit_mib: 48
+  resource/release:
+    attributes:
+      - key: service.name
+        from_attribute: adaptive.agent.deployment
+        action: upsert
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+exporters:
+  otlp/traces:
+    endpoint: adaptive-traces:4317
+    tls:
+      insecure: true
+    sending_queue:
+      queue_size: 512
+    retry_on_failure:
+      max_elapsed_time: 300s
+  otlphttp/logs:
+    endpoint: http://adaptive-logs:3100/otlp
+    sending_queue:
+      queue_size: 512
+    retry_on_failure:
+      max_elapsed_time: 300s
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource/release, batch]
+      exporters: [otlp/traces]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/logs]

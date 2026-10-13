@@ -1,0 +1,16 @@
+default:
+    @just --list
+
+build:
+    mkdir -p ../../build
+    CGO_ENABLED=0 go build -o ../../build/dac-adapter .
+
+test:
+    go test ./...
+
+lint:
+    go vet ./...
+    test -z "$(gofmt -l *.go)"
+
+image:
+    cd ../.. && just image dac-adapter

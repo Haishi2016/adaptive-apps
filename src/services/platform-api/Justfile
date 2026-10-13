@@ -1,0 +1,15 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+build:
+    mkdir -p ../../build/platform-api
+    go build -trimpath -o ../../build/platform-api/platform-api .
+
+lint:
+    test -z "$(gofmt -l *.go)"
+    go vet ./...
+
+test:
+    go test -race ./...
+
+image:
+    cd ../.. && just image platform-api

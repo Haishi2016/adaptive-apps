@@ -1,0 +1,166 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-recipe-registry
+  namespace: radius-system
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: {storage: 2Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-recipe-registry
+  namespace: radius-system
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: agent-recipe-registry}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: agent-recipe-registry}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: registry
+          image: docker.io/library/registry@sha256:6c5666b861f3505b116bb9aa9b25175e71210414bd010d92035ff64018f9457e
+          ports: [{containerPort: 5000}]
+          readinessProbe:
+            httpGet: {path: /v2/, port: 5000}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: data, mountPath: /var/lib/registry}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: agent-recipe-registry}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-recipe-registry
+  namespace: radius-system
+spec:
+  selector: {app.kubernetes.io/name: agent-recipe-registry}
+  ports: [{port: 5000}]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: agent-artifacts
+  namespace: radius-system
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path
+  resources:
+    requests: {storage: 2Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-artifacts
+  namespace: radius-system
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: agent-artifacts}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: agent-artifacts}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        fsGroup: 101
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.29.2-alpine@sha256:031d8c8ab79d2d171a2a383aa50a06f527791c05ba1aeae9ca05d7b9779caf8e
+          ports: [{containerPort: 8080}]
+          readinessProbe:
+            tcpSocket: {port: 8080}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          volumeMounts: [{name: data, mountPath: /usr/share/nginx/html}]
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: agent-artifacts}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-artifacts
+  namespace: radius-system
+spec:
+  selector: {app.kubernetes.io/name: agent-artifacts}
+  ports: [{port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-artifact-ingress
+  namespace: radius-system
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [agent-recipe-registry, agent-artifacts]
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: radius-system}
+      ports: [{port: 5000}, {port: 8080}]
+  egress: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agent-radius-installer
+rules:
+  - apiGroups: [""]
+    resources: [namespaces, pods, secrets, configmaps, serviceaccounts, services, persistentvolumeclaims, endpoints, events]
+    verbs: ["*"]
+  - apiGroups: [""]
+    resources: [nodes, persistentvolumes]
+    verbs: [get, list, watch]
+  - apiGroups: [apps, batch, networking.k8s.io, storage.k8s.io, policy, autoscaling, rbac.authorization.k8s.io]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: [apiextensions.k8s.io, admissionregistration.k8s.io, gateway.networking.k8s.io, gateway.envoyproxy.io]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: [discovery.k8s.io, coordination.k8s.io]
+    resources: ["*"]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agent-radius-installer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agent-radius-installer
+subjects:
+  - kind: ServiceAccount
+    name: dynamic-rp
+    namespace: radius-system

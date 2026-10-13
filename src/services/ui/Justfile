@@ -1,0 +1,20 @@
+set shell := ["bash", "-cu"]
+
+install:
+    npm ci
+
+lint:
+    npm run lint
+
+test:
+    npm test -- --run
+
+test-e2e:
+    npm run test:e2e
+
+build:
+    npm run build
+
+# Build locally; pass REGISTRY and VITE_* configuration in the environment.
+image:
+    cd ../.. && just image ui

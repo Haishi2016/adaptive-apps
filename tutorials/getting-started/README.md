@@ -130,6 +130,13 @@ skip ahead to [3 Deploy the sample app](#3-deploy-the-sample-app).
 
 ### 2.2 OPTION 2 — Manual
 
+The optional [native agent capability](../../docs/agents/native-radius.md)
+has its own Radius-owned shared-service/application delivery branch. Complete
+the same cluster preparation (including [Arc federation](../common/prepare-arc.md)
+when connected), then follow that guide. It is not yet integrated into
+`ada bootstrap`; do not install overlapping identity/ingress owners or assume
+the trading application's defaults configure agent identities.
+
 #### 2.2.1 Prepare the cluster
 
 Pick **one** environment and follow the linked guide. Each leaves you with

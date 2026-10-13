@@ -126,6 +126,9 @@ In short: this repository is the **product**, and the MicroHack is the **hands-o
 
 ## Topics
 
+* [Native Radius agents](./docs/agents/native-radius.md) — optional prompt/hosted
+  agents, paired identity, diagnostics and demo network-fault injection without
+  a lifecycle operator. Source migration; live handover remains separately gated.
 * [Agent Guardrails](./docs/agents/guard-rail.md)
 * [Authentication](./docs/authentication/README.md)
 * [Data Sync](./docs/data-sync/README.md)

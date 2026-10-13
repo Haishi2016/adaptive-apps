@@ -1,0 +1,6 @@
+apiVersion: v2
+name: agent-platform
+description: Native agent capability for Adaptive Apps, installed only through Radius.
+type: application
+version: 0.2.1
+appVersion: 0.2.1

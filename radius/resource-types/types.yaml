@@ -16,6 +16,139 @@
 
 namespace: Radius.Resources
 types:
+  agents:
+    description: Retained logical prompt/hosted agent metadata. Radius declares promotion explicitly.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            kind: {type: string, enum: [prompt, hosted]}
+            activeVersion: {type: string, pattern: '^$|^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'}
+            identityRef: {type: string}
+            agentName: {type: string, readOnly: true}
+            agentUid: {type: string, readOnly: true}
+            namespace: {type: string, readOnly: true}
+          required: [environment, application, kind]
+  agentIdentities:
+    description: Independently retained Keycloak identity and optional paired Entra Agent ID/blueprint.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            agentName: {type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'}
+            agentResourceId: {type: string}
+            agentUid: {type: string}
+            delegation: {type: object}
+            identity: {type: object, readOnly: true}
+            identityRef: {type: string, readOnly: true}
+            secretRef: {type: string, readOnly: true}
+            serviceAccountName: {type: string, readOnly: true}
+            blueprintId: {type: string, readOnly: true}
+            agentId: {type: string, readOnly: true}
+            identityMode: {type: string, readOnly: true}
+            namespace: {type: string, readOnly: true}
+          required: [environment, application, agentName, agentResourceId, agentUid]
+  agentReleases:
+    description: Immutable native singleton runtime, direct authorized Responses ingress and retained state.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            agentName: {type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'}
+            agentUid: {type: string}
+            version: {type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'}
+            binding:
+              type: object
+              properties:
+                identity: {type: object}
+                identityRef: {type: string}
+                secretRef: {type: string}
+                serviceAccountName: {type: string}
+              required: [identity, identityRef, secretRef, serviceAccountName]
+            definition:
+              type: object
+              properties:
+                kind: {type: string, enum: [prompt, hosted]}
+                model: {type: string, minLength: 1}
+                image: {type: string, pattern: '^[^@ ]+@sha256:[a-f0-9]{64}$'}
+                runtimeImage: {type: string, pattern: '^[^@ ]+@sha256:[a-f0-9]{64}$'}
+                instructions: {type: string}
+                description: {type: string}
+                temperature: {type: string, pattern: '^([01](\.[0-9]+)?|2(\.0+)?)$'}
+                top_p: {type: string, pattern: '^(0(\.[0-9]+)?|1(\.0+)?)$'}
+                tools:
+                  type: array
+                  items: {type: object}
+                environment:
+                  type: object
+                  additionalProperties: {type: string}
+              required: [kind, model]
+            governance:
+              type: object
+              properties:
+                config: {type: string}
+                digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+                mode: {type: string, enum: [audit, enforce]}
+                reference: {type: string}
+                content: {type: string}
+              required: [config, digest, mode, reference, content]
+            resources: {type: object}
+            stateSize: {type: string}
+            captureName: {type: string, readOnly: true}
+            endpoint: {type: string, readOnly: true}
+          required: [environment, application, agentName, agentUid, version, binding, definition]
+  agentPlatforms:
+    description: Radius-owned Helm release for native agent infrastructure or its upstream Envoy controller.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            repository: {type: string}
+            chart: {type: string}
+            chartVersion: {type: string}
+            valuesJson: {type: string}
+            namespace: {type: string}
+            release: {type: string, readOnly: true}
+          required: [environment, application, repository, chart, chartVersion, valuesJson, namespace]
+  keycloakLogins:
+    description: Native PKCE browser login and optional reviewed Entra federation in an existing realm.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            realm: {type: string}
+            uiOrigin: {type: string}
+            keycloakPublicUrl: {type: string}
+            platformRoles:
+              type: array
+              items: {type: string}
+            platformAudience: {type: string}
+            connected: {type: boolean}
+            entraTenantId: {type: string}
+            entraClientId: {type: string}
+            entraClientSecretVersion: {type: string}
+            manageEntraLinks: {type: boolean}
+            issuer: {type: string, readOnly: true}
+            discoveryUrl: {type: string, readOnly: true}
+            uiClientId: {type: string, readOnly: true}
+            entraRedirectUri: {type: string, readOnly: true, nullable: true}
+            connectedLoginEnabled: {type: boolean, readOnly: true}
+          required: [environment, application, uiOrigin, keycloakPublicUrl, platformRoles]
   postgreSqlDatabases:
     description: |
       The Radius.Resources/postgreSqlDatabases Resource Type adds a PostgreSQL database to an application.
@@ -373,6 +506,19 @@ types:
                 when provisioning the inference backend and write the resolved value back.
                 Examples: gpt-4o, llama-3.1-8b-instruct, phi-3-mini.
                 Defaults to a recipe-specific value when omitted.
+            azure: {type: object}
+            localService: {type: object}
+            localWorkspace: {type: object}
+            members:
+              type: array
+              items: {type: object}
+            deployments:
+              type: array
+              readOnly: true
+              items: {type: object}
+            configMapName: {type: string, readOnly: true}
+            configDigest: {type: string, readOnly: true}
+            discovery: {type: string, readOnly: true}
             endpoint:
               type: string
               readOnly: true
@@ -601,6 +747,10 @@ types:
                 recipe writes a default-allow placeholder so the ConfigMap
                 exists and the agent pod can mount it. Format is sidecar-
                 specific; see the Agent Governance Toolkit docs.
+            policyNamespace: {type: string, enum: [adaptive-guardrails-apps, adaptive-guardrails-platform]}
+            policyDigest: {type: string, pattern: '^[a-f0-9]{64}$'}
+            bundleRef: {type: string, readOnly: true}
+            content: {type: string, readOnly: true}
             image:
               type: string
               description: >
