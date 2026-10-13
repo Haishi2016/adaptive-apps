@@ -39,87 +39,10 @@ var config = {
   'config.yaml': string({ model_list: deployments })
 }
 
-var cpu = service.?cpuInference ?? false
 var gpu = !empty(workspace)
 var labels = { 'adaptive.jplck.io/inference': context.resource.name }
-var image = 'ghcr.io/ggml-org/llama.cpp@sha256:f8f71e3be397e868cdddfb9c404e3a263d9697f82fd7205f4737ac981feea4b8'
-var security = {
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
-  capabilities: { drop: ['ALL'] }
-}
-resource weights 'core/PersistentVolumeClaim@v1' = if (cpu) {
-  metadata: { name: '${service.name}-weights', namespace: namespace }
-  spec: {
-    accessModes: ['ReadWriteOnce']
-    resources: { requests: { storage: '2Gi' } }
-  }
-}
-resource inference 'apps/Deployment@v1' = if (cpu) {
-  metadata: { name: service.name, namespace: namespace }
-  spec: {
-    replicas: 1
-    strategy: { type: 'Recreate' }
-    selector: { matchLabels: labels }
-    template: {
-      metadata: { labels: labels }
-      spec: {
-        automountServiceAccountToken: false
-        securityContext: {
-          runAsNonRoot: true
-          runAsUser: 10001
-          fsGroup: 10001
-          seccompProfile: { type: 'RuntimeDefault' }
-        }
-        initContainers: [{
-          name: 'model-weights'
-          image: image
-          command: [
-            '/bin/sh'
-            '-ec'
-            '''
-            cd /models
-            if printf '%s\n' '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db  qwen2.5-0.5b-instruct-q4_k_m.gguf' | sha256sum -c -; then exit 0; fi
-            curl --fail --location --proto '=https' --proto-redir '=https' --output model.gguf.part 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf'
-            printf '%s\n' '74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db  model.gguf.part' | sha256sum -c -
-            mv model.gguf.part qwen2.5-0.5b-instruct-q4_k_m.gguf
-            '''
-          ]
-          volumeMounts: [{ name: 'weights', mountPath: '/models' }]
-          securityContext: security
-          resources: { requests: { cpu: '50m', memory: '64Mi' }, limits: { memory: '128Mi' } }
-        }]
-        containers: [{
-          name: 'llama-server'
-          image: image
-          args: [
-            '--host', '0.0.0.0', '--port', string(service.port)
-            '--model', '/models/qwen2.5-0.5b-instruct-q4_k_m.gguf'
-            '--alias', service.model
-            '--ctx-size', '2048', '--threads', '2', '--parallel', '1', '--n-predict', '256', '--no-webui'
-          ]
-          ports: [{ name: 'http', containerPort: service.port }]
-          volumeMounts: [{ name: 'weights', mountPath: '/models' }]
-          securityContext: security
-          resources: { requests: { cpu: '1', memory: '1Gi' }, limits: { cpu: '2', memory: '2Gi' } }
-          startupProbe: { httpGet: { path: '/health', port: 'http' }, periodSeconds: 10, failureThreshold: 180 }
-          readinessProbe: { httpGet: { path: '/health', port: 'http' } }
-        }]
-        volumes: [{ name: 'weights', persistentVolumeClaim: { claimName: '${service.name}-weights' } }]
-      }
-    }
-  }
-  dependsOn: [weights]
-}
-resource endpoint 'core/Service@v1' = if (cpu) {
-  metadata: { name: service.name, namespace: namespace }
-  spec: {
-    selector: labels
-    ports: [{ port: service.port, targetPort: 'http' }]
-  }
-}
-resource ingress 'networking.k8s.io/NetworkPolicy@v1' = if (cpu || gpu) {
-  metadata: { name: gpu ? context.resource.name : service.name, namespace: namespace }
+resource ingress 'networking.k8s.io/NetworkPolicy@v1' = if (gpu) {
+  metadata: { name: context.resource.name, namespace: namespace }
   spec: {
     podSelector: { matchLabels: labels }
     policyTypes: ['Ingress']
@@ -208,12 +131,8 @@ resource model 'core/ConfigMap@v1' = {
 output result object = {
   resources: concat(
     ['/planes/kubernetes/local/namespaces/${namespace}/providers/core/ConfigMap/${context.resource.name}'],
-    cpu ? [
-      '/planes/kubernetes/local/namespaces/${namespace}/providers/apps/Deployment/${service.name}'
-      '/planes/kubernetes/local/namespaces/${namespace}/providers/core/Service/${service.name}'
-    ] : [],
     gpu ? ['/planes/kubernetes/local/namespaces/${namespace}/providers/kaito.sh/Workspace/${context.resource.name}'] : [],
-    cpu || gpu ? ['/planes/kubernetes/local/namespaces/${namespace}/providers/networking.k8s.io/NetworkPolicy/${gpu ? context.resource.name : service.name}'] : []
+    gpu ? ['/planes/kubernetes/local/namespaces/${namespace}/providers/networking.k8s.io/NetworkPolicy/${context.resource.name}'] : []
   )
   values: {
     model: properties.model

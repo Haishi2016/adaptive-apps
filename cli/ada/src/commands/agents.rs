@@ -39,6 +39,24 @@ pub struct Config {
     pub agent_names: Vec<String>,
     #[serde(default)]
     pub peers: Vec<Peer>,
+    #[serde(default)]
+    pub models: Vec<Model>,
+    #[serde(default)]
+    pub model_gateway_identity: Option<GatewayIdentity>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Model {
+    pub name: String,
+    pub properties: Value,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GatewayIdentity {
+    pub client_id: String,
+    pub tenant_id: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -274,6 +292,26 @@ pub fn prepare(
     if config.agent_names.iter().any(|name| name.len() > 32) {
         bail!("Agent names must be lowercase DNS labels of at most 32 characters");
     }
+    if config.models.is_empty() {
+        bail!("Supply explicit KAITO/vLLM, Foundry or hybrid model declarations in config.models");
+    }
+    let cloud_models = config
+        .models
+        .iter()
+        .any(|model| model.properties.get("azure").is_some());
+    if cloud_models && config.model_gateway_identity.is_none() {
+        bail!("Foundry models require modelGatewayIdentity with the reviewed gateway client and tenant IDs");
+    }
+    let model_configs: Vec<_> = config
+        .models
+        .iter()
+        .map(|model| {
+            json!({
+                "name": model.name,
+                "digest": model.properties.to_string()
+            })
+        })
+        .collect();
     let images = local_images(&config)?;
     for component in COMPONENTS {
         if !images.get(component).is_some_and(|image| pinned(image)) {
@@ -427,9 +465,7 @@ pub fn prepare(
             "environment": environment, "loginEnvironment": login_environment,
             "keycloakPublicUrl": "https://localhost:8444",
             "login": {"uiOrigin": "https://localhost:8443", "platformRoles": ["agent.invoke"], "connected": false},
-            "models": [{"name": "local-chat", "properties": {"model": "local-chat", "localService": {
-                "name": "local-qwen", "port": 8080, "model": "qwen-demo", "cpuInference": true
-            }}}]
+            "models": config.models
         }),
     )?;
     save(
@@ -444,10 +480,11 @@ pub fn prepare(
                 "runtime": {
                     "uiImage": images["ui"], "apiImage": images["platform-api"], "issuer": issuer,
                     "certificateSecret": "adaptive-ui-tls",
-                    "environmentJson": json!({"name": namespace, "cloud": {"enabled": config.connected.is_some()}}).to_string()
+                    "environmentJson": json!({"name": namespace, "cloud": {"enabled": config.connected.is_some() || cloud_models}}).to_string()
                 },
                 "modelGateway": {
-                    "configs": [{"name": "local-chat", "digest": "local-chat-cpu-v1"}],
+                    "configs": model_configs,
+                    "identity": config.model_gateway_identity,
                     "authorization": {
                         "issuer": issuer, "jwksUrl": format!("{keycloak}/realms/adaptive/protocol/openid-connect/certs"),
                         "clients": (config.agent_names.iter().map(|name| format!("adaptive-{namespace}-{name}")).collect::<Vec<_>>()),
@@ -556,7 +593,8 @@ mod tests {
         fs::write(
             &config,
             serde_json::to_vec(&json!({
-                "recipeArchive":"https://example.test/immutable/recipes.tgz", "images":images
+                "recipeArchive":"https://example.test/immutable/recipes.tgz", "images":images,
+                "models": [{"name":"local-chat","properties":{"model":"local-chat","localService":{"name":"vllm","port":80,"model":"local-chat"}}}]
             }))
             .unwrap(),
         )

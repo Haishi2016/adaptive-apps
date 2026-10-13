@@ -46,7 +46,7 @@ jobs:
           - file: radius/recipes/agents/release.bicep
             tag: recipes/agent-release:0.3.0
           - file: radius/recipes/ai-agent/native-gateway.bicep
-            tag: recipes/agent-model:0.3.0
+            tag: recipes/agent-model:0.4.0
           - file: radius/recipes/agent-guardrails/native-policy.bicep
             tag: recipes/agent-policy:0.3.0
     steps:
