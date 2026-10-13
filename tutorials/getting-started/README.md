@@ -10,7 +10,9 @@ This tutorial walks you through the step of deploying an Adaptive Apps portfolio
 * [helm](https://helm.sh/)
 * [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
 * [rad](https://docs.radapp.io/guides/tooling/rad-cli/howto-rad-cli/)
-* (optional) An [OpenAI API Key](https://platform.openai.com/api-keys) or [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-foundry/models/openai) deployment key, when you plan to use cloud-based LLM.
+* For the trading sample's cloud variant, an optional provider key. Native
+  Foundry models instead require reviewed gateway workload identity and scoped
+  inference access; no Azure API key is used.
 
 
 ## 1. Choose your portfolio
@@ -46,7 +48,7 @@ export AKS_OIDC_ISSUER=$(az aks show \
 
 > **What "On-cluster AI" means here.** The `*-ai` suffix selects the AI capability
 > portfolio; model infrastructure is application-owned through Radius. The
-> trading local-model variant uses KAITO/GPU; the native-agent CPU demo does not.
+> trading and native local-model variants use KAITO/vLLM with real GPUs.
 > Cloud/local selection remains an application binding, not a portfolio switch.
 
 ## 2. Bring up the platform
@@ -116,7 +118,7 @@ the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
     other platform this step is a no-op — `ada` uses whatever cluster the
     current `kubectl` context points at. *For AI portfolios you also need to
     run [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md)
-    when selecting KAITO/GPU inference, not the native CPU demo.*
+    when selecting KAITO/GPU inference.*
     2. **Portfolio chart** — `helm upgrade --install` with the right
     `charts/adaptive-apps/profiles/<portfolio>.yaml` profile. On `aks` it
     also adds the managed-Istio overrides.
@@ -150,6 +152,10 @@ The existing public `radius/agents.example.json` is the configuration template:
 replace its archive placeholder, select imported image tags or explicit digest
 references, and save it as `agents.json`. Build the UI with the documented
 exact HTTPS issuer; no browser client secret belongs in that image.
+Select explicit `models`: the example uses pinned Qwen3-0.6B on KAITO/vLLM.
+Prepare [GPU serving](../common/prepare-gpu-kaito.md) first, or select a Foundry
+model with [reviewed gateway workload identity](../../docs/agents/native-radius.md#models).
+There is no implicit CPU model or Azure API-key fallback.
 
 ```bash
 export PORTFOLIO=min-ai RELEASE=min-ai NAMESPACE=min-ai
@@ -176,6 +182,12 @@ on Unix. Existing secrets/passwords are reused, not regenerated.
 `ada oidc demo-users --namespace "$NAMESPACE" --release "$RELEASE"` can repeat
 optional user setup. Passwords are in `private/demo-users.json`, not terminal
 output. Users get only the `adaptive-platform-api` **client role** `agent.invoke`.
+Use the password file belonging to the selected installation's `--state-dir`.
+Independent demo clusters have different credentials even when both use
+localhost ports 8443/8444; changing a port-forward does not synchronize users.
+After switching installations, use a fresh browser session to avoid cached
+tokens from the other realm. Do not reset passwords to resolve a state-directory
+or port-forward mismatch.
 Native UI login is public authorization-code/S256 PKCE in realm `adaptive`;
 browser federation, Kubernetes OIDC and Agent ID blueprints are distinct.
 

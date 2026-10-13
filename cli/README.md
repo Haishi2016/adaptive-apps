@@ -175,6 +175,15 @@ Supply reviewed credentials; the CLI never invents tenant/issuer IDs or uses
 an Azure CLI Graph bearer. Human Entra federation is a separate reviewed login
 declaration.
 
+`models` is required and contains explicit `{name, properties}` Radius model
+declarations (`localWorkspace`, `localService`, `azure` or captured `members`).
+The example selects pinned KAITO/vLLM Qwen3-0.6B; no CPU server is generated.
+Foundry models require a separate `modelGatewayIdentity` with reviewed
+`clientId` and `tenantId`. Configure its exact cluster issuer, namespace
+ServiceAccount federation and scoped inference role before use; this identity
+is independent of `connected` Graph/agent-blueprint provisioning.
+Gateway mounts and rollout input digests are derived from the declared models.
+
 Project `--state-dir` defaults to `.adaptive`, **not** `$ADA_HOME`.
 `init`/native `bootstrap` generate missing secrets, a checked localhost TLS pair,
 secure Radius parameters, `portfolio.values.json` and `secrets.json` under

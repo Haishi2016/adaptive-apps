@@ -432,11 +432,9 @@ kubectl get pods -n <namespace> -l kaito.sh/workspace=<workspace-name>
 # Stream logs to watch model download and vLLM startup
 kubectl logs -n <namespace> <workspace-pod-name> -f
 ```
-If the Workspace shows `RESOURCEREADY: False` with message "Not enough Nodes are
-ready", this is likely the Kaito v0.9.0 node estimator bug (it ignores
-`max-model-len` from the ConfigMap and over-estimates GPU requirements). Fix by
-inflating the `nvidia.com/gpu.memory` node label — see the
-[root README known issues](../README.md#5-known-issues-kaito-v090) for details.
+If a Workspace reports insufficient nodes, verify allocatable GPUs, truthful
+memory labels and the requested model size. Do not inflate GPU memory or remove
+validation webhooks. Follow the [GPU preparation guide](../tutorials/common/prepare-gpu-kaito.md).
 
 **Backend cannot connect to the MQTT broker**
 The backend logs the CONNECT result and retries with exponential backoff instead

@@ -277,6 +277,7 @@ pub fn prepare(
     for value in [namespace, release, group]
         .into_iter()
         .chain(config.agent_names.iter().map(String::as_str))
+        .chain(config.models.iter().map(|model| model.name.as_str()))
     {
         if value.is_empty()
             || value.len() > 63
@@ -295,12 +296,103 @@ pub fn prepare(
     if config.models.is_empty() {
         bail!("Supply explicit KAITO/vLLM, Foundry or hybrid model declarations in config.models");
     }
-    let cloud_models = config
-        .models
-        .iter()
-        .any(|model| model.properties.get("azure").is_some());
+    let mut model_names = std::collections::BTreeSet::new();
+    for model in &config.models {
+        if !model_names.insert(&model.name) {
+            bail!("Model resource names must be unique: {}", model.name);
+        }
+        let properties = model
+            .properties
+            .as_object()
+            .context("Model properties must be an object")?;
+        if !properties
+            .get("model")
+            .and_then(Value::as_str)
+            .is_some_and(|name| !name.trim().is_empty())
+        {
+            bail!("Each model declaration requires an explicit model name");
+        }
+        if ["localWorkspace", "localService", "azure", "members"]
+            .iter()
+            .filter(|key| properties.contains_key(**key))
+            .count()
+            != 1
+        {
+            bail!("Each model requires exactly one localWorkspace, localService, azure or members binding");
+        }
+        for key in ["localWorkspace", "localService", "azure"] {
+            if properties.get(key).is_some_and(|binding| {
+                !binding.as_object().is_some_and(|object| !object.is_empty())
+            }) {
+                bail!("Model {key} binding must be a nonempty object");
+            }
+        }
+        if properties
+            .get("members")
+            .is_some_and(|members| !members.as_array().is_some_and(|items| !items.is_empty()))
+        {
+            bail!("Hybrid models require nonempty captured members");
+        }
+        if properties
+            .get("localService")
+            .is_some_and(|service| service.get("cpuInference").is_some())
+        {
+            bail!("CPU inference provisioning is removed; use KAITO/vLLM or an existing inference Service");
+        }
+        if let Some(workspace) = properties.get("localWorkspace") {
+            if !workspace
+                .get("image")
+                .and_then(Value::as_str)
+                .is_some_and(pinned)
+                || !workspace
+                    .get("revision")
+                    .and_then(Value::as_str)
+                    .is_some_and(|revision| {
+                        revision.len() == 40 && revision.bytes().all(|c| c.is_ascii_hexdigit())
+                    })
+            {
+                bail!("KAITO/vLLM requires an immutable image digest and exact 40-character model revision");
+            }
+        }
+        if properties
+            .get("azure")
+            .is_some_and(|azure| azure.get("apiKey").is_some() || azure.get("api_key").is_some())
+        {
+            bail!("Foundry model authentication uses gateway workload identity, never API keys");
+        }
+    }
+    let cloud_models = config.models.iter().any(|model| {
+        model.properties.get("azure").is_some()
+            || model
+                .properties
+                .get("members")
+                .and_then(Value::as_array)
+                .is_some_and(|members| {
+                    members.iter().any(|member| {
+                        member
+                            .get("deployments")
+                            .and_then(Value::as_array)
+                            .is_some_and(|deployments| {
+                                deployments.iter().any(|deployment| {
+                                    deployment["litellm_params"]["model"]
+                                        .as_str()
+                                        .is_some_and(|provider| provider.starts_with("azure/"))
+                                })
+                            })
+                    })
+                })
+    });
     if cloud_models && config.model_gateway_identity.is_none() {
         bail!("Foundry models require modelGatewayIdentity with the reviewed gateway client and tenant IDs");
+    }
+    if config
+        .model_gateway_identity
+        .as_ref()
+        .is_some_and(|identity| {
+            identity.client_id.trim().is_empty() || identity.tenant_id.trim().is_empty()
+        })
+    {
+        bail!("Gateway workload identity requires nonempty reviewed clientId and tenantId");
     }
     let model_configs: Vec<_> = config
         .models
@@ -648,6 +740,21 @@ mod tests {
         invalid["agentNames"] = json!(["a".repeat(33)]);
         fs::write(&config, serde_json::to_vec(&invalid).unwrap()).unwrap();
         assert!(prepare(&config, &root, "demo-test", "demo", "adaptive").is_err());
+        invalid["agentNames"] = json!(["writer"]);
+        invalid["models"][0]["properties"]["localService"]["cpuInference"] = json!(true);
+        fs::write(&config, serde_json::to_vec(&invalid).unwrap()).unwrap();
+        assert!(prepare(&config, &root, "demo-test", "demo", "adaptive")
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("CPU inference"));
+        invalid["models"] = json!([{"name":"cloud","properties":{"model":"cloud","azure":{"endpoint":"https://example.test","deployment":"chat"}}}]);
+        fs::write(&config, serde_json::to_vec(&invalid).unwrap()).unwrap();
+        assert!(prepare(&config, &root, "demo-test", "demo", "adaptive")
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("modelGatewayIdentity"));
         fs::remove_dir_all(root).unwrap();
     }
 }

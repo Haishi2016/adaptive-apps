@@ -461,11 +461,28 @@ types:
             localWorkspace: {type: object}
             members:
               type: array
-              items: {type: object}
+              items:
+                type: object
+                required: [model, deployments, priority, weight]
+                properties:
+                  model: {type: string}
+                  deployments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        model_name: {type: string}
+                        litellm_params: {type: object}
+                  priority: {type: integer, minimum: 0}
+                  weight: {type: integer, minimum: 1}
             deployments:
               type: array
               readOnly: true
-              items: {type: object}
+              items:
+                type: object
+                properties:
+                  model_name: {type: string}
+                  litellm_params: {type: object}
             configMapName: {type: string, readOnly: true}
             configDigest: {type: string, readOnly: true}
             discovery: {type: string, readOnly: true}

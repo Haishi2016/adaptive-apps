@@ -14,7 +14,7 @@ trading recipes remain independent of the native-agent environment.
 | `agents` | Logical ConfigMap: kind, identity binding and explicit active version | Retained |
 | `agentIdentities` | Keycloak client, optional Entra blueprint/principal/Agent ID, Secret, binding ConfigMap and ServiceAccount | Independent protected Terraform state |
 | `agentReleases` | Immutable ConfigMap capture; singleton StatefulSet, Service, HTTPRoute, SecurityPolicy, Lua header boundary and NetworkPolicy | Capture and state PVC retained; runtime independently deletable |
-| `aiModels` | Gateway configuration; optional CPU/KAITO inference, or remote Azure binding | Weights/cache retained |
+| `aiModels` | Gateway configuration; KAITO/vLLM inference, existing inference Service, remote Foundry binding or virtual priority group | Weights/cache retained |
 | `agentGuardrails` | Immutable native policy ConfigMap | Retained; release captures exact content |
 | `keycloakLogins` | Existing-realm PKCE client and optional reviewed Entra federation | Separate administrator environment |
 
@@ -202,8 +202,8 @@ credentials and platform resources owned by a disposable release.
    `rad resource-type create --from-file radius/resource-types/types.yaml`.
    Generate its existing extension:
    `rad bicep publish-extension --from-file radius/resource-types/types.yaml --target radius/types.tgz`.
-2. Publish the four native Bicep recipes as `agent-logical`, `agent-release`,
-   `agent-model` and `agent-policy`, version `0.3.0`, using `rad bicep publish`.
+2. Publish `agent-logical`, `agent-release` and `agent-policy` at `0.3.0`,
+   and `agent-model` at `0.4.0`, using `rad bicep publish`.
    Their files are `recipes/agents/{logical,release}.bicep`,
    `recipes/ai-agent/native-gateway.bicep` and
    `recipes/agent-guardrails/native-policy.bicep`. Use the loopback registry
@@ -389,6 +389,91 @@ identity, realm, shared models and other agents remain. Retained captures/PVCs
 are intentional state, not orphan cleanup candidates; purge requires a separate
 explicit authorized operation.
 
+## Models
+
+Native setup requires explicit model declarations, not an implicit CPU server.
+Reuse [GPU preparation](../../tutorials/common/prepare-gpu-kaito.md), the existing
+`Radius.Resources/aiModels` type and the pinned LiteLLM gateway:
+
+| Binding | Implementation |
+| --- | --- |
+| `localWorkspace` | KAITO custom Workspace, pinned vLLM image/model revision, NVIDIA runtime and retained HF cache |
+| `localService` | An existing compatible inference Service; no runtime or CPU provisioning |
+| `azure` | Foundry-hosted OpenAI deployment with gateway workload identity |
+| `members` | Captured backend configurations with native LiteLLM `order` and `weight` |
+
+`radius/agents.example.json` selects Qwen3-0.6B on a real GPU. The small serving
+profile is not evidence of production quality or delegated-tool support.
+For separately authored delivery, `radius/agent-models.bicep` declares local,
+optional Foundry and hybrid resources; its hybrid uses primary resources'
+actual `deployments` outputs rather than another provider-config implementation.
+`localName` identifies the Radius/KAITO resource; `localModel` can preserve an
+existing public model alias without changing agent artifacts.
+Mount the chosen model ConfigMaps in the portfolio's
+`agents.modelGateway.configs`, with their returned `configDigest` values.
+ConfigMap projection alone does not reload LiteLLM: refresh the owning portfolio
+release with reviewed changed digests after model delivery. Do not patch Pods or
+independently Helm-install over a Radius-owned release.
+
+### Foundry workload identity
+
+Foundry authentication belongs to the gateway, not an agent blueprint, browser
+bearer or Graph provisioner. The public CLI configuration is:
+
+```json
+{
+  "modelGatewayIdentity": {"clientId": "<gateway-UAMI-client-id>", "tenantId": "<tenant-id>"},
+  "models": [{
+    "name": "foundry-chat",
+    "properties": {
+      "model": "foundry-chat",
+      "azure": {
+        "provider": "azure",
+        "endpoint": "https://<account>.cognitiveservices.azure.com/",
+        "deployment": "<existing-OpenAI-deployment>",
+        "apiVersion": "2024-10-21"
+      }
+    }
+  }]
+}
+```
+
+Merge these fields into the full reviewed agents configuration. Grant the
+gateway managed identity scoped inference access on that Foundry account, for
+example **Cognitive Services OpenAI User**. Its federated credential must match
+the cluster's actual HTTPS OIDC signer, subject
+`system:serviceaccount:<namespace>:model-gateway` and audience
+`api://AzureADTokenExchange`. Follow the existing Arc/OIDC preparation; an
+unconnected k3d cluster cannot borrow another cluster's signer. Preserve other
+owners' federated credentials and logical Agent IDs.
+
+The chart projects a renewable Kubernetes assertion only into LiteLLM and selects
+`WorkloadIdentityCredential`; it does not require a webhook, Azure API key or
+client secret for this gateway. The traditional LiteLLM `azure` provider uses
+the Cognitive Services token audience. This is distinct from Foundry's newer
+`/openai/v1` SDK examples using `https://ai.azure.com/.default`; do not mix the
+provider, endpoint and audience contracts.
+See [Microsoft's keyless inference guidance](https://learn.microsoft.com/azure/ai-foundry/openai/how-to/managed-identity).
+Only claim connected cloud inference after the actual gateway can invoke the
+configured deployment with its own identity.
+
+### Priority, fallback and weights
+
+Lower `priority` becomes lower native LiteLLM `order` and is preferred. Equal
+orders use relative `weight`; higher orders provide fallback. The pinned
+LiteLLM 1.104.2 router can advance orders despite zero general retries. Its
+native fallback includes upstream authentication/permission errors, not only
+transport failures; content-policy/context errors have separate handling.
+Caller authorization still happens at Envoy before the gateway and cannot be
+bypassed by provider fallback.
+
+Choose local-first or cloud-first explicitly through the authored priorities.
+Cloud-only aliases fail when cloud access is unavailable; hybrid aliases may use
+their configured reachable local member. Verify actual upstream failure,
+primary selection, streaming and recovery before claiming fallback qualification.
+Do not replay output already emitted or represent upstream denial fallback as
+transport-only policy.
+
 ## Connectivity and the demo button
 
 Connectivity is not deployment mode. In-cluster DAC bindings always obtain
@@ -406,8 +491,9 @@ login-provider toggle, global mode ConfigMap or turn replay occurs.
 NetworkPolicies are additive: another public-egress grant defeats this
 injection. The reported value is fault configuration, not WAN reachability,
 completed CNI enforcement, cached-token revocation or termination of established
-connections. Hybrid-model transport fallback remains unqualified; broad retries
-that also retry permission denials are intentionally not enabled.
+connections. Hybrid fallback uses the native semantics documented above, not a
+custom transport-only router. Zero general retries does not disable native
+order-based fallback after upstream permission errors.
 
 Qualification must verify actual cloud HTTPS loss, not just the button value.
 Request an unused cloud audience during the fault to test a cold token mint,

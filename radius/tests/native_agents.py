@@ -29,6 +29,7 @@ class NativeAgents(unittest.TestCase):
             "radius/agent-identity.bicep",
             "radius/agent-release.bicep",
             "radius/agent-services.bicep",
+            "radius/agent-models.bicep",
             "radius/credentials.bicep",
             "radius/agent-policy.bicep",
             "radius/app.bicep",
@@ -54,7 +55,9 @@ class NativeAgents(unittest.TestCase):
                 "environmentJson": '{"name":"fixture","cloud":{"enabled":false}}',
             },
             "modelGateway": {
-                "configs": [{"name": "local-model", "digest": "fixture"}],
+                "identity": {"clientId": "reviewed-client", "tenantId": "reviewed-tenant"},
+                "configs": [{"name": name, "digest": "fixture"}
+                            for name in ["local-model", "cloud-model", "hybrid-model"]],
                 "authorization": {
                     "issuer": "https://id.example/realms/adaptive",
                     "jwksUrl": "http://keycloak.native-test:8080/realms/adaptive/protocol/openid-connect/certs",
@@ -137,6 +140,34 @@ class NativeAgents(unittest.TestCase):
         release = self.compiled["radius/recipes/agents/release.bicep"]["resources"]
         self.assertIn("app.kubernetes.io/component", json.dumps(release))
         self.assertNotIn("agentPlatforms", (ROOT / "radius/resource-types/types.yaml").read_text())
+
+    def test_gpu_models_and_keyless_gateway(self):
+        compiled = self.compiled["radius/recipes/ai-agent/native-gateway.bicep"]
+        kinds = {entry["type"].split("@")[0] for entry in compiled["resources"].values()}
+        self.assertEqual(kinds, {"core/ConfigMap", "core/PersistentVolumeClaim",
+                                 "networking.k8s.io/NetworkPolicy", "kaito.sh/Workspace"})
+        self.assertNotIn("llama-server", json.dumps(compiled))
+        self.assertNotIn("cpuInference", json.dumps(compiled))
+        gateway = next(obj for obj in self.resources if obj["kind"] == "Deployment"
+                       and obj["metadata"]["name"] == "model-gateway")
+        pod = gateway["spec"]["template"]["spec"]
+        env = {entry["name"]: entry for entry in pod["containers"][0]["env"]}
+        self.assertEqual(env["AZURE_CREDENTIAL"]["value"], "WorkloadIdentityCredential")
+        self.assertEqual(env["AZURE_CLIENT_ID"]["value"], "reviewed-client")
+        self.assertNotIn("AZURE_CLIENT_SECRET", env)
+        assertion = next(volume for volume in pod["volumes"] if volume["name"] == "azure-assertion")
+        self.assertEqual(assertion["projected"]["sources"][0]["serviceAccountToken"]["audience"],
+                         "api://AzureADTokenExchange")
+        config = next(obj for obj in self.resources if obj["kind"] == "ConfigMap"
+                      and obj["metadata"]["name"] == "model-gateway")
+        parsed = yaml.safe_load(config["data"]["config.yaml"])
+        self.assertEqual(parsed["include"],
+                         ["/etc/models/local-model.yaml", "/etc/models/cloud-model.yaml",
+                          "/etc/models/hybrid-model.yaml"])
+        self.assertEqual(parsed["router_settings"]["num_retries"], 0)
+        declared = self.compiled["radius/agent-models.bicep"]["resources"]
+        self.assertIn("local", json.dumps(declared["hybrid"]))
+        self.assertIn("cloud", json.dumps(declared["hybrid"]))
 
     def test_ordinary_profiles_do_not_install_another_native_stack(self):
         for profile in ["min", "min-ai", "core", "core-ai", "ent", "ent-ai"]:

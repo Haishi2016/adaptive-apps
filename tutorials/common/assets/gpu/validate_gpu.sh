@@ -1,30 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NODE_NAME="${NODE_NAME:-k3d-localk8s-server-0}"
-
-echo "Checking NVIDIA runtime inside k3d node..."
-docker exec -it "$NODE_NAME" sh -c '
-  which nvidia-container-runtime
-  which nvidia-ctk
-  ls -l /dev/dxg /dev/nvidia* 2>/dev/null || true
-  grep -i nvidia /var/lib/rancher/k3s/agent/etc/containerd/config.toml
-'
-
-echo
-echo "Checking NVIDIA device plugin..."
-kubectl get pods -n kube-system -l name=nvidia-device-plugin-ds
-kubectl logs -n kube-system -l name=nvidia-device-plugin-ds --tail=50
-
-echo
-echo "Checking node GPU capacity..."
-kubectl describe node "$NODE_NAME" | grep -A20 -E "Capacity|Allocatable|nvidia.com/gpu"
+kubectl get runtimeclass nvidia
+kubectl rollout status daemonset/nvidia-device-plugin-daemonset -n kube-system --timeout=180s
+kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\.com/gpu'
 
 echo
 echo "Running CUDA pod test..."
-kubectl delete pod nvidia-runtime-test --ignore-not-found=true
-
-cat <<EOF | kubectl apply -f -
+cat <<EOF | kubectl create -f -
 apiVersion: v1
 kind: Pod
 metadata:
@@ -41,6 +24,10 @@ spec:
         nvidia.com/gpu: 1
 EOF
 
-kubectl wait --for=condition=Ready pod/nvidia-runtime-test --timeout=120s || true
+if ! kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/nvidia-runtime-test --timeout=300s; then
+  kubectl describe pod nvidia-runtime-test
+  kubectl logs nvidia-runtime-test
+  exit 1
+fi
 kubectl logs nvidia-runtime-test
 kubectl delete pod nvidia-runtime-test

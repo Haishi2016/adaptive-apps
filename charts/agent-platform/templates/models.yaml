@@ -13,6 +13,7 @@ data:
     include:
     {{- range $.Values.modelGateway.configs }}
       - /etc/models/{{ .name }}.yaml
+    {{- end }}
     router_settings:
       num_retries: 0
       allowed_fails: 0
@@ -25,7 +26,6 @@ data:
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
       disable_spend_logs: true
-{{- end }}
 ---
 apiVersion: v1
 kind: ServiceAccount
