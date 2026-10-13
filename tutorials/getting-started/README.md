@@ -101,8 +101,10 @@ and Radius environment. Pick **one**:
     # Build/import images and publish recipes first:
     # docs/agents/native-radius.md#local-artifact-and-executor-preparation
     cp radius/agents.example.json agents.json
-    # Replace REPLACE_WITH_COMMIT_SHA with a commit published by
-    # .github/workflows/publish-recipes.yml.
+    # Replace the owner, repository and commit placeholders with your fork and
+    # a commit published by .github/workflows/publish-recipes.yml. GHCR owner
+    # paths must be lowercase. Prefer an explicit `images` map containing the
+    # six immutable fork image digests over the mutable imageRegistry/imageTag.
 
     ada init \
       --agents-config agents.json \

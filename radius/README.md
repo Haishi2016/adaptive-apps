@@ -9,8 +9,8 @@ The optional [native agent capability](../docs/agents/native-radius.md) uses
 and `agent-identity.bicep`. Agent declarations contain append-only immutable
 releases and explicit promotion state. These deploy native resources,
 not an agent operator or lifecycle CRDs. The trading application remains unchanged.
-`agent-models.bicep` provides separately owned KAITO/vLLM, Foundry-model and
-priority-based hybrid declarations using actual primary model outputs.
+`agent-models.bicep` provides separately owned KAITO/vLLM and Foundry model
+backends plus a priority-based `aiGateways` declaration using their actual outputs.
 Foundry **agent hosting** has a source-tested
 [initial-deployment recipe](../docs/agents/native-radius.md#pending-foundry-11-agent-hosting-proof):
 `foundry-env.bicep`, `foundry-agent.bicep` and `recipes/foundry-release`.

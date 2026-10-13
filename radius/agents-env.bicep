@@ -39,7 +39,7 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
       'Radius.Resources/agents': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/agent:0.5.0'
+          templatePath: '${recipeRegistry}/agents:0.5.0'
           plainHttp: plainHttp
           parameters: { platform: platform, namespace: namespace }
         }
@@ -54,7 +54,15 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
       'Radius.Resources/aiModels': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/agent-model:0.4.0'
+          templatePath: '${recipeRegistry}/ai-models:0.4.0'
+          plainHttp: plainHttp
+          parameters: { namespace: namespace }
+        }
+      }
+      'Radius.Resources/aiGateways': {
+        default: {
+          templateKind: 'bicep'
+          templatePath: '${recipeRegistry}/ai-gateways:0.1.0'
           plainHttp: plainHttp
           parameters: { namespace: namespace }
         }
@@ -62,7 +70,7 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
       'Radius.Resources/agentGuardrails': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/agent-policy:0.3.0'
+          templatePath: '${recipeRegistry}/agent-guardrails:0.3.0'
           plainHttp: plainHttp
         }
       }

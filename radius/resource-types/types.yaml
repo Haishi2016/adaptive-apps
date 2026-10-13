@@ -1,8 +1,9 @@
 # types.yaml — All adaptive-apps Radius Resource Type definitions
 #
 # A single namespace is used for all custom resources:
-#   Radius.Resources → postgreSqlDatabases, mqttBrokers, workloadIdentities,
-#                      aiModels, governance, agentGuardrails
+#   Radius.Resources → agents, agentIdentities, keycloakLogins,
+#                      postgreSqlDatabases, mqttBrokers, workloadIdentities,
+#                      aiModels, aiGateways, governance, agentGuardrails
 #
 # Publish a single Bicep extension bundle from this file:
 #
@@ -10,7 +11,7 @@
 #     --file resource-types/types.yaml \
 #     --target types.tgz
 #
-# Register all three resource types in one command:
+# Register all ten resource types in one command:
 #
 #   rad resource-type create --from-file resource-types/types.yaml
 
@@ -386,13 +387,12 @@ types:
 
   aiModels:
     description: |
-      The Radius.Resources/aiModels Resource Type provides an OpenAI-compatible AI inference
-      endpoint to an application. It is provider-agnostic: a Recipe fulfils the type
-      by provisioning the concrete backend infrastructure and returning a uniform set
-      of connection values so that the consuming container never needs to know which
-      AI backend is running.
+      The Radius.Resources/aiModels Resource Type represents one AI inference backend.
+      A Recipe provisions or binds that backend and returns its endpoint and deployment
+      descriptor. Routing, fallback, weighting and stable application-facing aliases
+      belong to Radius.Resources/aiGateways, not this resource.
 
-      Two recipes are provided in this repository:
+      Example recipes provided in this repository include:
 
         kubernetes-kaito.bicep
           Deploys an open-source LLM in-cluster via the Kaito operator on AKS.
@@ -404,7 +404,11 @@ types:
           Best for: Azure environments where managed cloud AI is preferred.
           Outputs: provider="openai", endpoint=https://<account>.openai.azure.com/, apiKey=<key>
 
-      The Recipe is registered per Radius Environment. Switch AI backends by
+        native-model.bicep
+          Provisions or binds one backend for the native agent platform and emits
+          neutral connection facts consumed by an aiGateways resource.
+
+      The Recipe is registered per Radius Environment. Switch model backends by
       registering a different recipe for the same resource type in your environment:
 
         rad recipe register default \
@@ -468,33 +472,12 @@ types:
             azure: {type: object}
             localService: {type: object}
             localWorkspace: {type: object}
-            members:
-              type: array
-              items:
-                type: object
-                required: [model, deployments, priority, weight]
-                properties:
-                  model: {type: string}
-                  deployments:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        model_name: {type: string}
-                        litellm_params: {type: object}
-                  priority: {type: integer, minimum: 0}
-                  weight: {type: integer, minimum: 1}
-            deployments:
-              type: array
+            deployment:
+              type: string
               readOnly: true
-              items:
-                type: object
-                properties:
-                  model_name: {type: string}
-                  litellm_params: {type: object}
-            configMapName: {type: string, readOnly: true}
-            configDigest: {type: string, readOnly: true}
-            discovery: {type: string, readOnly: true}
+            apiVersion:
+              type: string
+              readOnly: true
             endpoint:
               type: string
               readOnly: true
@@ -523,6 +506,55 @@ types:
           required:
             - environment
             - application
+
+  aiGateways:
+    description: |
+      The Radius.Resources/aiGateways Resource Type provides an authenticated,
+      OpenAI-compatible endpoint backed by a dedicated AI gateway such as LiteLLM.
+      It owns model aliases, routing priority, weighting, fallback and retry behavior.
+      Model provisioning remains independently owned by Radius.Resources/aiModels.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            model:
+              type: string
+              minLength: 1
+              description: Public model alias exposed by the gateway.
+            maxRetries:
+              type: integer
+              minimum: 0
+              default: 0
+            members:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                required: [deployment, endpoint, provider, priority, weight]
+                properties:
+                  deployment: {type: string, minLength: 1}
+                  endpoint: {type: string, minLength: 1}
+                  provider: {type: string, minLength: 1}
+                  apiVersion: {type: string}
+                  priority: {type: integer, minimum: 0}
+                  weight: {type: integer, minimum: 1}
+            deployments:
+              type: array
+              readOnly: true
+              items:
+                type: object
+                properties:
+                  model_name: {type: string}
+                  litellm_params: {type: object}
+            configMapName: {type: string, readOnly: true}
+            configDigest: {type: string, readOnly: true}
+            discovery: {type: string, readOnly: true}
+            endpoint: {type: string, readOnly: true}
+            provider: {type: string, readOnly: true}
+          required: [environment, application, model, members]
 
   governance:
     description: |

@@ -22,6 +22,7 @@ class NativeAgents(unittest.TestCase):
         for path in [
             "radius/recipes/agents/logical.bicep",
             "radius/recipes/agents/release.bicep",
+            "radius/recipes/ai-agent/native-model.bicep",
             "radius/recipes/ai-agent/native-gateway.bicep",
             "radius/recipes/agent-guardrails/native-policy.bicep",
             "radius/agents-env.bicep",
@@ -147,6 +148,10 @@ class NativeAgents(unittest.TestCase):
         agent = catalogue["types"]["agents"]["apiVersions"]["2025-08-01-preview"]["schema"]
         self.assertIn("releases", agent["properties"])
         self.assertIn("releases", agent["required"])
+        model = catalogue["types"]["aiModels"]["apiVersions"]["2025-08-01-preview"]["schema"]
+        gateway = catalogue["types"]["aiGateways"]["apiVersions"]["2025-08-01-preview"]["schema"]
+        self.assertNotIn("members", model["properties"])
+        self.assertIn("members", gateway["properties"])
         login = catalogue["types"]["keycloakLogins"]["apiVersions"]["2025-08-01-preview"]["schema"]
         self.assertIn("tradingOrigin", login["properties"])
         self.assertIn("tradingClientId", login["properties"])
@@ -169,12 +174,17 @@ class NativeAgents(unittest.TestCase):
         self.assertIn('["adaptive-ui", "adaptive-trading"]', policies)
 
     def test_gpu_models_and_keyless_gateway(self):
-        compiled = self.compiled["radius/recipes/ai-agent/native-gateway.bicep"]
-        kinds = {entry["type"].split("@")[0] for entry in compiled["resources"].values()}
-        self.assertEqual(kinds, {"core/ConfigMap", "core/PersistentVolumeClaim",
-                                 "networking.k8s.io/NetworkPolicy", "kaito.sh/Workspace"})
-        self.assertNotIn("llama-server", json.dumps(compiled))
-        self.assertNotIn("cpuInference", json.dumps(compiled))
+        model = self.compiled["radius/recipes/ai-agent/native-model.bicep"]
+        model_kinds = {entry["type"].split("@")[0] for entry in model["resources"].values()}
+        self.assertEqual(model_kinds, {"core/PersistentVolumeClaim",
+                                       "networking.k8s.io/NetworkPolicy", "kaito.sh/Workspace"})
+        self.assertNotIn("llama-server", json.dumps(model))
+        self.assertNotIn("cpuInference", json.dumps(model))
+        gateway_recipe = self.compiled["radius/recipes/ai-agent/native-gateway.bicep"]
+        gateway_kinds = {
+            entry["type"].split("@")[0] for entry in gateway_recipe["resources"].values()
+        }
+        self.assertEqual(gateway_kinds, {"core/ConfigMap"})
         gateway = next(obj for obj in self.resources if obj["kind"] == "Deployment"
                        and obj["metadata"]["name"] == "model-gateway")
         pod = gateway["spec"]["template"]["spec"]
@@ -193,6 +203,10 @@ class NativeAgents(unittest.TestCase):
                           "/etc/models/hybrid-model.yaml"])
         self.assertEqual(parsed["router_settings"]["num_retries"], 0)
         declared = self.compiled["radius/agent-models.bicep"]["resources"]
+        self.assertEqual(
+            declared["hybrid"]["type"],
+            "Radius.Resources/aiGateways@2025-08-01-preview",
+        )
         self.assertIn("local", json.dumps(declared["hybrid"]))
         self.assertIn("cloud", json.dumps(declared["hybrid"]))
 

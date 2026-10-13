@@ -34,15 +34,29 @@ resource cloud 'Radius.Resources/aiModels@2025-08-01-preview' = if (!empty(azure
     azure: azure
   }
 }
-resource hybrid 'Radius.Resources/aiModels@2025-08-01-preview' = if (!empty(azure)) {
+resource hybrid 'Radius.Resources/aiGateways@2025-08-01-preview' = if (!empty(azure)) {
   name: hybridName
   properties: {
     application: app.id
     environment: environment
     model: hybridName
     members: [
-      { model: local.properties.model, deployments: local.properties.deployments, priority: localPriority, weight: 1 }
-      { model: cloud!.properties.model, deployments: cloud!.properties.deployments, priority: cloudPriority, weight: 1 }
+      {
+        deployment: local.properties.deployment
+        endpoint: local.properties.endpoint
+        provider: local.properties.provider
+        apiVersion: local.properties.apiVersion
+        priority: localPriority
+        weight: 1
+      }
+      {
+        deployment: cloud!.properties.deployment
+        endpoint: cloud!.properties.endpoint
+        provider: cloud!.properties.provider
+        apiVersion: cloud!.properties.apiVersion
+        priority: cloudPriority
+        weight: 1
+      }
     ]
   }
 }

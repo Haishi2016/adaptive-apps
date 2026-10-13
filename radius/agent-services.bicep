@@ -5,7 +5,7 @@ param environment string
 param keycloakPublicUrl string
 param login object
 param loginEnvironment string
-@description('Explicit model resources. Native gateway recipe accepts localService, localWorkspace, azure or members.')
+@description('Explicit model resources. Each model is exposed through a separately owned AI gateway.')
 param models array = []
 
 resource app 'Applications.Core/applications@2023-10-01-preview' = {
@@ -15,6 +15,22 @@ resource app 'Applications.Core/applications@2023-10-01-preview' = {
 resource model 'Radius.Resources/aiModels@2025-08-01-preview' = [for entry in models: {
   name: entry.name
   properties: union(entry.properties, { application: app.id, environment: environment })
+}]
+resource gateway 'Radius.Resources/aiGateways@2025-08-01-preview' = [for (entry, index) in models: {
+  name: entry.name
+  properties: {
+    application: app.id
+    environment: environment
+    model: model[index].properties.model
+    members: [{
+      deployment: model[index].properties.deployment
+      endpoint: model[index].properties.endpoint
+      provider: model[index].properties.provider
+      apiVersion: model[index].properties.apiVersion
+      priority: entry.?priority ?? 0
+      weight: entry.?weight ?? 1
+    }]
+  }
 }]
 resource browserLogin 'Radius.Resources/keycloakLogins@2025-08-01-preview' = {
   name: 'agent-login'

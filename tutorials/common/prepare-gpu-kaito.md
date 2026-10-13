@@ -77,8 +77,9 @@ and that preset needs the mutation.
 `radius/agents.example.json` selects **Qwen/Qwen3-0.6B**, an exact model revision
 and pinned vLLM image. Native `ada init` consumes explicit `models`, then the
 normal bootstrap deploys them through `radius/agent-services.bicep`.
-Alternatively, `radius/agent-models.bicep` declares independently owned local,
-Foundry and hybrid resources and builds hybrid members from real Radius outputs.
+Alternatively, `radius/agent-models.bicep` declares independently owned local
+and Foundry `aiModels` resources plus an `aiGateways` hybrid route built from
+their real Radius outputs.
 
 The smoke profile requests one GPU, a retained HF cache, 2048-token context,
 one sequence and 30% GPU utilization. It is a small serving test, not a tool

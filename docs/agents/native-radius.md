@@ -186,7 +186,7 @@ orchestration layer.
 | --- | --- |
 | `agents-env.bicep` | Environment and recipe bindings |
 | `credentials.bicep` | Shared provisioning secret store |
-| `agent-services.bicep` | Explicit models and separately owned browser login |
+| `agent-services.bicep` | Explicit models, their AI gateways and separately owned browser login |
 | `agents.bicep` | Logical agent, append-only releases and promotion intent; `recipes/agents/logical.bicep` |
 | `agent-identity.bicep` | Independently retained identity; `recipes/identity-{local,connected}` |
 | `agent-policy.bicep` | Immutable policy; `recipes/agent-guardrails/native-policy.bicep` |
@@ -201,10 +201,12 @@ credentials and platform resources owned by a disposable release.
    `rad resource-type create --from-file radius/resource-types/types.yaml`.
    Generate its existing extension:
    `rad bicep publish-extension --from-file radius/resource-types/types.yaml --target radius/types.tgz`.
-2. Publish `agent` at `0.5.0`, `agent-policy` at `0.3.0`,
-   and `agent-model` at `0.4.0`, using `rad bicep publish`.
+2. Publish `agents` at `0.5.0`, `agent-guardrails` at `0.3.0`,
+   `ai-models` at `0.4.0` and `ai-gateways` at `0.1.0`, using
+   `rad bicep publish`.
    Their files are `recipes/agents/logical.bicep` (which includes the internal
    `release.bicep` module),
+   `recipes/ai-agent/native-model.bicep`,
    `recipes/ai-agent/native-gateway.bicep` and
    `recipes/agent-guardrails/native-policy.bicep`. Use the loopback registry
    address for publication, but the cluster-local address in environment
@@ -404,25 +406,28 @@ explicit authorized operation.
 
 ## Models
 
-Native setup requires explicit model declarations, not an implicit CPU server.
-Reuse [GPU preparation](../../tutorials/common/prepare-gpu-kaito.md), the existing
-`Radius.Resources/aiModels` type and the pinned LiteLLM gateway:
+Native setup requires explicit model and gateway declarations, not an implicit
+CPU server. Reuse [GPU preparation](../../tutorials/common/prepare-gpu-kaito.md),
+`Radius.Resources/aiModels` for individual inference backends and
+`Radius.Resources/aiGateways` for the pinned LiteLLM endpoint:
 
 | Binding | Implementation |
 | --- | --- |
 | `localWorkspace` | KAITO custom Workspace, pinned vLLM image/model revision, NVIDIA runtime and retained HF cache |
 | `localService` | An existing compatible inference Service; no runtime or CPU provisioning |
 | `azure` | Foundry-hosted OpenAI deployment with gateway workload identity |
-| `members` | Captured backend configurations with native LiteLLM `order` and `weight` |
+An `aiModels` resource never owns routing or fallback. It returns neutral backend
+connection facts. The corresponding `aiGateways` resource consumes those facts and owns
+the public alias, LiteLLM `order`, `weight`, fallback and retry behavior.
 
 `radius/agents.example.json` selects Qwen3-0.6B on a real GPU. The small serving
 profile is not evidence of production quality or delegated-tool support.
-For separately authored delivery, `radius/agent-models.bicep` declares local,
-optional Foundry and hybrid resources; its hybrid uses primary resources'
-actual `deployments` outputs rather than another provider-config implementation.
+For separately authored delivery, `radius/agent-models.bicep` declares local and
+optional Foundry model resources plus a hybrid gateway; the gateway uses the
+model resources' actual endpoint, provider and deployment outputs.
 `localName` identifies the Radius/KAITO resource; `localModel` can preserve an
 existing public model alias without changing agent artifacts.
-Mount the chosen model ConfigMaps in the portfolio's
+Mount the chosen gateway ConfigMaps in the portfolio's
 `agents.modelGateway.configs`, with their returned `configDigest` values.
 ConfigMap projection alone does not reload LiteLLM: refresh the owning portfolio
 release with reviewed changed digests after model delivery. Do not patch Pods or

@@ -1,7 +1,7 @@
 {
-  "recipeArchive": "https://github.com/Haishi2016/adaptive-apps/releases/download/recipes-REPLACE_WITH_COMMIT_SHA/recipes.tgz",
-  "recipeRegistry": "ghcr.io/haishi2016/adaptive-apps/recipes",
-  "imageRegistry": "ghcr.io/haishi2016/adaptive-apps",
+  "recipeArchive": "https://github.com/REPLACE_WITH_OWNER/REPLACE_WITH_REPOSITORY/releases/download/recipes-REPLACE_WITH_COMMIT_SHA/recipes.tgz",
+  "recipeRegistry": "ghcr.io/REPLACE_WITH_LOWERCASE_OWNER/adaptive-apps/recipes",
+  "imageRegistry": "ghcr.io/REPLACE_WITH_LOWERCASE_OWNER/adaptive-apps",
   "imageTag": "latest",
   "models": [{
     "name": "local-chat",

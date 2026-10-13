@@ -25,28 +25,56 @@ jobs:
         include:
           - file: radius/recipes/postgres/kubernetes-trading-postgres.bicep
             tag: recipes/postgres:latest
+            resourceType: Radius.Resources/postgreSqlDatabases
+            implementation: kubernetes
           - file: radius/recipes/mqtt/kubernetes-mosquitto.bicep
             tag: recipes/mqtt:latest
+            resourceType: Radius.Resources/mqttBrokers
+            implementation: kubernetes
           - file: radius/recipes/mqtt/azure-event-grid.bicep
             tag: recipes/mqtt-azure-event-grid:latest
+            resourceType: Radius.Resources/mqttBrokers
+            implementation: azure-event-grid
           - file: radius/recipes/workload-identity/local-noop.bicep
             tag: recipes/workload-identity-local:latest
+            resourceType: Radius.Resources/workloadIdentities
+            implementation: local
           - file: radius/recipes/workload-identity/azure-workload-identity.bicep
             tag: recipes/workload-identity-azure:latest
+            resourceType: Radius.Resources/workloadIdentities
+            implementation: azure
           - file: radius/recipes/ai-agent/kubernetes-kaito.bicep
             tag: recipes/ai-agent-kaito:latest
+            resourceType: Radius.Resources/aiModels
+            implementation: kaito
           - file: radius/recipes/ai-agent/azure-openai.bicep
             tag: recipes/ai-agent-azure-openai:latest
+            resourceType: Radius.Resources/aiModels
+            implementation: azure-openai
           - file: radius/recipes/governance/kubernetes-opa.bicep
             tag: recipes/governance-opa:latest
+            resourceType: Radius.Resources/governance
+            implementation: kubernetes-opa
           - file: radius/recipes/agent-guardrails/kubernetes-agt-sidecar.bicep
             tag: recipes/agent-guardrails-agt:latest
+            resourceType: Radius.Resources/agentGuardrails
+            implementation: agt-sidecar
           - file: radius/recipes/agents/logical.bicep
-            tag: recipes/agent:0.5.0
+            tag: recipes/agents:0.5.0
+            resourceType: Radius.Resources/agents
+            implementation: native
+          - file: radius/recipes/ai-agent/native-model.bicep
+            tag: recipes/ai-models:0.4.0
+            resourceType: Radius.Resources/aiModels
+            implementation: native-model
           - file: radius/recipes/ai-agent/native-gateway.bicep
-            tag: recipes/agent-model:0.4.0
+            tag: recipes/ai-gateways:0.1.0
+            resourceType: Radius.Resources/aiGateways
+            implementation: litellm
           - file: radius/recipes/agent-guardrails/native-policy.bicep
-            tag: recipes/agent-policy:0.3.0
+            tag: recipes/agent-guardrails:0.3.0
+            resourceType: Radius.Resources/agentGuardrails
+            implementation: native-policy
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -63,7 +91,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish ${{ matrix.tag }}
+      - name: Publish ${{ matrix.resourceType }} (${{ matrix.implementation }})
         run: |
           rad bicep publish \
             --file ${{ matrix.file }} \
@@ -138,9 +166,22 @@ jobs:
               bicep: {
                 registry: $registry,
                 recipes: {
-                  agent: "0.5.0",
-                  agentModel: "0.4.0",
-                  agentPolicy: "0.3.0"
+                  "Radius.Resources/agents": {
+                    name: "agents",
+                    version: "0.5.0"
+                  },
+                  "Radius.Resources/aiModels": {
+                    name: "ai-models",
+                    version: "0.4.0"
+                  },
+                  "Radius.Resources/aiGateways": {
+                    name: "ai-gateways",
+                    version: "0.1.0"
+                  },
+                  "Radius.Resources/agentGuardrails": {
+                    name: "agent-guardrails",
+                    version: "0.3.0"
+                  }
                 }
               }
             }' > dist/native-recipes.json
@@ -165,6 +206,7 @@ jobs:
           else
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
               --title "Radius recipes ${GITHUB_SHA}" \
               --notes "Immutable Radius Terraform recipes and native recipe manifest for commit ${GITHUB_SHA}." \
               --latest=false \
