@@ -7,8 +7,6 @@ metadata:
   name: adaptive-telemetry
   namespace: {{ .Release.Namespace }}
 data:
-  collector.yaml: |
-{{ .Files.Get "files/collector.yaml" | indent 4 }}
   loki.yaml: |
     auth_enabled: false
     server:
@@ -58,79 +56,6 @@ data:
     analytics:
       reporting_enabled: false
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: otel-collector
-  namespace: {{ .Release.Namespace }}
-spec:
-  selector:
-    app.kubernetes.io/name: otel-collector
-  ports:
-    - name: otlp-grpc
-      port: 4317
-    - name: otlp-http
-      port: 4318
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: otel-collector
-  namespace: {{ .Release.Namespace }}
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: otel-collector
-  template:
-    metadata:
-      annotations:
-        checksum/collector-config: {{ .Files.Get "files/collector.yaml" | sha256sum }}
-      labels:
-        app.kubernetes.io/name: otel-collector
-    spec:
-      automountServiceAccountToken: false
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-      containers:
-        - name: collector
-          image: otel/opentelemetry-collector-contrib:0.116.1@sha256:d0ebf65280da2e1b1491d1b93648281afd353d4b9ea19160090303cec9a233bd
-          args: ["--config=/etc/otel/collector.yaml"]
-          ports:
-            - name: otlp-grpc
-              containerPort: 4317
-            - name: otlp-http
-              containerPort: 4318
-            - name: health
-              containerPort: 13133
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          readinessProbe:
-            httpGet:
-              path: /
-              port: health
-          livenessProbe:
-            httpGet:
-              path: /
-              port: health
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              memory: 256Mi
-          volumeMounts:
-            - name: config
-              mountPath: /etc/otel
-              readOnly: true
-      volumes:
-        - name: config
-          configMap:
-            name: adaptive-telemetry
 {{- range $store := list
     (dict "name" "adaptive-traces" "image" "jaegertracing/all-in-one:1.62.0@sha256:836e9b69c88afbedf7683ea7162e179de63b1f981662e83f5ebb68badadc710f" "uid" 10001 "port" 16686 "health" 14269 "path" "/" "mount" "/badger")
     (dict "name" "adaptive-logs" "image" "grafana/loki:3.3.2@sha256:8af2de1abbdd7aa92b27c9bcc96f0f4140c9096b507c77921ffddf1c6ad6c48f" "uid" 10001 "port" 3100 "health" 3100 "path" "/ready" "mount" "/var/loki") }}

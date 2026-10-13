@@ -1,0 +1,41 @@
+{{- if .Values.features.agents.enabled }}
+{{- if ne (include "adaptive.keycloakEnabled" .) "true" }}
+{{- fail "Native agents require the shared identity capability" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "adaptive.fullname" . }}-agent-realm
+data:
+  adaptive-realm.json: |
+    {
+      "realm": "adaptive",
+      "enabled": true,
+      "registrationAllowed": false,
+      "resetPasswordAllowed": false,
+      "clients": [{
+        "clientId": "adaptive-login-config",
+        "enabled": true,
+        "protocol": "openid-connect",
+        "clientAuthenticatorType": "client-secret",
+        "secret": "${ADAPTIVE_LOGIN_CONFIG_SECRET}",
+        "publicClient": false,
+        "serviceAccountsEnabled": true,
+        "fullScopeAllowed": true,
+        "standardFlowEnabled": false,
+        "directAccessGrantsEnabled": false,
+        "implicitFlowEnabled": false
+      }],
+      "users": [{
+        "username": "service-account-adaptive-login-config",
+        "enabled": true,
+        "serviceAccountClientId": "adaptive-login-config",
+        "realmRoles": [],
+        "clientRoles": {
+          "realm-management": [
+            "manage-clients", "view-clients", "view-realm", "manage-users", "view-users"
+          ]
+        }
+      }]
+    }
+{{- end }}

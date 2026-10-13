@@ -1,15 +1,15 @@
 # Adaptive AI UI
 
 See [native Radius agents](../../../docs/agents/native-radius.md). The UI uses
-Keycloak login and native agent/model ingress; Radius deploys it with the
+Keycloak login and native agent/model ingress; the portfolio chart deploys it with the
 read-only operational API.
 After `npm ci`, use `VITE_MOCK_BACKEND=true npm run dev` for a frontend-only
 preview, or configure external services below for live operations.
 
-The UI is declared by `radius/agent-platform.bicep` through the capability
-chart. Configure exact HTTPS UI/Keycloak origins, a retained TLS Secret and
+The UI is the optional native capability in `charts/adaptive-apps`.
+Configure exact HTTPS UI/Keycloak origins, a retained TLS Secret and
 reviewed human role grants. Local port forwarding and browser certificate trust
-are environment-specific; no deployment wrapper or seeded user is required.
+are environment-specific. `ada oidc demo-users` optionally provisions local demo users.
 
 The browser reads operational inventory/configuration from `platform-api`
 (`/v1/environment`, `/v1/agents` and `/v1/agents/{name}/versions`).

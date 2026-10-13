@@ -5,9 +5,9 @@ param keycloakAdminPassword string
 @secure()
 param keycloakConfigClientSecret string
 @secure()
-param graphClientCertificate string
+param graphClientCertificate string = ''
 @secure()
-param graphClientCertificatePassword string
+param graphClientCertificatePassword string = ''
 
 resource credentials 'Applications.Core/secretStores@2023-10-01-preview' = {
   name: 'agent-provisioning'
@@ -15,12 +15,13 @@ resource credentials 'Applications.Core/secretStores@2023-10-01-preview' = {
   properties: {
     type: 'generic'
     resource: 'radius-system/agent-provisioning'
-    data: {
+    data: union({
       'keycloak-admin-password': { value: keycloakAdminPassword }
       'keycloak-config-client-secret': { value: keycloakConfigClientSecret }
+    }, empty(graphClientCertificate) ? {} : {
       'graph-client-certificate': { value: graphClientCertificate }
       'graph-client-certificate-password': { value: graphClientCertificatePassword }
-    }
+    })
   }
 }
 output credentialsStoreId string = credentials.id

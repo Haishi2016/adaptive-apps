@@ -6,9 +6,15 @@ description: |
   are toggled via feature flags. Six values overlays under ./profiles
   realize the min, core, ent, min-ai, core-ai, ent-ai portfolios.
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "1.0.0"
 keywords:
   - adaptive-apps
   - capability-portfolio
   - unified
+dependencies:
+  - name: agent-platform
+    alias: agents
+    version: 0.3.0
+    repository: file://../agent-platform
+    condition: features.agents.enabled

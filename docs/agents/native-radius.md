@@ -16,8 +16,14 @@ trading recipes remain independent of the native-agent environment.
 | `agentReleases` | Immutable ConfigMap capture; singleton StatefulSet, Service, HTTPRoute, SecurityPolicy, Lua header boundary and NetworkPolicy | Capture and state PVC retained; runtime independently deletable |
 | `aiModels` | Gateway configuration; optional CPU/KAITO inference, or remote Azure binding | Weights/cache retained |
 | `agentGuardrails` | Immutable native policy ConfigMap | Retained; release captures exact content |
-| `agentPlatforms` | Native Helm release through Radius's Terraform executor | Destruction protected |
 | `keycloakLogins` | Existing-realm PKCE client and optional reviewed Entra federation | Separate administrator environment |
+
+The portfolio Helm release owns the additive native capability, shared
+PostgreSQL-backed Keycloak and one OTel Collector. A stock Helm release owns
+the upstream Envoy controller. Radius owns application models, login clients,
+logical agents, retained identities and explicit releases, not either Helm
+release. Superseded native H2/Keycloak, collector and platform Terraform
+implementations have been removed.
 
 Native ValidatingAdmissionPolicies keep logical kind/ownership immutable,
 prevent a second runtime replica (including the scale subresource), reject
@@ -60,7 +66,7 @@ Monitor reads bounded native Jaeger/Loki records, not manufactured events.
 
 ## Delivery
 
-Use an isolated cluster for first qualification. Kubernetes 1.30+ with
+Use an isolated cluster for first qualification. Kubernetes 1.33+ with
 ValidatingAdmissionPolicy, a NetworkPolicy-enforcing CNI, Radius, a default
 persistent StorageClass and registry/archive access are prerequisites.
 The KAITO model variant additionally needs the fork's AI portfolio and suitable
@@ -71,14 +77,28 @@ This follows Adaptive Apps' existing split between
 and application-owned Radius declarations. Connected clusters first complete
 the existing [Arc preparation guide](../../tutorials/common/prepare-arc.md),
 including the actual Kubernetes signer configuration. Do not install two
-Keycloak/Envoy owners over the same resources. The native capability chart is
-an optional delivery branch, not a claim to implement every `core`/`ent` portfolio.
+Keycloak/Envoy owners over the same resources. The native capability is
+`min-ai` plus an additive application feature, not a seventh portfolio or a
+claim to qualify every `core`/`ent` gate.
 
 ### Local artifact and executor preparation
 
-Install stock Radius in the selected, trusted cluster using the existing
-manual bootstrap pattern. The native ingress uses Envoy, so skip a second
-Contour installation:
+Install stock Envoy **before Radius** on a fresh cluster. Envoy v1.9.2 ships
+Gateway API v1.6.1; Radius 0.61 otherwise installs v1.4.0 CRDs first.
+Do not force conflicting CRD ownership or run another CRD installation over
+provider-managed incompatible resources. The CLI fails that preflight.
+For a provider-managed compatible Gateway API installation, follow the
+[upstream separate-CRD installation](https://gateway.envoyproxy.io/docs/install/install-helm/)
+and [compatibility matrix](https://gateway.envoyproxy.io/news/releases/matrix/).
+
+```bash
+helm upgrade --install adaptive-envoy oci://docker.io/envoyproxy/gateway-helm \
+  --version v1.9.2 -n envoy-gateway-system --create-namespace \
+  --set config.envoyGateway.extensionApis.enableLua=true --wait --timeout 10m
+```
+
+Then install stock Radius using the existing manual bootstrap pattern, without
+a second Contour installation:
 
 ```bash
 rad install kubernetes --skip-contour-install \
@@ -91,6 +111,11 @@ Use the existing Radius workspace/group procedure. A private kubeconfig and
 Radius config under ignored `.adaptive/access/` avoid changing another
 workspace's context. `radius/prerequisites.yaml` provides stock PVC-backed
 artifact/OCI servers and the native executor installer role:
+
+When isolating Radius with a custom `HOME`, its workspace command also needs
+the selected kubeconfig at `$HOME/.kube/config` and Bicep in `$HOME/.rad/bin`;
+`KUBECONFIG` alone is insufficient for that stock command. Copy the selected
+existing kubeconfig, never regenerate credentials.
 
 ```bash
 kubectl apply -f radius/prerequisites.yaml
@@ -110,19 +135,35 @@ selected image using `docker save <image> | sudo k3s ctr -n k8s.io images import
 Capture the imported manifest digest for the authored release; do not pass a
 mutable image tag. No `agent-operator` image is built or imported.
 
-For the optional private artifact servers, package the chart with
-`helm package`, generate its index with `helm repo index`, and copy only public
-archives/indexes into the artifact PVC through its nginx Pod. Preserve the
-shared Terraform module's relative path in the archive. Publish Bicep recipes
+For the optional private artifact servers, copy only public Terraform archives
+into the artifact PVC through its nginx Pod. Preserve the shared Terraform
+module's relative path:
+
+```bash
+mkdir -p build/bootstrap
+tar --exclude=.terraform --exclude='*.tfstate*' --exclude=.test-artifacts \
+  -czf build/bootstrap/recipes.tgz -C radius/recipes \
+  identity identity-local identity-connected keycloak-login
+sha256sum build/bootstrap/recipes.tgz
+```
+
+Use that hash as the immutable artifact-server directory; verify the downloaded
+archive against it. Publish Bicep recipes
 with native `rad bicep publish --plain-http` through a loopback registry
 port-forward; enable the environment's explicit `plainHttp=true` only for that
-private registry. The Helm recipe accepts HTTP only for a `.svc.cluster.local`
-repository; external HTTP is rejected. Verify published archive hashes.
+private registry. Build the portfolio dependency with
+`helm dependency build charts/adaptive-apps --skip-refresh`; install/package
+only that parent chart. There is no native platform Helm recipe.
 
 `radius/credentials.bicep` creates the native Radius secret store through
 secure parameters. Deliver its inputs from an ignored mode-0600 private
 parameter file, never command-line secret literals. Reference its returned ID
-from `recipeConfig.envSecrets`:
+from `recipeConfig.envSecrets`.
+
+Local setup writes only the two Keycloak keys. Graph certificate/password
+parameters are optional and omitted from the store unless a reviewed
+certificate is supplied. Connected setup requires both nonempty credential
+files; no placeholder cloud credentials are generated.
 
 | Executor | Environment / secret-store bindings |
 | --- | --- |
@@ -145,7 +186,7 @@ orchestration layer.
 | --- | --- |
 | `agents-env.bicep` | Environment and recipe bindings |
 | `credentials.bicep` | Shared provisioning secret store |
-| `agent-platform.bicep` | Shared platform, explicit models and separately owned browser login |
+| `agent-services.bicep` | Explicit models and separately owned browser login |
 | `agents.bicep` | Logical agent and promotion intent; `recipes/agents/logical.bicep` |
 | `agent-identity.bicep` | Independently retained identity; `recipes/identity-{local,connected}` |
 | `agent-policy.bicep` | Immutable policy; `recipes/agent-guardrails/native-policy.bicep` |
@@ -162,16 +203,24 @@ credentials and platform resources owned by a disposable release.
    Generate its existing extension:
    `rad bicep publish-extension --from-file radius/resource-types/types.yaml --target radius/types.tgz`.
 2. Publish the four native Bicep recipes as `agent-logical`, `agent-release`,
-   `agent-model` and `agent-policy`, version `0.2.1`, using `rad bicep publish`.
-   Package `charts/agent-platform` with `helm package` and publish it to your
-   reviewed OCI repository. These are local delivery commands; no CI/Flux
-   dependency is introduced.
+   `agent-model` and `agent-policy`, version `0.3.0`, using `rad bicep publish`.
+   Their files are `recipes/agents/{logical,release}.bicep`,
+   `recipes/ai-agent/native-gateway.bicep` and
+   `recipes/agent-guardrails/native-policy.bicep`. Use the loopback registry
+   address for publication, but the cluster-local address in environment
+   bindings. These are local commands; CI is optional.
 3. Publish an immutable Terraform source archive (HTTPS externally) containing `identity`,
-   `identity-local`, `identity-connected`, `keycloak-login` and `agents/platform`
+   `identity-local`, `identity-connected` and `keycloak-login`
    at their existing relative paths, including lockfiles. Keep private provider
    state, `.terraform`, credentials and test artifacts out of that archive.
-4. Prepare durable private input files with the existing secret-management process:
-   `adaptive-keycloak-admin` (`password`), `adaptive-keycloak-login-config`
+4. Copy `radius/agents.example.json` to a public reviewed configuration, replace
+   its archive placeholder and select imported immutable images. Run
+   `ada init --agents-config agents.json --namespace <namespace> --release <release>`.
+   This creates missing durable private inputs without AI: administrator,
+   database and service credentials, validated localhost TLS, secure Radius
+   parameters, portfolio values and native Secret declarations. Existing
+   credentials are reused; mismatching generated inputs fail for explicit review.
+   Secrets are `adaptive-keycloak-admin` (`username`, `password`), `adaptive-keycloak-login-config`
    (`client-secret`), `model-gateway-auth` (`master-key` and matching Envoy
    `credential`) and the UI TLS Secret. Do not regenerate existing credentials.
    Give the Radius executor native workload permissions and narrowly scoped
@@ -189,13 +238,17 @@ credentials and platform resources owned by a disposable release.
    The environment may reference the store before its creation, but create
    the store before any identity/login recipe executes. Native `rad env switch`
    has no `--group` flag; explicit deployment IDs avoid workspace-default ambiguity.
-   Create the namespaced prerequisite Secrets after the environment has created
-   the shared namespace, before deploying the foundation.
-6. Deploy `radius/agent-platform.bicep` with explicit model declarations,
-   chart repository/version, browser login environment and platform values.
-   This owns the upstream Envoy controller and the agent capability chart
-   through Radius. Do not install a second controller/Helm release over an
-   existing owned installation.
+   Create the namespace/Secrets before the portfolio install.
+6. Use the [Getting Started native CLI/manual path](../../tutorials/getting-started/README.md#native-agent-application-choice).
+   It installs stock Envoy v1.9.2 with Lua enabled before the parent portfolio
+   chart, waits for the shared Keycloak realm, then deploys
+   `radius/agent-services.bicep`. The initial Helm install does not wait for
+   model configuration that the subsequent Radius application creates;
+   final rollout validation happens after that declaration. The chart is
+   `adaptive-apps` 0.2.0 with the `agent-platform` 0.3.0 dependency.
+   `ada oidc demo-users` optionally creates `alice`/`bob` with only the API
+   client invocation role. Native UI clients remain Terraform-owned; the
+   existing confidential trading client is separate.
 7. Deploy `radius/agents.bicep`, initially with `activeVersion=''`. Deploy
    `radius/agent-identity.bicep` independently, then update the logical
    declaration's `identityRef` to its returned retained binding.
@@ -204,8 +257,8 @@ credentials and platform resources owned by a disposable release.
    readiness gates and verify direct authenticated invocation. Explicitly
    update `activeVersion` using `radius/agents.bicep` only after qualification.
    Publish subsequent versions as separate applications/resources.
-   The capability chart's current version is `0.2.1`; publish a new immutable
-   chart version for changes rather than replacing an already published archive.
+   Publish a new immutable chart/recipe version for changes rather than
+   replacing an already published archive.
 
 Platform recipe bindings are `adapterImage`, `sidecarImage`, `governanceImage`,
 `keycloakUrl`, `issuer`, `ingressUrl`, `otelEndpoint` and optional explicit
@@ -221,7 +274,7 @@ TLS Secret and `environmentJson` (`name`, optional `description`,
 `VITE_KEYCLOAK_AUTHORITY=<exact HTTPS issuer>` and
 `VITE_KEYCLOAK_CLIENT_ID=adaptive-ui`. Nginx receives the Pod namespace at runtime;
 API, Responses and model traffic retain their separate native ingress boundaries.
-Grant approved human users `agent.invoke` through the existing realm process.
+Grant approved human users the `adaptive-platform-api` client role `agent.invoke`.
 Audience claims alone do not grant invocation.
 
 Prompt definitions supply `runtimeImage`, `model`, `instructions` and optional
@@ -278,7 +331,7 @@ Service and forward only loopback ports:
 
 ```bash
 service=$(kubectl -n envoy-gateway-system get services \
-  -l gateway.envoyproxy.io/owning-gateway-name=ui-ingress,gateway.envoyproxy.io/owning-gateway-namespace=adaptive \
+  -l "gateway.envoyproxy.io/owning-gateway-name=ui-ingress,gateway.envoyproxy.io/owning-gateway-namespace=$NAMESPACE" \
   -o jsonpath='{.items[0].metadata.name}')
 kubectl -n envoy-gateway-system port-forward --address 127.0.0.1 \
   "service/$service" 8443:8443 8444:8444
@@ -295,8 +348,11 @@ The Keycloak administrator console is `https://localhost:8444/admin/`.
 Sign into the `master` realm as `admin` using the durable private administrator
 password (`.adaptive/private/keycloak-admin-password` in the qualified demo).
 In the `adaptive` realm, create approved development users, set permanent
-passwords and assign the realm role `agent.invoke`. Ensure that role exists;
-do not grant administrator roles to ordinary users. The qualified users are
+passwords and assign the **client role** `agent.invoke` on
+`adaptive-platform-api` (Users -> Role mapping -> Filter by clients). The login
+recipe creates that role; `ada oidc demo-users --namespace "$NAMESPACE"
+--release "$RELEASE"` performs this optional demo setup automatically.
+Do not grant administrator roles to ordinary users. The qualified users are
 `alice` and `bob`; their generated passwords are recorded only in the
 mode-0600 `.adaptive/private/demo-users.json`. Reuse existing users/passwords;
 do not regenerate credentials to repeat setup.
@@ -385,6 +441,10 @@ validation and diagnostic API/UI tests.
 Run `python3 radius/tests/native_agents.py` (PyYAML and Bicep/Helm required),
 `just --justfile src/Justfile lint`, `test` and `build`; run `terraform test`
 from the individual initialized identity/login recipe directories.
+
+The following dated evidence qualified the prior Radius-owned standalone
+foundation, not the shared portfolio/CLI integration. Requalify the new path
+before treating these results as its deployment evidence.
 
 On 2026-10-13, the explicitly scoped old host demo cluster was wiped and a fresh
 K3s datastore/cluster UID established without restoring its old PVCs or lifecycle

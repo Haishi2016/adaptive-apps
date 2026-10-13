@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/release-helm-charts.yml'
       - 'charts/adaptive-apps/**'
+      - 'charts/agent-platform/**'
 
 env:
   OCI_REGISTRY: ghcr.io

@@ -3,7 +3,6 @@
 // Deploys the full stock-trading simulator on Kubernetes via Radius:
 //   • Radius.Resources/postgreSqlDatabases  → PostgreSQL 16 (with trading schema)
 //   • Radius.Resources/mqttBrokers          → Eclipse Mosquitto 2 (MQTT + WS)
-//   • Radius.Resources/idProviders          → OIDC identity provider (Keycloak by default)
 //   • Radius.Resources/aiModels             → AI inference endpoint (only when aiProvider=='local')
 //   • Radius.Resources/governance           → Mesh-layer PDP (e.g. OPA + Envoy ext_authz; opt-in)
 //   • Radius.Resources/agentGuardrails      → In-pod agent governance sidecar (opt-in, only when AI is enabled)

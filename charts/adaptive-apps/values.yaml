@@ -7,6 +7,8 @@
 # knobs further down still apply when the parent feature is enabled.
 #
 features:
+  agents:
+    enabled: false
   identity:
     enabled: true        # Keycloak + PostgreSQL (in-cluster IdP)
   istio:
@@ -55,6 +57,8 @@ oidc:
     userInfoEndpoint: ""
 
 keycloak:
+  existingSecret: ""
+  publicUrl: ""
   replicaCount: 2
   image:
     repository: quay.io/keycloak/keycloak
@@ -114,6 +118,11 @@ istio:
 # Observability — used when features.observability.enabled
 # =============================================================================
 observability: {}
+
+# Native agents are an additive application capability, not a seventh portfolio.
+agents:
+  telemetry:
+    enabled: false
 
 # =============================================================================
 # Governance (OPA + Istio ext authz) — used when features.governance.opa

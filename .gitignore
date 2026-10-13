@@ -215,6 +215,7 @@ node_modules/
 
 # Radius generated artefacts
 .adaptive/
+charts/adaptive-apps/charts/
 radius/types.tgz
 .terraform/
 *.tfstate

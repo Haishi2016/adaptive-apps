@@ -1,4 +1,3 @@
-{{- if .Values.foundation }}
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -57,4 +56,3 @@ spec:
   egress:
     {{- toYaml $cloudEgress | nindent 4 }}
   {{- end }}
-{{- end }}

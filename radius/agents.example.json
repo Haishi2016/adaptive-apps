@@ -1,0 +1,6 @@
+{
+  "recipeArchive": "http://agent-artifacts.radius-system.svc.cluster.local:8080/REPLACE_WITH_ARCHIVE_SHA256/recipes.tgz",
+  "recipeRegistry": "agent-recipe-registry.radius-system.svc.cluster.local:5000/recipes",
+  "imageRegistry": "adaptive.local/adaptive",
+  "imageTag": "dev"
+}

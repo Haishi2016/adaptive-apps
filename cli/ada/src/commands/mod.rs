@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod bootstrap;
 pub mod catalog;
 pub mod home_cmd;

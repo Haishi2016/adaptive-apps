@@ -5,11 +5,22 @@
 use anyhow::{bail, Result};
 use clap::{Args, Subcommand, ValueEnum};
 
-use crate::home;
 use crate::ui;
+use crate::{commands::agents, home};
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
+    /// Prepare native-agent inputs for either CLI bootstrap or manual deployment.
+    #[arg(long)]
+    agents_config: Option<std::path::PathBuf>,
+    #[arg(long, default_value = ".adaptive")]
+    state_dir: std::path::PathBuf,
+    #[arg(long, default_value = "min-ai")]
+    namespace: String,
+    #[arg(long, default_value = "min-ai")]
+    release: String,
+    #[arg(long, default_value = "adaptive")]
+    group: String,
     /// Print the resolved layout without creating any directories.
     #[arg(long)]
     dry_run: bool,
@@ -29,6 +40,15 @@ pub fn run_init(args: InitArgs) -> Result<()> {
 
     let created = home::ensure()?;
     ui::ok(&format!("ensured {}", created.display()));
+    if let Some(config) = args.agents_config {
+        agents::prepare(
+            &config,
+            &args.state_dir,
+            &args.namespace,
+            &args.release,
+            &args.group,
+        )?;
+    }
     Ok(())
 }
 

@@ -1,13 +1,17 @@
 # Radius Deployment Guide — adaptive-apps
 
-This directory contains all Radius assets needed to deploy the **adaptive-apps** stock-trading simulator on Kubernetes.
+This directory contains the Radius application assets for the trading sample
+and native prompt/hosted agents. Shared infrastructure is the portfolio Helm
+chart; applications do not deploy another Keycloak.
 
 The optional [native agent capability](../docs/agents/native-radius.md) uses
-`agents-env.bicep`, `agent-platform.bicep`, `agents.bicep`,
+`agents-env.bicep`, `agent-services.bicep`, `agents.bicep`,
 `agent-identity.bicep` and `agent-release.bicep`. These deploy native resources,
 not an agent operator or lifecycle CRDs. The trading application remains unchanged.
 Connected clusters use the existing [Arc preparation guide](../tutorials/common/prepare-arc.md)
-before Radius/application deployment. Native artifact/executor prerequisites
+before Radius/application deployment. Use the shared CLI/manual
+[Getting Started](../tutorials/getting-started/README.md) flow.
+Native artifact/executor prerequisites
 and secure credential-store delivery are documented in the agent capability
 guide; they are not a second agent lifecycle installer.
 
@@ -61,7 +65,7 @@ kubectl get pods -n radius-system
 ## Step 2 — Register the Resource Types
 
 Radius needs to know about the custom portable resource types before they can be
-referenced in `app.bicep`. All three types are defined in the single `types.yaml` file
+referenced in `app.bicep`. All types are defined in the single `types.yaml` file
 and can be registered with one command:
 
 ```bash

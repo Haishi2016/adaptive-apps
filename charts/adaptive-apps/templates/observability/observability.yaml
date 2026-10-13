@@ -1,4 +1,5 @@
-{{- if .Values.features.observability.enabled }}
+{{- $native := and .Values.features.agents.enabled .Values.agents.telemetry.enabled }}
+{{- if or .Values.features.observability.enabled $native }}
 ---
 # OTEL Collector ConfigMap
 apiVersion: v1
@@ -11,27 +12,55 @@ data:
     receivers:
       otlp:
         protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
     processors:
       batch:
+      {{- if $native }}
+      resource/release:
+        attributes:
+          - key: service.name
+            from_attribute: adaptive.agent.deployment
+            action: upsert
+      {{- end }}
     exporters:
+      {{- if $native }}
+      otlp/traces:
+        endpoint: adaptive-traces:4317
+        tls:
+          insecure: true
+      otlphttp/logs:
+        endpoint: http://adaptive-logs:3100/otlp
+      {{- end }}
+      {{- if .Values.features.observability.enabled }}
       zipkin:
         endpoint: http://zipkin:9411/api/v2/spans
       prometheusremotewrite:
         endpoint: http://prometheus:9090/api/v1/write
         tls:
           insecure: true
+      {{- end }}
     service:
       pipelines:
         traces:
           receivers: [otlp]
+          processors: [{{ if $native }}resource/release, {{ end }}batch]
+          exporters: [{{ if $native }}otlp/traces{{ if .Values.features.observability.enabled }}, {{ end }}{{ end }}{{ if .Values.features.observability.enabled }}zipkin{{ end }}]
+        {{- if $native }}
+        logs:
+          receivers: [otlp]
           processors: [batch]
-          exporters: [zipkin]
+          exporters: [otlphttp/logs]
+        {{- end }}
+        {{- if .Values.features.observability.enabled }}
         metrics:
           receivers: [otlp]
           processors: [batch]
           exporters: [prometheusremotewrite]
+        {{- end }}
+{{- if .Values.features.observability.enabled }}
 ---
 # Zipkin Deployment
 apiVersion: apps/v1
@@ -133,6 +162,7 @@ spec:
     targetPort: 9090
     name: http
   type: ClusterIP
+{{- end }}
 ---
 # OTEL Collector Deployment
 apiVersion: apps/v1
@@ -149,12 +179,15 @@ spec:
     metadata:
       labels:
         app: otel-collector
+        app.kubernetes.io/name: otel-collector
     spec:
       containers:
       - name: otel-collector
-        image: otel/opentelemetry-collector-contrib:0.111.0
+        image: otel/opentelemetry-collector-contrib:0.116.1@sha256:d0ebf65280da2e1b1491d1b93648281afd353d4b9ea19160090303cec9a233bd
         command: ["/otelcol-contrib", "--config=/etc/otel-collector-config/collector-config.yaml"]
         ports:
+        - containerPort: 4317
+          name: otlp-grpc
         - containerPort: 4318
           name: otlp-http
         volumeMounts:
@@ -175,6 +208,9 @@ spec:
   selector:
     app: otel-collector
   ports:
+  - port: 4317
+    targetPort: 4317
+    name: otlp-grpc
   - port: 4318
     targetPort: 4318
     name: otlp-http

@@ -74,13 +74,6 @@ resource tradingEnv 'Applications.Core/environments@2023-10-01-preview' = {
           templatePath: '${recipeRegistry}/mqtt:latest'
         }
       }
-      // ── Identity provider — Keycloak (OIDC) ───────────────────────────
-      'Radius.Resources/idProviders': {
-        default: {
-          templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/idp-keycloak:latest'
-        }
-      }
       // ── Workload identity — local no-op ────────────────────────────────
       'Radius.Resources/workloadIdentities': {
         default: {

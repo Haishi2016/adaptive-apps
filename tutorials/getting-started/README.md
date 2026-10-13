@@ -44,7 +44,10 @@ export AKS_OIDC_ISSUER=$(az aks show \
 | `core-ai` | ✓ | ✓ | ✓ | ✗ | ✓ |
 | `ent-ai` | ✓ | ✓ | ✓ | ✓ (off by default) | ✓ |
 
-> **What "On-cluster AI" means here.** The `*-ai` suffix only controls whether the cluster provisions Kaito so the sample app can serve a model **locally**. It does **not** restrict which AI provider the app uses at runtime — any portfolio (including `min`) can be pointed at OpenAI / Azure OpenAI via the `aiProvider=openai`. Pick `*-ai` only if you want a self-contained on-cluster model.
+> **What "On-cluster AI" means here.** The `*-ai` suffix selects the AI capability
+> portfolio; model infrastructure is application-owned through Radius. The
+> trading local-model variant uses KAITO/GPU; the native-agent CPU demo does not.
+> Cloud/local selection remains an application binding, not a portfolio switch.
 
 ## 2. Bring up the platform
 
@@ -113,7 +116,7 @@ the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
     other platform this step is a no-op — `ada` uses whatever cluster the
     current `kubectl` context points at. *For AI portfolios you also need to
     run [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md)
-    before invoking `ada bootstrap`.*
+    when selecting KAITO/GPU inference, not the native CPU demo.*
     2. **Portfolio chart** — `helm upgrade --install` with the right
     `charts/adaptive-apps/profiles/<portfolio>.yaml` profile. On `aks` it
     also adds the managed-Istio overrides.
@@ -128,14 +131,99 @@ the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
 4. Copy the `export OIDC_*` lines into the terminal you'll use for step 3 and
 skip ahead to [3 Deploy the sample app](#3-deploy-the-sample-app).
 
+#### Native agent application choice
+
+For native prompt/hosted agents, use **`min-ai` plus `--with agents`** rather
+than a second platform installation. Prepare the same cluster/context above;
+connected Arc additionally follows [the signer/federation guide](../common/prepare-arc.md).
+Kubernetes 1.33+, enforced NetworkPolicies and persistent storage are required.
+The native k3d branch selects K3s v1.35.5, not k3d's older default.
+Use a fresh development cluster or explicitly reset an old standalone demo;
+the CLI refuses overlapping Helm owners. Do not delete unrelated workloads,
+cloud identities or reviewed provisioning credentials.
+
+Build this branch's CLI (`cd cli && cargo build --release`) until CLI 0.2.0 is
+published. Publish the immutable native recipes/archive and build/import
+images using [native artifact preparation](../../docs/agents/native-radius.md#local-artifact-and-executor-preparation).
+These are ordinary local delivery commands, not AI/CI requirements.
+The existing public `radius/agents.example.json` is the configuration template:
+replace its archive placeholder, select imported image tags or explicit digest
+references, and save it as `agents.json`. Build the UI with the documented
+exact HTTPS issuer; no browser client secret belongs in that image.
+
+```bash
+export PORTFOLIO=min-ai RELEASE=min-ai NAMESPACE=min-ai
+helm dependency build charts/adaptive-apps --skip-refresh
+ada init --agents-config agents.json --namespace "$NAMESPACE" --release "$RELEASE"
+ada bootstrap --portfolio "$PORTFOLIO" --platform k8s \
+  --release "$RELEASE" --namespace "$NAMESPACE" --chart-root charts \
+  --with-radius --with agents --agents-config agents.json --demo-users
+```
+
+Select the actual platform, including `k3s` for CLI-created k3d. Native bootstrap
+prepares private inputs, installs stock Envoy before Radius and the optional
+portfolio resources, waits for shared PostgreSQL-backed Keycloak, deploys
+models/native login through Radius, and checks final workload rollouts.
+The trading environment remains separate. Native logical agents, retained
+identities and immutable releases are authored using the same
+[Radius application entrypoints](../../docs/agents/native-radius.md#authored-delivery-order);
+the CLI does not allocate releases or invent agent definitions.
+
+Project `.adaptive/private/` contains generated credentials, TLS, secure
+parameter files, portfolio values and `secrets.json`; `--state-dir` selects a
+different project directory. Files are mode 0600 and the directory mode 0700
+on Unix. Existing secrets/passwords are reused, not regenerated.
+`ada oidc demo-users --namespace "$NAMESPACE" --release "$RELEASE"` can repeat
+optional user setup. Passwords are in `private/demo-users.json`, not terminal
+output. Users get only the `adaptive-platform-api` **client role** `agent.invoke`.
+Native UI login is public authorization-code/S256 PKCE in realm `adaptive`;
+browser federation, Kubernetes OIDC and Agent ID blueprints are distinct.
+
+For the manual equivalent, use that same `ada init` input preparation, then
+ordinary commands rather than a second generator:
+
+```bash
+kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f .adaptive/private/secrets.json
+helm upgrade --install adaptive-envoy oci://docker.io/envoyproxy/gateway-helm \
+  --version v1.9.2 -n envoy-gateway-system --create-namespace \
+  --set config.envoyGateway.extensionApis.enableLua=true --wait --timeout 10m
+helm upgrade --install "$RELEASE" charts/adaptive-apps -n "$NAMESPACE" \
+  -f "charts/adaptive-apps/profiles/$PORTFOLIO.yaml" \
+  -f .adaptive/private/portfolio.values.json
+rad environment create agents --group adaptive --kubernetes-namespace "$NAMESPACE"
+rad deploy radius/agents-env.bicep --group adaptive --environment agents \
+  --parameters @.adaptive/private/environment.parameters.json
+rad deploy radius/credentials.bicep --group adaptive --environment agents \
+  --parameters @.adaptive/private/credentials.parameters.json
+kubectl -n "$NAMESPACE" rollout status "deployment/$RELEASE-keycloak" --timeout=300s
+# Verify realm adaptive is responding before the login recipe executes.
+rad deploy radius/agent-services.bicep --group adaptive --environment agents \
+  --parameters @.adaptive/private/services.parameters.json
+kubectl -n "$NAMESPACE" rollout status deployment --timeout=15m
+ada oidc demo-users --namespace "$NAMESPACE" --release "$RELEASE"
+```
+
+Complete the existing Radius workspace/group/type registration and artifact
+prerequisites before those declarations. Add the ordinary AKS mesh overrides
+when applicable; rendering another portfolio does not establish its live gates.
+On a fresh cluster, install Envoy before Radius's artifact preparation so the
+Gateway API CRDs have one compatible v1.6.1 owner. Existing provider-owned
+incompatible CRDs require an explicit qualified upgrade, not forced adoption.
+The first Helm install must not wait on gateway configuration created by the
+subsequent Radius model declaration.
+
+Use [native browser access](../../docs/agents/native-radius.md#local-browser-access-and-users)
+to forward HTTPS ports 8443/8444 and trust the generated localhost certificate.
+Deleting a release retains identity/state/shared services. Full demo reset is
+an explicit, separately scoped operation, not normal application cleanup.
+
 ### 2.2 OPTION 2 — Manual
 
-The optional [native agent capability](../../docs/agents/native-radius.md)
-has its own Radius-owned shared-service/application delivery branch. Complete
-the same cluster preparation (including [Arc federation](../common/prepare-arc.md)
-when connected), then follow that guide. It is not yet integrated into
-`ada bootstrap`; do not install overlapping identity/ingress owners or assume
-the trading application's defaults configure agent identities.
+For the native-agent application, use the manual equivalent in
+[Native agent application choice](#native-agent-application-choice). The
+following steps are the trading application's confidential-client variant;
+both use the same portfolio Keycloak, not competing shared-service owners.
 
 #### 2.2.1 Prepare the cluster
 
@@ -149,7 +237,7 @@ Pick **one** environment and follow the linked guide. Each leaves you with
 | Azure Arc-enabled cluster | [`common/prepare-arc.md`](../common/prepare-arc.md) |
 | Azure Local | [`common/prepare-azure-local.md`](../common/prepare-azure-local.md) |
 
-AI portfolios (`*-ai`) additionally need GPU + Kaito on the cluster. Follow
+The KAITO inference variant additionally needs GPU + Kaito on the cluster. Follow
 [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md) before
 proceeding.
 

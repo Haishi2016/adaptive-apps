@@ -5,6 +5,7 @@ extension kubernetes with {
 }
 
 param namespace string = 'adaptive'
+param environmentName string = 'agents'
 param recipeRegistry string
 @description('Immutable Terraform source archive; HTTPS externally or explicit cluster-local HTTP.')
 param recipeArchive string
@@ -28,7 +29,7 @@ resource loginNamespace 'core/Namespace@v1' = {
 }
 
 resource environment 'Applications.Core/environments@2023-10-01-preview' = {
-  name: 'agents'
+  name: environmentName
   dependsOn: [agentNamespace]
   properties: {
     compute: { kind: 'kubernetes', namespace: namespace }
@@ -38,7 +39,7 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
       'Radius.Resources/agents': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/agent-logical:0.2.1'
+          templatePath: '${recipeRegistry}/agent-logical:0.3.0'
           plainHttp: plainHttp
           parameters: { namespace: namespace }
         }
@@ -46,7 +47,7 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
       'Radius.Resources/agentReleases': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/agent-release:0.2.1'
+          templatePath: '${recipeRegistry}/agent-release:0.3.0'
           plainHttp: plainHttp
           parameters: { platform: platform, namespace: namespace }
         }
@@ -58,13 +59,10 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
           parameters: union(identityParameters, { namespace: namespace })
         }
       }
-      'Radius.Resources/agentPlatforms': {
-        default: { templateKind: 'terraform', templatePath: '${recipeArchive}//agents/platform' }
-      }
       'Radius.Resources/aiModels': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/agent-model:0.2.1'
+          templatePath: '${recipeRegistry}/agent-model:0.3.0'
           plainHttp: plainHttp
           parameters: { namespace: namespace }
         }
@@ -72,7 +70,7 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
       'Radius.Resources/agentGuardrails': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/agent-policy:0.2.1'
+          templatePath: '${recipeRegistry}/agent-policy:0.3.0'
           plainHttp: plainHttp
         }
       }

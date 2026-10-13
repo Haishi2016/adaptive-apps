@@ -2,7 +2,7 @@
 #
 # A single namespace is used for all custom resources:
 #   Radius.Resources → postgreSqlDatabases, mqttBrokers, workloadIdentities,
-#                      aiModels, idProviders, governance, agentGuardrails
+#                      aiModels, governance, agentGuardrails
 #
 # Publish a single Bicep extension bundle from this file:
 #
@@ -106,22 +106,6 @@ types:
             captureName: {type: string, readOnly: true}
             endpoint: {type: string, readOnly: true}
           required: [environment, application, agentName, agentUid, version, binding, definition]
-  agentPlatforms:
-    description: Radius-owned Helm release for native agent infrastructure or its upstream Envoy controller.
-    apiVersions:
-      '2025-08-01-preview':
-        schema:
-          type: object
-          properties:
-            environment: {type: string}
-            application: {type: string}
-            repository: {type: string}
-            chart: {type: string}
-            chartVersion: {type: string}
-            valuesJson: {type: string}
-            namespace: {type: string}
-            release: {type: string, readOnly: true}
-          required: [environment, application, repository, chart, chartVersion, valuesJson, namespace]
   keycloakLogins:
     description: Native PKCE browser login and optional reviewed Entra federation in an existing realm.
     apiVersions:
@@ -391,40 +375,6 @@ types:
             - environment
             - application
 
-  idProviders:
-    description: |
-      The Radius.Resources/idProviders Resource Type adds an OpenID Connect identity provider to an application.
-      Keycloak is the default implementation deployed by the Kubernetes Recipe.
-    apiVersions:
-      '2025-08-01-preview':
-        schema:
-          type: object
-          properties:
-            environment:
-              type: string
-              description: (Required) The Radius Environment ID. Typically set by the rad CLI.
-            application:
-              type: string
-              description: (Required) The Radius Application ID.
-            issuer:
-              type: string
-              readOnly: true
-              description: (Read Only) The OIDC issuer URL for the identity provider.
-            authEndpoint:
-              type: string
-              readOnly: true
-              description: (Read Only) The authorization endpoint URL for initiating OIDC auth flows.
-            tokenEndpoint:
-              type: string
-              readOnly: true
-              description: (Read Only) The token endpoint URL for exchanging auth codes and refreshing tokens.
-            userInfoEndpoint:
-              type: string
-              readOnly: true
-              description: (Read Only) The user info endpoint URL for retrieving authenticated user details.
-          required:
-            - environment
-            - application
   aiModels:
     description: |
       The Radius.Resources/aiModels Resource Type provides an OpenAI-compatible AI inference

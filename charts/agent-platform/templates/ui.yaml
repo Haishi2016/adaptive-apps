@@ -246,7 +246,7 @@ spec:
         issuer: {{ required "runtime.issuer is required" .Values.runtime.issuer | quote }}
         audiences: ["api://adaptive-broker"]
         remoteJWKS:
-          uri: http://keycloak.{{ .Release.Namespace }}.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/certs
+          uri: http://{{ .Values.keycloakService | default (printf "%s-keycloak" .Release.Name) }}.{{ .Release.Namespace }}.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/certs
         extractFrom:
           headers:
             - name: Authorization
@@ -302,7 +302,7 @@ spec:
       name: ui-ingress
   authorization:
     defaultAction: Deny
-{{- range $listener := list (dict "name" "ui" "service" "ui") (dict "name" "identity" "service" "keycloak") }}
+{{- range $listener := list (dict "name" "ui" "service" "ui") (dict "name" "identity" "service" (.Values.keycloakService | default (printf "%s-keycloak" .Release.Name))) }}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute

@@ -365,7 +365,7 @@ resource isolation 'networking.k8s.io/NetworkPolicy@v1' = {
         ports: [{ protocol: 'UDP', port: 53 }, { protocol: 'TCP', port: 53 }]
       }
       {
-        to: [{ podSelector: { matchLabels: { 'app.kubernetes.io/name': 'keycloak' } } }]
+        to: [{ podSelector: { matchLabels: { 'app.kubernetes.io/component': 'keycloak' } } }]
         ports: [{ protocol: 'TCP', port: 8080 }]
       }
       {

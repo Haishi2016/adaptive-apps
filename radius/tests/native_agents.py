@@ -28,7 +28,8 @@ class NativeAgents(unittest.TestCase):
             "radius/agents.bicep",
             "radius/agent-identity.bicep",
             "radius/agent-release.bicep",
-            "radius/agent-platform.bicep",
+            "radius/agent-services.bicep",
+            "radius/credentials.bicep",
             "radius/agent-policy.bicep",
             "radius/app.bicep",
         ]:
@@ -41,6 +42,10 @@ class NativeAgents(unittest.TestCase):
             )
             cls.compiled[path] = json.loads(target.read_text())
         values = {
+            "features": {"agents": {"enabled": True}},
+            "agents": {
+            "keycloakService": "agents-keycloak",
+            "telemetry": {"enabled": True},
             "runtime": {
                 "uiImage": "ui@sha256:" + "a" * 64,
                 "apiImage": "api@sha256:" + "b" * 64,
@@ -58,6 +63,7 @@ class NativeAgents(unittest.TestCase):
                     "tenantId": "",
                 },
             },
+            },
         }
         source = Path(cls.temp.name) / "values.yaml"
         source.write_text(yaml.safe_dump(values))
@@ -66,9 +72,11 @@ class NativeAgents(unittest.TestCase):
                 "helm",
                 "template",
                 "agents",
-                str(ROOT / "charts/agent-platform"),
+                str(ROOT / "charts/adaptive-apps"),
                 "--namespace",
                 "native-test",
+                "-f",
+                str(ROOT / "charts/adaptive-apps/profiles/min-ai.yaml"),
                 "-f",
                 str(source),
             ],
@@ -105,6 +113,49 @@ class NativeAgents(unittest.TestCase):
         self.assertIn("version", release["variables"]["name"])
         self.assertIn("radiusResourceId", serialized)
         self.assertIn("item_ttl_seconds=-1", release["variables"]["stateInit"])
+
+    def test_shared_identity_and_collector(self):
+        credentials = self.compiled["radius/credentials.bicep"]
+        for name in ["graphClientCertificate", "graphClientCertificatePassword"]:
+            self.assertEqual(credentials["parameters"][name]["defaultValue"], "")
+        self.assertIn("empty(parameters('graphClientCertificate'))", json.dumps(credentials))
+        deployments = [obj for obj in self.resources if obj["kind"] == "Deployment"]
+        keycloak = [obj for obj in deployments if obj["metadata"]["name"].endswith("-keycloak")]
+        collector = [obj for obj in deployments if obj["metadata"]["name"] == "otel-collector"]
+        self.assertEqual(len(keycloak), 1)
+        self.assertEqual(len(collector), 1)
+        container = keycloak[0]["spec"]["template"]["spec"]["containers"][0]
+        self.assertIn("--import-realm", container["command"])
+        env = {entry["name"]: entry for entry in container["env"]}
+        self.assertEqual(env["KC_DB"]["value"], "postgres")
+        labels = collector[0]["spec"]["template"]["metadata"]["labels"]
+        self.assertEqual(labels["app.kubernetes.io/name"], "otel-collector")
+        config = next(obj for obj in self.resources if obj["kind"] == "ConfigMap"
+                      and obj["metadata"]["name"] == "otel-collector-config")
+        parsed = yaml.safe_load(config["data"]["collector-config.yaml"])
+        self.assertEqual(parsed["service"]["pipelines"]["traces"]["exporters"], ["otlp/traces"])
+        release = self.compiled["radius/recipes/agents/release.bicep"]["resources"]
+        self.assertIn("app.kubernetes.io/component", json.dumps(release))
+        self.assertNotIn("agentPlatforms", (ROOT / "radius/resource-types/types.yaml").read_text())
+
+    def test_ordinary_profiles_do_not_install_another_native_stack(self):
+        for profile in ["min", "min-ai", "core", "core-ai", "ent", "ent-ai"]:
+            with self.subTest(profile=profile):
+                rendered = subprocess.check_output([
+                    "helm", "template", "portfolio", str(ROOT / "charts/adaptive-apps"),
+                    "-f", str(ROOT / f"charts/adaptive-apps/profiles/{profile}.yaml"),
+                ], text=True)
+                objects = [obj for obj in yaml.safe_load_all(rendered) if obj]
+                self.assertFalse(any(obj["kind"] == "GatewayClass" for obj in objects))
+                self.assertFalse(any(obj["metadata"]["name"] == "platform-api" for obj in objects))
+                keycloak = next(obj for obj in objects if obj["kind"] == "Deployment"
+                                and obj["metadata"]["name"].endswith("-keycloak"))
+                pod = keycloak["spec"]["template"]["spec"]
+                self.assertNotIn("volumes", pod)
+                self.assertNotIn("volumeMounts", pod["containers"][0])
+                collectors = [obj for obj in objects if obj["kind"] == "Deployment"
+                              and obj["metadata"]["name"] == "otel-collector"]
+                self.assertEqual(len(collectors), 0 if profile.startswith("min") else 1)
 
     def test_direct_admission_boundary(self):
         release = self.compiled["radius/recipes/agents/release.bicep"]["resources"]

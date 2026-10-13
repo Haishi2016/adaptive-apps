@@ -43,7 +43,7 @@ extension with the native Radius commands in the agent delivery guide.
 `radius/agents-env.bicep` declares an isolated login environment with its own
 `loginRecipeConfig`. Configure the archive URL, credentials-store ID, Keycloak
 URL, realm and dedicated administrator client through that environment.
-`radius/agent-platform.bicep` declares the login in that administrator environment
+`radius/agent-services.bicep` declares the login in that administrator environment
 with exact UI/public URLs, API roles/audience, Entra tenant/client IDs and `connected`.
 Use explicit reviewed Radius resource-group/environment selection for both.
 The default is `connected=false`.
