@@ -61,11 +61,11 @@ jobs:
             resourceType: Radius.Resources/agents
             implementation: native
           - file: radius/recipes/ai-agent/native-model.bicep
-            tag: recipes/ai-models:0.4.0
+            tag: recipes/ai-models:0.5.0
             resourceType: Radius.Resources/aiModels
             implementation: native-model
           - file: radius/recipes/ai-agent/native-gateway.bicep
-            tag: recipes/ai-gateways:0.1.0
+            tag: recipes/ai-gateways:0.2.0
             resourceType: Radius.Resources/aiGateways
             implementation: litellm
           - file: radius/recipes/agent-guardrails/native-policy.bicep
@@ -177,11 +177,11 @@ jobs:
                   },
                   "Radius.Resources/aiModels": {
                     name: "ai-models",
-                    version: "0.4.0"
+                    version: "0.5.0"
                   },
                   "Radius.Resources/aiGateways": {
                     name: "ai-gateways",
-                    version: "0.1.0"
+                    version: "0.2.0"
                   },
                   "Radius.Resources/agentGuardrails": {
                     name: "agent-guardrails",

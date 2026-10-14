@@ -43,6 +43,8 @@ pub struct Config {
     pub models: Vec<Model>,
     #[serde(default)]
     pub model_gateway_identity: Option<GatewayIdentity>,
+    #[serde(default)]
+    pub openai_api_key_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -209,6 +211,35 @@ pub(super) fn secret(directory: &Path, name: &str) -> Result<String> {
     Ok(result)
 }
 
+fn retained_secret(directory: &Path, name: &str, source: &Path) -> Result<String> {
+    if source.is_symlink() {
+        bail!("Refusing a symlink credential source: {}", source.display());
+    }
+    let value = fs::read_to_string(source)
+        .with_context(|| format!("Unable to read credential source {}", source.display()))?
+        .trim()
+        .to_owned();
+    if value.is_empty() {
+        bail!("Credential source {} is empty", source.display());
+    }
+    let retained = directory.join(name);
+    if retained.is_symlink() {
+        bail!("Refusing a symlink credential: {}", retained.display());
+    }
+    if retained.exists() {
+        if fs::read_to_string(&retained)?.trim() != value {
+            bail!(
+                "{} differs from {}; rotate the retained credential explicitly",
+                source.display(),
+                retained.display()
+            );
+        }
+    } else {
+        private_write(&retained, value.as_bytes())?;
+    }
+    Ok(value)
+}
+
 fn parameters(directory: &Path, name: &str, values: Value) -> Result<()> {
     let parameters: BTreeMap<_, _> = values
         .as_object()
@@ -312,26 +343,20 @@ pub fn prepare(
         {
             bail!("Each model declaration requires an explicit model name");
         }
-        if ["localWorkspace", "localService", "azure", "members"]
+        if ["localWorkspace", "localService", "azure", "openai"]
             .iter()
             .filter(|key| properties.contains_key(**key))
             .count()
             != 1
         {
-            bail!("Each model requires exactly one localWorkspace, localService, azure or members binding");
+            bail!("Each model requires exactly one localWorkspace, localService, azure or openai binding");
         }
-        for key in ["localWorkspace", "localService", "azure"] {
+        for key in ["localWorkspace", "localService", "azure", "openai"] {
             if properties.get(key).is_some_and(|binding| {
                 !binding.as_object().is_some_and(|object| !object.is_empty())
             }) {
                 bail!("Model {key} binding must be a nonempty object");
             }
-        }
-        if properties
-            .get("members")
-            .is_some_and(|members| !members.as_array().is_some_and(|items| !items.is_empty()))
-        {
-            bail!("Hybrid models require nonempty captured members");
         }
         if properties
             .get("localService")
@@ -360,30 +385,30 @@ pub fn prepare(
         {
             bail!("Foundry model authentication uses gateway workload identity, never API keys");
         }
+        if let Some(openai) = properties.get("openai") {
+            let endpoint = openai.get("endpoint").and_then(Value::as_str).unwrap_or("");
+            if !endpoint.starts_with("https://")
+                || endpoint.contains('@')
+                || endpoint.contains('?')
+                || endpoint.contains('#')
+            {
+                bail!("OpenAI models require an explicit HTTPS endpoint without credentials, query or fragment");
+            }
+        }
     }
-    let cloud_models = config.models.iter().any(|model| {
-        model.properties.get("azure").is_some()
-            || model
-                .properties
-                .get("members")
-                .and_then(Value::as_array)
-                .is_some_and(|members| {
-                    members.iter().any(|member| {
-                        member
-                            .get("deployments")
-                            .and_then(Value::as_array)
-                            .is_some_and(|deployments| {
-                                deployments.iter().any(|deployment| {
-                                    deployment["litellm_params"]["model"]
-                                        .as_str()
-                                        .is_some_and(|provider| provider.starts_with("azure/"))
-                                })
-                            })
-                    })
-                })
-    });
+    let cloud_models = config
+        .models
+        .iter()
+        .any(|model| model.properties.get("azure").is_some());
+    let openai_models = config
+        .models
+        .iter()
+        .any(|model| model.properties.get("openai").is_some());
     if cloud_models && config.model_gateway_identity.is_none() {
         bail!("Foundry models require modelGatewayIdentity with the reviewed gateway client and tenant IDs");
+    }
+    if openai_models != config.openai_api_key_file.is_some() {
+        bail!("Public OpenAI models require exactly one openaiApiKeyFile private input");
     }
     if config
         .model_gateway_identity
@@ -424,6 +449,11 @@ pub fn prepare(
     let login = secret(&private, "keycloak-config-client-secret")?;
     let trading = secret(&private, "adaptive-trading-client-secret")?;
     let gateway = secret(&private, "model-gateway-master-key")?;
+    let openai_api_key = config
+        .openai_api_key_file
+        .as_deref()
+        .map(|source| retained_secret(&private, "openai-api-key", source))
+        .transpose()?;
     let database = secret(&private, "keycloak-db-password")?;
     let cert = private.join("ui-tls.crt");
     let key = private.join("ui-tls.key");
@@ -582,10 +612,11 @@ pub fn prepare(
                 "runtime": {
                     "uiImage": images["ui"], "apiImage": images["platform-api"], "issuer": issuer,
                     "certificateSecret": "adaptive-ui-tls",
-                    "environmentJson": json!({"name": namespace, "cloud": {"enabled": config.connected.is_some() || cloud_models}}).to_string()
+                    "environmentJson": json!({"name": namespace, "cloud": {"enabled": config.connected.is_some() || cloud_models || openai_models}}).to_string()
                 },
                 "modelGateway": {
                     "configs": model_configs,
+                    "cloudEgress": cloud_models || openai_models,
                     "identity": config.model_gateway_identity,
                     "authorization": {
                         "issuer": issuer, "jwksUrl": format!("{keycloak}/realms/adaptive/protocol/openid-connect/certs"),
@@ -596,17 +627,18 @@ pub fn prepare(
             }
         }),
     )?;
-    save(
-        &private.join("secrets.json"),
-        &json!({
-            "apiVersion": "v1", "kind": "List", "items": [
-                {"apiVersion":"v1","kind":"Secret","metadata":{"name":"adaptive-keycloak-admin","namespace":namespace},"stringData":{"username":"admin","password":admin}},
-                {"apiVersion":"v1","kind":"Secret","metadata":{"name":"adaptive-keycloak-login-config","namespace":namespace},"stringData":{"client-secret":login,"adaptive-trading-client-secret":trading}},
-                {"apiVersion":"v1","kind":"Secret","metadata":{"name":"model-gateway-auth","namespace":namespace},"stringData":{"master-key":gateway,"credential":format!("Bearer {gateway}")}},
-                {"apiVersion":"v1","kind":"Secret","type":"kubernetes.io/tls","metadata":{"name":"adaptive-ui-tls","namespace":namespace},"stringData":{"tls.crt":fs::read_to_string(&cert)?,"tls.key":fs::read_to_string(&key)?}}
-            ]
-        }),
-    )?;
+    let mut secrets = json!({
+        "apiVersion": "v1", "kind": "List", "items": [
+            {"apiVersion":"v1","kind":"Secret","metadata":{"name":"adaptive-keycloak-admin","namespace":namespace},"stringData":{"username":"admin","password":admin}},
+            {"apiVersion":"v1","kind":"Secret","metadata":{"name":"adaptive-keycloak-login-config","namespace":namespace},"stringData":{"client-secret":login,"adaptive-trading-client-secret":trading}},
+            {"apiVersion":"v1","kind":"Secret","metadata":{"name":"model-gateway-auth","namespace":namespace},"stringData":{"master-key":gateway,"credential":format!("Bearer {gateway}")}},
+            {"apiVersion":"v1","kind":"Secret","type":"kubernetes.io/tls","metadata":{"name":"adaptive-ui-tls","namespace":namespace},"stringData":{"tls.crt":fs::read_to_string(&cert)?,"tls.key":fs::read_to_string(&key)?}}
+        ]
+    });
+    if let Some(openai_api_key) = openai_api_key {
+        secrets["items"][2]["stringData"]["openai-api-key"] = json!(openai_api_key);
+    }
+    save(&private.join("secrets.json"), &secrets)?;
     ui::ok(&format!(
         "Native inputs ready in {}; existing credentials preserved",
         private.display()
@@ -776,6 +808,73 @@ mod tests {
             .unwrap()
             .to_string()
             .contains("modelGatewayIdentity"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn openai_key_is_retained_only_in_private_gateway_secret() {
+        let root = std::env::temp_dir().join(format!(
+            "ada-openai-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let key = root.join("openai.key");
+        private_write(&key, b"test-openai-secret").unwrap();
+        let config = root.join("config.json");
+        let images: BTreeMap<_, _> = COMPONENTS
+            .into_iter()
+            .map(|component| {
+                (
+                    component,
+                    format!("registry/{component}@sha256:{}", "a".repeat(64)),
+                )
+            })
+            .collect();
+        fs::write(
+            &config,
+            serde_json::to_vec(&json!({
+                "recipeArchive": "https://example.test/immutable/recipes.tgz",
+                "images": images,
+                "openaiApiKeyFile": key,
+                "models": [{
+                    "name": "openai-chat",
+                    "properties": {
+                        "model": "gpt-4o-mini",
+                        "openai": {
+                            "endpoint": "https://api.openai.com/v1",
+                            "model": "gpt-4o-mini"
+                        }
+                    }
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let prepared = prepare(&config, &root, "openai-test", "demo", "adaptive").unwrap();
+        let secrets: Value =
+            serde_json::from_slice(&fs::read(prepared.private.join("secrets.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            secrets["items"][2]["stringData"]["openai-api-key"],
+            "test-openai-secret"
+        );
+        let services =
+            fs::read_to_string(prepared.private.join("services.parameters.json")).unwrap();
+        assert!(!services.contains("test-openai-secret"));
+        let retained = fs::read_to_string(prepared.private.join("openai-api-key")).unwrap();
+        assert_eq!(retained, "test-openai-secret");
+
+        fs::write(&key, "changed-secret").unwrap();
+        assert!(prepare(&config, &root, "openai-test", "demo", "adaptive")
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("rotate the retained credential explicitly"));
         fs::remove_dir_all(root).unwrap();
     }
 }

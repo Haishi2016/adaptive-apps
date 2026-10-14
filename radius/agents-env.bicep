@@ -54,7 +54,7 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
       'Radius.Resources/aiModels': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/ai-models:0.4.0'
+          templatePath: '${recipeRegistry}/ai-models:0.5.0'
           plainHttp: plainHttp
           parameters: { namespace: namespace }
         }
@@ -62,7 +62,7 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
       'Radius.Resources/aiGateways': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/ai-gateways:0.1.0'
+          templatePath: '${recipeRegistry}/ai-gateways:0.2.0'
           plainHttp: plainHttp
           parameters: { namespace: namespace }
         }

@@ -114,7 +114,9 @@ and Radius environment. Pick **one**:
 
     The example local model requires a GPU. Complete
     [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md), or configure
-    a reviewed remote model. There is no automatic CPU fallback.
+    a reviewed remote model. Public OpenAI uses an `openai` binding and
+    `openaiApiKeyFile`; `ada init` retains that file's value only in the private
+    model-gateway Secret. There is no automatic CPU fallback.
 
 4. Bootstrap the selected sample.
 

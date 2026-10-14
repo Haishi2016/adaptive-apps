@@ -10,10 +10,11 @@ var properties = context.resource.properties
 var service = properties.?localService ?? {}
 var workspace = properties.?localWorkspace ?? {}
 var azure = properties.?azure ?? {}
+var openai = properties.?openai ?? {}
 var local = !empty(service) || !empty(workspace)
 var endpoint = local
   ? 'http://${empty(workspace) ? service.name : context.resource.name}.${namespace}.svc.cluster.local:${empty(workspace) ? service.port : 80}/v1'
-  : azure.?endpoint ?? ''
+  : (!empty(openai) ? openai.endpoint : azure.?endpoint ?? '')
 var gpu = !empty(workspace)
 var labels = { 'adaptive.jplck.io/inference': context.resource.name }
 resource ingress 'networking.k8s.io/NetworkPolicy@v1' = if (gpu) {
@@ -102,9 +103,11 @@ output result object = {
   )
   values: {
     model: properties.model
-    deployment: local ? (empty(workspace) ? service.model : properties.model) : azure.?deployment ?? ''
+    deployment: local
+      ? (empty(workspace) ? service.model : properties.model)
+      : (!empty(openai) ? openai.?model ?? properties.model : azure.?deployment ?? '')
     endpoint: endpoint
-    provider: local ? 'local' : 'azure'
+    provider: local ? 'local' : (!empty(openai) ? 'openai' : 'azure')
     apiVersion: azure.?apiVersion ?? ''
   }
 }

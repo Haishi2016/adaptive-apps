@@ -185,10 +185,16 @@ class NativeAgents(unittest.TestCase):
             entry["type"].split("@")[0] for entry in gateway_recipe["resources"].values()
         }
         self.assertEqual(gateway_kinds, {"core/ConfigMap"})
+        self.assertNotIn("OPENAI_API_KEY", json.dumps(model))
+        self.assertIn("os.environ/OPENAI_API_KEY", json.dumps(gateway_recipe))
         gateway = next(obj for obj in self.resources if obj["kind"] == "Deployment"
                        and obj["metadata"]["name"] == "model-gateway")
         pod = gateway["spec"]["template"]["spec"]
         env = {entry["name"]: entry for entry in pod["containers"][0]["env"]}
+        self.assertEqual(
+            env["OPENAI_API_KEY"]["valueFrom"]["secretKeyRef"],
+            {"name": "model-gateway-auth", "key": "openai-api-key", "optional": True},
+        )
         self.assertEqual(env["AZURE_CREDENTIAL"]["value"], "WorkloadIdentityCredential")
         self.assertEqual(env["AZURE_CLIENT_ID"]["value"], "reviewed-client")
         self.assertNotIn("AZURE_CLIENT_SECRET", env)

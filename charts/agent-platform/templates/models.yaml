@@ -86,6 +86,20 @@ spec:
             matchExpressions:
               - key: adaptive.jplck.io/inference
                 operator: Exists
+{{- if .Values.modelGateway.cloudEgress }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -143,6 +157,12 @@ spec:
                 secretKeyRef:
                   name: model-gateway-auth
                   key: master-key
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: model-gateway-auth
+                  key: openai-api-key
+                  optional: true
             - name: LITELLM_TELEMETRY
               value: "False"
             - name: MODEL_CONFIG_DIGEST

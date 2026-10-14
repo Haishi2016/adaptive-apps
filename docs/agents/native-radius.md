@@ -202,7 +202,7 @@ credentials and platform resources owned by a disposable release.
    Generate its existing extension:
    `rad bicep publish-extension --from-file radius/resource-types/types.yaml --target radius/types.tgz`.
 2. Publish `agents` at `0.5.0`, `agent-guardrails` at `0.3.0`,
-   `ai-models` at `0.4.0` and `ai-gateways` at `0.1.0`, using
+   `ai-models` at `0.5.0` and `ai-gateways` at `0.2.0`, using
    `rad bicep publish`.
    Their files are `recipes/agents/logical.bicep` (which includes the internal
    `release.bicep` module),
@@ -271,7 +271,9 @@ Platform recipe bindings are `adapterImage`, `sidecarImage`, `governanceImage`,
 digests. `ingressUrl` is the public client origin, not an internal DNS name.
 Model-gateway chart values require an exact issuer/JWKS URL and explicit
 per-agent Keycloak client allowlist. Connected Azure models use the gateway's
-own federated workload identity; no Azure API key is introduced.
+own federated workload identity; no Azure API key is introduced. Public OpenAI
+enables explicit outbound TCP/443 while excluding private, loopback and
+link-local ranges.
 
 UI values include immutable `runtime.uiImage`/`apiImage`, the exact realm issuer,
 TLS Secret and `environmentJson` (`name`, optional `description`,
@@ -419,6 +421,29 @@ CPU server. Reuse [GPU preparation](../../tutorials/common/prepare-gpu-kaito.md)
 An `aiModels` resource never owns routing or fallback. It returns neutral backend
 connection facts. The corresponding `aiGateways` resource consumes those facts and owns
 the public alias, LiteLLM `order`, `weight`, fallback and retry behavior.
+
+Public OpenAI uses an `openai` model binding and a separate private key file:
+
+```json
+{
+  "openaiApiKeyFile": "/home/user/.config/adaptive/openai.key",
+  "models": [{
+    "name": "openai-chat",
+    "properties": {
+      "model": "gpt-4o-mini",
+      "openai": {
+        "endpoint": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini"
+      }
+    }
+  }]
+}
+```
+
+`ada init` retains the key in its mode-0600 private state and writes it only to
+the `model-gateway-auth` Secret. Radius model properties and generated LiteLLM
+ConfigMaps contain `os.environ/OPENAI_API_KEY`, never the credential. A changed
+source key fails instead of silently rotating the retained credential.
 
 `radius/agents.example.json` selects Qwen3-0.6B on a real GPU. The small serving
 profile is not evidence of production quality or delegated-tool support.

@@ -15,6 +15,8 @@ var deployments = map(properties.members, member => {
     max_retries: properties.?maxRetries ?? 0
   }, member.provider == 'local' ? {
     api_key: 'unused-local-no-auth'
+  } : member.provider == 'openai' ? {
+    api_key: 'os.environ/OPENAI_API_KEY'
   } : empty(member.?apiVersion ?? '') ? {} : {
     api_version: member.apiVersion
   }, {

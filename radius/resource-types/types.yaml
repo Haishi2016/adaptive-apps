@@ -470,6 +470,7 @@ types:
                 Examples: gpt-4o, llama-3.1-8b-instruct, phi-3-mini.
                 Defaults to a recipe-specific value when omitted.
             azure: {type: object}
+            openai: {type: object}
             localService: {type: object}
             localWorkspace: {type: object}
             deployment:
