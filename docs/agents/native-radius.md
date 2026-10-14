@@ -101,8 +101,7 @@ Then install stock Radius using the existing manual bootstrap pattern, without
 a second Contour installation:
 
 ```bash
-rad install kubernetes --skip-contour-install \
-  --set global.terraform.version=1.15.8 --timeout 15m
+rad install kubernetes --skip-contour-install
 rad version
 kubectl get deployments -n radius-system
 ```
@@ -202,7 +201,7 @@ credentials and platform resources owned by a disposable release.
    Generate its existing extension:
    `rad bicep publish-extension --from-file radius/resource-types/types.yaml --target radius/types.tgz`.
 2. Publish `agents` at `0.5.0`, `agent-guardrails` at `0.3.0`,
-   `ai-models` at `0.5.0` and `ai-gateways` at `0.2.0`, using
+   `ai-models` at `0.5.1` and `ai-gateways` at `0.2.0`, using
    `rad bicep publish`.
    Their files are `recipes/agents/logical.bicep` (which includes the internal
    `release.bicep` module),

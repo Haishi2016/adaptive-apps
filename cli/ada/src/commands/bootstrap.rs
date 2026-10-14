@@ -828,13 +828,7 @@ fn install_radius(args: &BootstrapArgs) -> Result<()> {
     let mut rad_install = Command::new("rad");
     rad_install.args(["install", "kubernetes"]);
     if args.with.contains(&Capability::Agents) {
-        rad_install.args([
-            "--skip-contour-install",
-            "--set",
-            "global.terraform.version=1.15.8",
-            "--timeout",
-            "15m",
-        ]);
+        rad_install.arg("--skip-contour-install");
     }
     if matches!(args.platform, Some(Platform::Aks)) {
         rad_install.args(["--set", "global.azureWorkloadIdentity.enabled=true"]);
@@ -1106,7 +1100,7 @@ fn native_prerequisites(args: &BootstrapArgs, prepared: &agents::Prepared) -> Re
                 "agents",
                 "--group",
                 &args.radius_group,
-                "--kubernetes-namespace",
+                "--namespace",
                 &args.namespace,
             ]);
             command

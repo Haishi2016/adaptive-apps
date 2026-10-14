@@ -49,19 +49,19 @@ resource kaito 'kaito.sh/Workspace@v1beta1' = if (gpu) {
     namespace: namespace
     annotations: { 'radius.resource.id': context.resource.id }
   }
-  resource: { labelSelector: { matchLabels: workspace.nodeSelector } }
+  resource: { labelSelector: { matchLabels: workspace.?nodeSelector ?? {} } }
   inference: {
     template: {
       metadata: { labels: labels }
       spec: {
         runtimeClassName: workspace.?runtimeClass ?? 'nvidia'
-        nodeSelector: workspace.nodeSelector
+        nodeSelector: workspace.?nodeSelector ?? {}
         automountServiceAccountToken: false
         containers: [{
           name: 'vllm'
-          image: workspace.image
+          image: workspace.?image ?? ''
           args: [
-            '--model=${workspace.source}', '--revision=${workspace.revision}'
+            '--model=${workspace.?source ?? ''}', '--revision=${workspace.?revision ?? ''}'
             '--served-model-name=${properties.model}'
             '--dtype=half', '--max-model-len=2048', '--gpu-memory-utilization=0.3'
             '--tensor-parallel-size=1', '--max-num-seqs=1', '--enforce-eager'

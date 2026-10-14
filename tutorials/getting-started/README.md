@@ -11,7 +11,7 @@ This tutorial walks you through the step of deploying an Adaptive Apps portfolio
 * [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
 * [rad](https://docs.radapp.io/guides/tooling/rad-cli/howto-rad-cli/)
 * The integrated native-agent path additionally requires Terraform
-  1.15.7–1.15.x, Kubernetes 1.33+, persistent storage and enforced
+  1.10–1.16, Kubernetes 1.33+, persistent storage and enforced
   NetworkPolicies.
 * For the trading sample's cloud variant, an optional provider key. Native
   Foundry models instead require reviewed gateway workload identity and scoped

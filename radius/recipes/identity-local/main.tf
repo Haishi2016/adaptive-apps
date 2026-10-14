@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.15.7, < 1.16.0"
+  required_version = ">= 1.10.0, < 1.17.0"
   required_providers {
     kubernetes = { source = "hashicorp/kubernetes", version = "= 2.38.0" }
     keycloak   = { source = "keycloak/keycloak", version = "= 5.10.0" }

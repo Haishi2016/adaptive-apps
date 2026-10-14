@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.15.7, < 1.16.0"
+  required_version = ">= 1.10.0, < 1.17.0"
   required_providers {
     azapi = { source = "Azure/azapi", version = "= 2.9.0" }
   }
