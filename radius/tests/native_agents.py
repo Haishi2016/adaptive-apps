@@ -181,6 +181,7 @@ class NativeAgents(unittest.TestCase):
         model_kinds = {entry["type"].split("@")[0] for entry in kaito["resources"].values()}
         self.assertEqual(model_kinds, {"core/PersistentVolumeClaim",
                                        "networking.k8s.io/NetworkPolicy", "kaito.sh/Workspace"})
+
         self.assertNotIn("llama-server", json.dumps(model))
         self.assertNotIn("cpuInference", json.dumps(model))
         gateway_recipe = self.compiled["radius/recipes/ai-agent/native-gateway.bicep"]
@@ -219,6 +220,14 @@ class NativeAgents(unittest.TestCase):
         )
         self.assertIn("local", json.dumps(declared["hybrid"]))
         self.assertIn("cloud", json.dumps(declared["hybrid"]))
+
+    def test_embedded_ui_uses_native_namespace_for_agent_ingress(self):
+        nginx = (ROOT / "src/services/ui/nginx.conf").read_text()
+        self.assertIn(
+            "agent-ingress.${POD_NAMESPACE}.svc.cluster.local",
+            nginx,
+        )
+        self.assertNotIn("proxy_pass http://agent-ingress:8080", nginx)
 
     def test_foundry_deployment_is_separate_from_edge(self):
         environment = self.compiled["radius/foundry-env.bicep"]["resources"]
