@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
-	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -271,7 +270,8 @@ func responsesEndpoint(rel release, _ *object) any {
 	if !rel.ready {
 		return nil
 	}
-	return strings.TrimRight(text(rel.document, "endpoint"), "/") + "/responses"
+	return "/agents/" + text(rel.document, "agentName") +
+		"/versions/" + text(rel.document, "version") + "/responses"
 }
 
 func created(o *object) any {

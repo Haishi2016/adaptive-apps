@@ -178,7 +178,7 @@ func TestNativeReleaseAndExplicitPromotion(t *testing.T) {
 		t.Fatal("implicit promotion")
 	}
 	view = request(t, f.api, "GET", "/v1/agents/demo/versions/v1", "", 200)
-	if view["phase"] != "Ready" || view["instructions"] != "Be concise" || view["endpoint"] != "https://adaptive.local/agents/demo/versions/v1/responses" {
+	if view["phase"] != "Ready" || view["instructions"] != "Be concise" || view["endpoint"] != "/agents/demo/versions/v1/responses" {
 		t.Fatalf("bad native projection: %#v", view)
 	}
 	if view["identity"].(map[string]any)["keycloakClientId"] != "paired-client" {
