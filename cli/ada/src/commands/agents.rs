@@ -51,7 +51,7 @@ pub struct Config {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Model {
     pub name: String,
-    #[serde(default = "default_recipe")]
+    #[serde(default = "default_recipe", skip_serializing_if = "is_default_recipe")]
     pub recipe: String,
     pub properties: Value,
 }
@@ -76,6 +76,9 @@ fn default_agents() -> Vec<String> {
 }
 fn default_recipe() -> String {
     "default".into()
+}
+fn is_default_recipe(recipe: &str) -> bool {
+    recipe == "default"
 }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
