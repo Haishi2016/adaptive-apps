@@ -23,6 +23,7 @@ class NativeAgents(unittest.TestCase):
             "radius/recipes/agents/logical.bicep",
             "radius/recipes/agents/release.bicep",
             "radius/recipes/ai-agent/native-model.bicep",
+            "radius/recipes/ai-agent/native-model-kaito.bicep",
             "radius/recipes/ai-agent/native-gateway.bicep",
             "radius/recipes/agent-guardrails/native-policy.bicep",
             "radius/agents-env.bicep",
@@ -175,7 +176,9 @@ class NativeAgents(unittest.TestCase):
 
     def test_gpu_models_and_keyless_gateway(self):
         model = self.compiled["radius/recipes/ai-agent/native-model.bicep"]
-        model_kinds = {entry["type"].split("@")[0] for entry in model["resources"].values()}
+        self.assertEqual(model["resources"], [])
+        kaito = self.compiled["radius/recipes/ai-agent/native-model-kaito.bicep"]
+        model_kinds = {entry["type"].split("@")[0] for entry in kaito["resources"].values()}
         self.assertEqual(model_kinds, {"core/PersistentVolumeClaim",
                                        "networking.k8s.io/NetworkPolicy", "kaito.sh/Workspace"})
         self.assertNotIn("llama-server", json.dumps(model))
@@ -186,6 +189,7 @@ class NativeAgents(unittest.TestCase):
         }
         self.assertEqual(gateway_kinds, {"core/ConfigMap"})
         self.assertNotIn("OPENAI_API_KEY", json.dumps(model))
+        self.assertNotIn("kaito.sh/Workspace", json.dumps(model))
         self.assertIn("os.environ/OPENAI_API_KEY", json.dumps(gateway_recipe))
         gateway = next(obj for obj in self.resources if obj["kind"] == "Deployment"
                        and obj["metadata"]["name"] == "model-gateway")
@@ -350,6 +354,16 @@ class NativeAgents(unittest.TestCase):
         for kind in ["agents", "agentIdentities", "aiModels"]:
             parameters = recipes[f"Radius.Resources/{kind}"]["default"]["parameters"]
             self.assertIn("namespace", json.dumps(parameters))
+        model_recipes = recipes["Radius.Resources/aiModels"]
+        self.assertEqual(set(model_recipes), {"default", "kaito"})
+        self.assertIn("ai-models:0.5.2", model_recipes["default"]["templatePath"])
+        self.assertIn("ai-models-kaito:0.5.2", model_recipes["kaito"]["templatePath"])
+        services = json.dumps(self.compiled["radius/agent-services.bicep"])
+        self.assertIn("'recipe'", services)
+        catalogue = yaml.safe_load(
+            (ROOT / "radius/resource-types/types.yaml").read_text()
+        )
+        self.assertIn('"kaito"', json.dumps(catalogue["types"]["aiModels"]))
         for recipe in ["agents/logical", "agents/release", "ai-agent/native-gateway"]:
             compiled = self.compiled[f"radius/recipes/{recipe}.bicep"]
             self.assertIn("namespace", compiled["parameters"])

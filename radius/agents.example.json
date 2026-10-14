@@ -5,6 +5,7 @@
   "imageTag": "latest",
   "models": [{
     "name": "local-chat",
+    "recipe": "kaito",
     "properties": {
       "model": "local-chat",
       "localWorkspace": {

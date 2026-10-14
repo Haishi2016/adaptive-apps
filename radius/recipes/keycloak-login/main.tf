@@ -59,17 +59,6 @@ variable "entra_client_secret" {
     error_message = "Supply the existing Entra credential through the executor secret store."
   }
 }
-variable "adaptive_trading_client_secret" {
-  type      = string
-  sensitive = true
-  ephemeral = true
-  default   = ""
-  validation {
-    condition     = var.context.resource.properties.tradingOrigin == "" || length(trimspace(var.adaptive_trading_client_secret)) >= 32
-    error_message = "Supply the adaptive-trading client secret through the executor secret store."
-  }
-}
-
 locals {
   entra_configured = var.context.resource.properties.entraTenantId != "" || var.context.resource.properties.entraClientId != ""
 }
@@ -95,23 +84,10 @@ resource "keycloak_openid_client" "ui" {
   lifecycle { prevent_destroy = true }
 }
 
-resource "keycloak_openid_client" "trading" {
-  count                           = var.context.resource.properties.tradingOrigin == "" ? 0 : 1
-  realm_id                        = data.keycloak_realm.platform.id
-  client_id                       = "adaptive-trading"
-  name                            = "Adaptive Trading"
-  access_type                     = "CONFIDENTIAL"
-  client_secret_wo                = var.adaptive_trading_client_secret
-  client_secret_wo_version        = "1"
-  standard_flow_enabled           = true
-  implicit_flow_enabled           = false
-  direct_access_grants_enabled    = false
-  service_accounts_enabled        = false
-  full_scope_allowed              = false
-  valid_redirect_uris             = ["${var.context.resource.properties.tradingOrigin}/auth/oidc/callback"]
-  valid_post_logout_redirect_uris = [var.context.resource.properties.tradingOrigin]
-  web_origins                     = [var.context.resource.properties.tradingOrigin]
-  lifecycle { prevent_destroy = true }
+data "keycloak_openid_client" "trading" {
+  count     = var.context.resource.properties.tradingOrigin == "" ? 0 : 1
+  realm_id  = data.keycloak_realm.platform.id
+  client_id = "adaptive-trading"
 }
 
 resource "keycloak_openid_client" "api" {
@@ -144,7 +120,7 @@ resource "keycloak_generic_role_mapper" "ui_scope" {
 resource "keycloak_generic_role_mapper" "trading_scope" {
   for_each  = var.context.resource.properties.tradingOrigin == "" ? {} : keycloak_role.platform
   realm_id  = data.keycloak_realm.platform.id
-  client_id = keycloak_openid_client.trading[0].id
+  client_id = data.keycloak_openid_client.trading[0].id
   role_id   = each.value.id
 }
 
@@ -163,7 +139,7 @@ resource "keycloak_openid_user_client_role_protocol_mapper" "ui_roles" {
 resource "keycloak_openid_user_client_role_protocol_mapper" "trading_roles" {
   count                       = var.context.resource.properties.tradingOrigin == "" ? 0 : 1
   realm_id                    = data.keycloak_realm.platform.id
-  client_id                   = keycloak_openid_client.trading[0].id
+  client_id                   = data.keycloak_openid_client.trading[0].id
   name                        = "platform-roles"
   claim_name                  = "roles"
   client_id_for_role_mappings = keycloak_openid_client.api.client_id
@@ -185,7 +161,7 @@ resource "keycloak_openid_audience_protocol_mapper" "ui_audience" {
 resource "keycloak_openid_audience_protocol_mapper" "trading_audience" {
   count                    = var.context.resource.properties.tradingOrigin == "" ? 0 : 1
   realm_id                 = data.keycloak_realm.platform.id
-  client_id                = keycloak_openid_client.trading[0].id
+  client_id                = data.keycloak_openid_client.trading[0].id
   name                     = "platform-api"
   included_custom_audience = var.context.resource.properties.platformAudience
   add_to_access_token      = true
@@ -206,7 +182,7 @@ resource "keycloak_openid_user_property_protocol_mapper" "ui_oid" {
 resource "keycloak_openid_user_property_protocol_mapper" "trading_oid" {
   count               = var.context.resource.properties.tradingOrigin == "" ? 0 : 1
   realm_id            = data.keycloak_realm.platform.id
-  client_id           = keycloak_openid_client.trading[0].id
+  client_id           = data.keycloak_openid_client.trading[0].id
   name                = "oid"
   user_property       = "id"
   claim_name          = "oid"
@@ -268,7 +244,7 @@ output "result" {
       discoveryUrl          = "${var.context.resource.properties.keycloakPublicUrl}/realms/${var.context.resource.properties.realm}/.well-known/openid-configuration"
       entraRedirectUri      = local.entra_configured ? "${var.context.resource.properties.keycloakPublicUrl}/realms/${var.context.resource.properties.realm}/broker/entra/endpoint" : null
       uiClientId            = keycloak_openid_client.ui.client_id
-      tradingClientId       = length(keycloak_openid_client.trading) == 1 ? keycloak_openid_client.trading[0].client_id : null
+      tradingClientId       = length(data.keycloak_openid_client.trading) == 1 ? data.keycloak_openid_client.trading[0].client_id : null
       platformAudience      = var.context.resource.properties.platformAudience
       connectedLoginEnabled = local.entra_configured ? keycloak_oidc_identity_provider.entra[0].enabled : false
     }

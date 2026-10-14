@@ -201,7 +201,7 @@ credentials and platform resources owned by a disposable release.
    Generate its existing extension:
    `rad bicep publish-extension --from-file radius/resource-types/types.yaml --target radius/types.tgz`.
 2. Publish `agents` at `0.5.0`, `agent-guardrails` at `0.3.0`,
-   `ai-models` at `0.5.1` and `ai-gateways` at `0.2.0`, using
+   `ai-models` at `0.5.2` and `ai-gateways` at `0.2.0`, using
    `rad bicep publish`.
    Their files are `recipes/agents/logical.bicep` (which includes the internal
    `release.bicep` module),
@@ -248,8 +248,9 @@ credentials and platform resources owned by a disposable release.
    final rollout validation happens after that declaration. The chart is
    `adaptive-apps` 0.2.0 with the `agent-platform` 0.3.0 dependency.
    `ada oidc demo-users` optionally creates `alice`/`bob` with only the API
-   client invocation role. Native UI clients remain Terraform-owned; the
-   confidential `adaptive-trading` BFF client is added in the same realm while
+   client invocation role. Native UI clients remain Terraform-owned; `ada`
+   creates or verifies the confidential `adaptive-trading` BFF client with its
+   retained secret before Terraform adds its role and audience mappings, while
    the existing public `adaptive-ui` PKCE client remains unchanged.
 7. Deploy `radius/agents.bicep`, initially with `activeVersion=''` and
    `releases={}`. Deploy
@@ -414,12 +415,15 @@ CPU server. Reuse [GPU preparation](../../tutorials/common/prepare-gpu-kaito.md)
 
 | Binding | Implementation |
 | --- | --- |
-| `localWorkspace` | KAITO custom Workspace, pinned vLLM image/model revision, NVIDIA runtime and retained HF cache |
+| `localWorkspace` with `recipe: "kaito"` | KAITO custom Workspace, pinned vLLM image/model revision, NVIDIA runtime and retained HF cache |
 | `localService` | An existing compatible inference Service; no runtime or CPU provisioning |
 | `azure` | Foundry-hosted OpenAI deployment with gateway workload identity |
 An `aiModels` resource never owns routing or fallback. It returns neutral backend
 connection facts. The corresponding `aiGateways` resource consumes those facts and owns
 the public alias, LiteLLM `order`, `weight`, fallback and retry behavior.
+The default model recipe contains no KAITO resource types. GPU workspaces select
+the separate named `kaito` recipe, so clusters using hosted models do not need
+the KAITO CRDs installed.
 
 Public OpenAI uses an `openai` model binding and a separate private key file:
 

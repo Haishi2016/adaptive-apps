@@ -90,6 +90,10 @@ pub struct SetupClientArgs {
     #[arg(long)]
     pub admin_password_file: Option<PathBuf>,
 
+    /// Read the exact retained client secret instead of accepting a generated one.
+    #[arg(long)]
+    pub client_secret_file: Option<PathBuf>,
+
     /// Local port to bind for the kubectl port-forward to Keycloak.
     /// Defaults to 8080 so the browser-facing `OIDC_BROWSER_AUTH_ENDPOINT`
     /// matches what the deployed app expects without extra configuration.
@@ -250,6 +254,32 @@ pub fn wait_native_keycloak(namespace: &str, release: &str) -> Result<()> {
         Duration::from_secs(60),
     )
 }
+
+pub fn provision_native_trading_client(
+    namespace: &str,
+    release: &str,
+    state_dir: &std::path::Path,
+) -> Result<()> {
+    let private = state_dir.join("private");
+    provision_client(&SetupClientArgs {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        client_id: "adaptive-trading".into(),
+        redirect_uris: vec!["http://localhost:3000/auth/oidc/callback".into()],
+        web_origins: vec!["http://localhost:3000".into()],
+        realm: "adaptive".into(),
+        admin_user: "admin".into(),
+        admin_password: String::new(),
+        admin_password_file: Some(private.join("keycloak-admin-password")),
+        client_secret_file: Some(private.join("adaptive-trading-client-secret")),
+        local_port: 18081,
+        pod_ready_timeout_secs: 300,
+        keep_port_forward: false,
+        dry_run: false,
+    })?;
+    Ok(())
+}
+
 /// Like [`provision_client`] but returns the live `PortForward` when
 /// `args.keep_port_forward` is set, so the caller can hand control back
 /// to the user (e.g. block on Ctrl-C).
@@ -616,6 +646,23 @@ fn ensure_client(
     token: &str,
     args: &SetupClientArgs,
 ) -> Result<ProvisionedClient> {
+    if args
+        .client_secret_file
+        .as_ref()
+        .is_some_and(|path| path.is_symlink())
+    {
+        bail!("Refusing a symlink OIDC client secret");
+    }
+    let requested_secret = args
+        .client_secret_file
+        .as_deref()
+        .map(std::fs::read_to_string)
+        .transpose()?
+        .map(|value| value.trim().to_owned());
+    if requested_secret.as_ref().is_some_and(String::is_empty) {
+        bail!("Requested OIDC client secret is empty");
+    }
+
     // 1. Look up existing client by clientId.
     if let Some(uuid) = find_client_uuid(base, realm, token, &args.client_id)? {
         ui::step(&format!(
@@ -623,6 +670,15 @@ fn ensure_client(
             args.client_id
         ));
         let secret = fetch_client_secret(base, realm, token, &uuid)?;
+        if requested_secret
+            .as_ref()
+            .is_some_and(|expected| expected != &secret)
+        {
+            bail!(
+                "client `{}` exists with a different secret; rotate it explicitly",
+                args.client_id
+            );
+        }
         return Ok(ProvisionedClient {
             client_id: args.client_id.clone(),
             client_secret: secret,
@@ -632,7 +688,7 @@ fn ensure_client(
 
     // 2. Create it.
     ui::step(&format!("creating client `{}`", args.client_id));
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "clientId": args.client_id,
         "enabled": true,
         "protocol": "openid-connect",
@@ -643,6 +699,9 @@ fn ensure_client(
         "redirectUris": args.redirect_uris,
         "webOrigins": args.web_origins,
     });
+    if let Some(secret) = &requested_secret {
+        body["secret"] = serde_json::json!(secret);
+    }
     let url = format!("{base}/admin/realms/{realm}/clients");
     let resp = ureq::post(&url)
         .set("Authorization", &format!("Bearer {token}"))

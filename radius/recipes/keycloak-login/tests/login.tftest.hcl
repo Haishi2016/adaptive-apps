@@ -2,6 +2,9 @@ mock_provider "keycloak" {
   mock_data "keycloak_realm" {
     defaults = { id = "adaptive" }
   }
+  mock_data "keycloak_openid_client" {
+    defaults = { id = "adaptive-trading", client_id = "adaptive-trading" }
+  }
 }
 
 variables {
@@ -15,8 +18,7 @@ variables {
     connected         = true
     manageEntraLinks  = true
   } } }
-  entra_client_secret            = "test-only-idp-secret"
-  adaptive_trading_client_secret = "test-only-adaptive-trading-secret"
+  entra_client_secret = "test-only-idp-secret"
 }
 
 run "local_only" {
@@ -60,18 +62,11 @@ run "connected" {
   }
   assert {
     condition = (
-      keycloak_openid_client.trading[0].client_id == "adaptive-trading" &&
-      keycloak_openid_client.trading[0].access_type == "CONFIDENTIAL" &&
-      keycloak_openid_client.trading[0].standard_flow_enabled &&
-      !keycloak_openid_client.trading[0].implicit_flow_enabled &&
-      !keycloak_openid_client.trading[0].direct_access_grants_enabled &&
-      !keycloak_openid_client.trading[0].service_accounts_enabled &&
-      !keycloak_openid_client.trading[0].full_scope_allowed &&
-      keycloak_openid_client.trading[0].valid_redirect_uris == toset(["https://trading.example/auth/oidc/callback"]) &&
-      keycloak_openid_client.trading[0].web_origins == toset(["https://trading.example"]) &&
+      data.keycloak_openid_client.trading[0].client_id == "adaptive-trading" &&
+      keycloak_generic_role_mapper.trading_scope["Adaptive.Agents.Deploy"].client_id == "adaptive-trading" &&
       keycloak_openid_audience_protocol_mapper.trading_audience[0].included_custom_audience == "api://adaptive-broker"
     )
-    error_message = "Trading BFF login must be confidential, exact-origin, and receive the platform audience."
+    error_message = "The retained trading BFF client must receive the platform roles and audience."
   }
   assert {
     condition = (

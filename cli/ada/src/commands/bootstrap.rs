@@ -466,6 +466,11 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
         ] {
             if file == "agent-services.bicep" {
                 oidc::wait_native_keycloak(&args.namespace, &args.release)?;
+                oidc::provision_native_trading_client(
+                    &args.namespace,
+                    &args.release,
+                    &args.state_dir,
+                )?;
             }
             agents::deploy(
                 &args.radius_dir,
@@ -1155,6 +1160,7 @@ fn maybe_provision_oidc_client(args: &BootstrapArgs) -> Result<()> {
         admin_user: args.keycloak_admin_user.clone(),
         admin_password: args.keycloak_admin_password.clone(),
         admin_password_file: None,
+        client_secret_file: None,
         local_port: 8080,
         pod_ready_timeout_secs: 180,
         keep_port_forward: args.keep_port_forward,

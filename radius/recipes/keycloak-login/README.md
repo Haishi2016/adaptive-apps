@@ -47,6 +47,11 @@ URL, realm and dedicated administrator client through that environment.
 with exact UI/public URLs, API roles/audience, Entra tenant/client IDs and `connected`.
 Use explicit reviewed Radius resource-group/environment selection for both.
 The default is `connected=false`.
+Before deploying the login declaration with a nonempty `tradingOrigin`, `ada`
+creates or verifies the retained confidential `adaptive-trading` client using
+its private client-secret file. The recipe reads that existing client and owns
+only its platform role, audience and claim mappings; Radius 0.57 intentionally
+rejects `TF_VAR_*` values in `recipeConfig.envSecrets`.
 For local-only login, omit Entra tenant/client IDs and any Entra secret
 reference in its recipe bindings. This creates the
 existing UI's native PKCE client and scoped role mappers, without an Entra

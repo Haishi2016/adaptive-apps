@@ -61,9 +61,13 @@ jobs:
             resourceType: Radius.Resources/agents
             implementation: native
           - file: radius/recipes/ai-agent/native-model.bicep
-            tag: recipes/ai-models:0.5.1
+            tag: recipes/ai-models:0.5.2
             resourceType: Radius.Resources/aiModels
-            implementation: native-model
+            implementation: remote-model
+          - file: radius/recipes/ai-agent/native-model-kaito.bicep
+            tag: recipes/ai-models-kaito:0.5.2
+            resourceType: Radius.Resources/aiModels
+            implementation: kaito
           - file: radius/recipes/ai-agent/native-gateway.bicep
             tag: recipes/ai-gateways:0.2.0
             resourceType: Radius.Resources/aiGateways
@@ -177,7 +181,11 @@ jobs:
                   },
                   "Radius.Resources/aiModels": {
                     name: "ai-models",
-                    version: "0.5.1"
+                    version: "0.5.2",
+                    variants: {
+                      default: "ai-models:0.5.2",
+                      kaito: "ai-models-kaito:0.5.2"
+                    }
                   },
                   "Radius.Resources/aiGateways": {
                     name: "ai-gateways",

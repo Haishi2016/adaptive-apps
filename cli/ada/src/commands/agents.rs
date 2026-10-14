@@ -51,6 +51,8 @@ pub struct Config {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Model {
     pub name: String,
+    #[serde(default = "default_recipe")]
+    pub recipe: String,
     pub properties: Value,
 }
 
@@ -71,6 +73,9 @@ pub struct Peer {
 
 fn default_agents() -> Vec<String> {
     ["writer", "auditor", "editor"].map(String::from).into()
+}
+fn default_recipe() -> String {
+    "default".into()
 }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -365,6 +370,9 @@ pub fn prepare(
             bail!("CPU inference provisioning is removed; use KAITO/vLLM or an existing inference Service");
         }
         if let Some(workspace) = properties.get("localWorkspace") {
+            if model.recipe != "kaito" {
+                bail!("KAITO workspaces require model recipe `kaito`");
+            }
             if !workspace
                 .get("image")
                 .and_then(Value::as_str)
@@ -377,6 +385,12 @@ pub fn prepare(
                     })
             {
                 bail!("KAITO/vLLM requires an immutable image digest and exact 40-character model revision");
+            }
+            if model.recipe == "kaito" && properties.get("localWorkspace").is_none() {
+                bail!("Model recipe `kaito` requires a localWorkspace binding");
+            }
+            if model.recipe != "default" && model.recipe != "kaito" {
+                bail!("Model recipe must be `default` or `kaito`");
             }
         }
         if properties
@@ -572,8 +586,7 @@ pub fn prepare(
             "loginRecipeConfig": {
                 "env": {"KEYCLOAK_URL": keycloak, "KEYCLOAK_REALM": "adaptive", "KEYCLOAK_CLIENT_ID": "adaptive-login-config"},
                 "envSecrets": {
-                    "KEYCLOAK_CLIENT_SECRET": {"source": store, "key": "keycloak-config-client-secret"},
-                    "TF_VAR_adaptive_trading_client_secret": {"source": store, "key": "adaptive-trading-client-secret"}
+                    "KEYCLOAK_CLIENT_SECRET": {"source": store, "key": "keycloak-config-client-secret"}
                 }
             },
             "platform": {
@@ -755,11 +768,14 @@ mod tests {
             "http://demo-keycloak.demo-test.svc.cluster.local:8080"
         );
         assert_eq!(environment["parameters"]["connected"]["value"], false);
+        let login_secrets = &environment["parameters"]["loginRecipeConfig"]["value"]["envSecrets"];
         assert_eq!(
-            environment["parameters"]["loginRecipeConfig"]["value"]["envSecrets"]
-                ["TF_VAR_adaptive_trading_client_secret"]["key"],
-            "adaptive-trading-client-secret"
+            login_secrets["KEYCLOAK_CLIENT_SECRET"]["key"],
+            "keycloak-config-client-secret"
         );
+        assert!(login_secrets
+            .get("TF_VAR_adaptive_trading_client_secret")
+            .is_none());
         assert!(prepare(&config, &root, "other", "demo", "adaptive").is_err());
         #[cfg(unix)]
         {

@@ -14,7 +14,11 @@ resource app 'Applications.Core/applications@2023-10-01-preview' = {
 }
 resource model 'Radius.Resources/aiModels@2025-08-01-preview' = [for entry in models: {
   name: entry.name
-  properties: union(entry.properties, { application: app.id, environment: environment })
+  properties: union(entry.properties, {
+    application: app.id
+    environment: environment
+    recipe: { name: entry.?recipe ?? 'default' }
+  })
 }]
 resource gateway 'Radius.Resources/aiGateways@2025-08-01-preview' = [for (entry, index) in models: {
   name: entry.name
