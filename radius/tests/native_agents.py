@@ -360,10 +360,6 @@ class NativeAgents(unittest.TestCase):
         self.assertIn("ai-models-kaito:0.5.2", model_recipes["kaito"]["templatePath"])
         services = json.dumps(self.compiled["radius/agent-services.bicep"])
         self.assertIn("'recipe'", services)
-        catalogue = yaml.safe_load(
-            (ROOT / "radius/resource-types/types.yaml").read_text()
-        )
-        self.assertIn('"kaito"', json.dumps(catalogue["types"]["aiModels"]))
         for recipe in ["agents/logical", "agents/release", "ai-agent/native-gateway"]:
             compiled = self.compiled[f"radius/recipes/{recipe}.bicep"]
             self.assertIn("namespace", compiled["parameters"])

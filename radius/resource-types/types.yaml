@@ -462,11 +462,6 @@ types:
             application:
               type: string
               description: (Required) The Radius Application ID.
-            recipe:
-              type: object
-              properties:
-                name: {type: string, enum: [default, kaito]}
-              required: [name]
             model:
               type: string
               description: >
