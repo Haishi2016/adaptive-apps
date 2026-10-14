@@ -173,6 +173,9 @@ class NativeAgents(unittest.TestCase):
             ]
         )
         self.assertIn('["adaptive-ui", "adaptive-trading"]', policies)
+        self.assertIn("method: 'OPTIONS'", policies)
+        self.assertIn("'http://localhost:3000'", policies)
+        self.assertIn("'https://localhost:8443'", policies)
 
     def test_gpu_models_and_keyless_gateway(self):
         model = self.compiled["radius/recipes/ai-agent/native-model.bicep"]

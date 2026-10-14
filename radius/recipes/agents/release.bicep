@@ -273,7 +273,10 @@ resource route 'gateway.networking.k8s.io/HTTPRoute@v1' = {
   spec: {
     parentRefs: [{ name: 'agent-ingress' }]
     rules: [{
-      matches: [{ method: 'POST', path: { type: 'Exact', value: responsePath } }]
+      matches: [
+        { method: 'POST', path: { type: 'Exact', value: responsePath } }
+        { method: 'OPTIONS', path: { type: 'Exact', value: responsePath } }
+      ]
       filters: [
         { type: 'URLRewrite', urlRewrite: { path: { type: 'ReplaceFullPath', replaceFullPath: '/responses' } } }
       ]
@@ -286,6 +289,23 @@ resource authorization 'gateway.envoyproxy.io/SecurityPolicy@v1alpha1' = {
   metadata: metadata
   spec: {
     targetRefs: [{ group: 'gateway.networking.k8s.io', kind: 'HTTPRoute', name: route.metadata.name }]
+    cors: {
+      allowOrigins: [
+        'http://localhost:3000'
+        'https://localhost:8443'
+      ]
+      allowMethods: ['POST', 'OPTIONS']
+      allowHeaders: [
+        'Authorization'
+        'Content-Type'
+        'Accept'
+        'X-Impersonation-Mode'
+        'X-Entra-User-Token'
+      ]
+      exposeHeaders: ['Content-Type']
+      allowCredentials: true
+      maxAge: '10m'
+    }
     jwt: {
       providers: concat([{
         name: 'keycloak'
