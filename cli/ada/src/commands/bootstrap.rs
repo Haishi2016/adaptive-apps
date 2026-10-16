@@ -586,7 +586,17 @@ fn print_native_app_exports(args: &BootstrapArgs, prepared: &agents::Prepared) -
     println!("  --parameters oidcUserInfoEndpoint=\"$OIDC_USERINFO_ENDPOINT\" \\");
     println!("  --parameters oidcClientId=\"$OIDC_CLIENT_ID\" \\");
     println!("  --parameters oidcClientSecret=\"$OIDC_CLIENT_SECRET\" \\");
-    println!("  --parameters enableNativeAgents=true \\");
+    let application_parameters = format!(
+        "@{}",
+        prepared
+            .private
+            .join("application.parameters.json")
+            .display()
+    );
+    println!(
+        "  --parameters {} \\",
+        shell_quote(OsStr::new(&application_parameters))
+    );
     println!("  --parameters nativeAgentNamespace={} \\", args.namespace);
     println!("  --parameters nativeAgentEnvironment=\"$AGENT_ENVIRONMENT\" \\");
     println!("  --parameters nativeAgentGatewayUrl=\"$AGENT_GATEWAY_URL\" \\");

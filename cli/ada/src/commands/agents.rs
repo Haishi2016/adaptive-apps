@@ -670,6 +670,12 @@ pub fn prepare(
         }),
         refresh_derived_state,
     )?;
+    parameters(
+        &private,
+        "application.parameters.json",
+        json!({"enableNativeAgents": true}),
+        refresh_derived_state,
+    )?;
     save_derived(
         &private.join("portfolio.values.json"),
         &json!({
@@ -831,6 +837,14 @@ mod tests {
             &fs::read(prepared.private.join("environment.parameters.json")).unwrap(),
         )
         .unwrap();
+        let application: Value = serde_json::from_slice(
+            &fs::read(prepared.private.join("application.parameters.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            application["parameters"]["enableNativeAgents"]["value"],
+            true
+        );
         assert_eq!(
             environment["parameters"]["platform"]["value"]["keycloakUrl"],
             "http://demo-keycloak.demo-test.svc.cluster.local:8080"
