@@ -611,7 +611,8 @@ fn print_native_app_exports(args: &BootstrapArgs, prepared: &agents::Prepared) -
     println!("  --parameters nativeAgentModel=\"$NATIVE_MODEL\" \\");
     println!("  --parameters promptAgentImage=\"$PROMPT_AGENT_IMAGE\" \\");
     println!("  --parameters editorAgentImage=\"$EDITOR_IMAGE\" \\");
-    println!("  --parameters nativeUiImage=\"$NATIVE_UI_IMAGE\"");
+    println!("  --parameters nativeUiImage=\"$NATIVE_UI_IMAGE\" \\");
+    println!("{}", r#"  ${AI_PARAMS[@]+"${AI_PARAMS[@]}"}"#);
     Ok(())
 }
 
