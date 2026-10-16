@@ -224,8 +224,76 @@ fn import_images(config_path: &Path) -> Result<()> {
             bail!("K3s image import failed for {image}");
         }
     }
-    ui::ok("required agent images are available in local K3s");
+    let inventory = Command::new("sudo")
+        .args(["k3s", "ctr", "-n", "k8s.io", "images", "list"])
+        .output()
+        .context("failed to resolve imported K3s image digests")?;
+    if !inventory.status.success() {
+        bail!(
+            "failed to resolve imported K3s image digests: {}",
+            String::from_utf8_lossy(&inventory.stderr).trim()
+        );
+    }
+    let inventory =
+        String::from_utf8(inventory.stdout).context("K3s image inventory was not UTF-8")?;
+    let pinned = resolved_image_map(&config, &inventory)?;
+    persist_image_map(config_path, &pinned)?;
+    ui::ok(&format!(
+        "required agent images are available and pinned in {}",
+        config_path.display()
+    ));
     Ok(())
+}
+
+fn resolved_image_map(
+    config: &agents::Config,
+    inventory: &str,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    if !config.images.is_empty() {
+        return Ok(config.images.clone());
+    }
+
+    agents::COMPONENTS
+        .into_iter()
+        .map(|component| {
+            let tag = format!(
+                "{}/{}:{}",
+                config.image_registry, component, config.image_tag
+            );
+            let columns = inventory
+                .lines()
+                .map(|line| line.split_whitespace().collect::<Vec<_>>())
+                .find(|columns| columns.first() == Some(&tag.as_str()))
+                .with_context(|| format!("imported image is missing from K3s inventory: {tag}"))?;
+            let digest = columns
+                .get(2)
+                .with_context(|| format!("K3s inventory has no digest for {tag}"))?;
+            let pinned = format!("{}/{}@{}", config.image_registry, component, digest);
+            if !agents::pinned(&pinned) {
+                bail!("K3s returned an invalid image digest for {tag}: {digest}");
+            }
+            Ok((component.to_owned(), pinned))
+        })
+        .collect()
+}
+
+fn persist_image_map(
+    config_path: &Path,
+    images: &std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    if config_path.is_symlink() {
+        bail!("refusing a symlink output: {}", config_path.display());
+    }
+    let mut config: Value = serde_json::from_slice(&fs::read(config_path)?)
+        .with_context(|| format!("invalid JSON in {}", config_path.display()))?;
+    config
+        .as_object_mut()
+        .context("agents config must be a JSON object")?
+        .insert("images".into(), serde_json::to_value(images)?);
+    let mut rendered = serde_json::to_vec_pretty(&config)?;
+    rendered.push(b'\n');
+    fs::write(config_path, rendered)
+        .with_context(|| format!("failed to write {}", config_path.display()))
 }
 
 fn missing_image_references(images: Vec<String>, inventory: &str) -> Vec<String> {
@@ -452,5 +520,37 @@ mod tests {
         let missing =
             missing_image_references(images, "registry/agent-gateway:latest\nsha256:abc\n");
         assert_eq!(missing, vec!["registry/prompt-agent:latest"]);
+    }
+
+    #[test]
+    fn imported_tags_resolve_to_a_persistent_immutable_map() {
+        let config: agents::Config = serde_json::from_value(json!({
+            "recipeArchive": "https://example.test/recipes.tgz",
+            "imageRegistry": "registry/project",
+            "imageTag": "latest"
+        }))
+        .unwrap();
+        let inventory = agents::COMPONENTS
+            .into_iter()
+            .enumerate()
+            .map(|(index, component)| {
+                format!(
+                    "registry/project/{component}:latest application/vnd.oci.image.manifest.v1+json sha256:{} 1.0MiB linux/amd64 -",
+                    format!("{index:x}").repeat(64)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let images = resolved_image_map(&config, &inventory).unwrap();
+        for (index, component) in agents::COMPONENTS.into_iter().enumerate() {
+            assert_eq!(
+                images[component],
+                format!(
+                    "registry/project/{component}@sha256:{}",
+                    format!("{index:x}").repeat(64)
+                )
+            );
+        }
     }
 }

@@ -173,10 +173,11 @@ archive and registry locations, preserving reviewed models, explicit image
 digests and identity settings. The selected commit must have an immutable
 recipes release.
 
-`--import-images` runs `sudo k3s ctr -n k8s.io images pull` for each required
-image. It imports the configured immutable `images` references when present,
-otherwise `imageRegistry`/`imageTag`. Without this flag, those tags must already
-exist in local K3s so `ada init` can resolve their digests.
+`--import-images` runs `sudo k3s ctr -n k8s.io images pull` for required images
+that are not already present. It imports configured immutable `images`
+references when present, otherwise `imageRegistry`/`imageTag`, then persists the
+resolved immutable digest map in `agents.json`. Subsequent `ada init` runs no
+longer depend on mutable tags remaining in local K3s.
 `agentNames` controls the explicit gateway client allowlist; `peers` contains actual retained
 `keycloakClientId`, `agentId` and `targets`. For connected provisioning,
 `connected` requires `tenantId`, `provisionerClientId`, `sponsorUserId`,

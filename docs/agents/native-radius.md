@@ -234,7 +234,9 @@ credentials and platform resources owned by a disposable release.
    public reviewed configuration from the origin GitHub repository and current
    commit and pull its six selected images into local K3s. The import uses
    immutable `images` references when configured, otherwise
-   `imageRegistry`/`imageTag`. Use
+   `imageRegistry`/`imageTag`, and writes the resolved immutable digest map back
+   to the public config so later initialization does not depend on retained
+   containerd tags. Use
    `--repository OWNER/REPOSITORY`, `--commit FULL_SHA` or `--template PATH`
    when those defaults do not apply. Re-running the command updates only the
    archive and registry locations and preserves reviewed inputs. Then run
