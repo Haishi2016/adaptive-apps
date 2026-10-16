@@ -172,6 +172,10 @@ class NativeAgents(unittest.TestCase):
     def test_trading_integration_is_opt_in_and_uses_same_authorization_boundary(self):
         app = self.compiled["radius/app.bicep"]
         self.assertFalse(app["parameters"]["enableNativeAgents"]["defaultValue"])
+        self.assertEqual(
+            app["resources"]["aiAgentExternal"]["condition"],
+            "[and(variables('hasAi'), not(variables('isLocalAi')))]",
+        )
         serialized = json.dumps(app)
         self.assertIn("ui-embedded", serialized)
         self.assertIn("NATIVE_AGENT_URL", serialized)
