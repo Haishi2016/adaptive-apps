@@ -57,8 +57,14 @@ param nativeAgentNamespace string = 'adaptive'
 @description('Native agent Radius Environment ID. Required when enableNativeAgents is true.')
 param nativeAgentEnvironment string = ''
 
-@description('Native agents deployed with the trading application. Each entry supplies name, kind, definition and optional identity/runtime settings.')
-param nativeAgents array = []
+@description('Model Gateway model used by the native writer, auditor and editor.')
+param nativeAgentModel string = 'local-chat'
+
+@description('Immutable prompt-agent image used by the native writer and auditor.')
+param promptAgentImage string = ''
+
+@description('Immutable editor image used by the native hosted editor.')
+param editorAgentImage string = ''
 
 @description('Username for the local (password-based) frontend login.')
 param authUsername string = 'admin'
@@ -362,38 +368,106 @@ resource frontendIdentity 'Radius.Resources/workloadIdentities@2025-08-01-previe
 }
 
 // ---------------------------------------------------------------------------
-// Native agents — opt-in. Identity and runtime remain separate Radius resource
-// owners, but are composed into the trading application deployment.
+// Native agents — opt-in. Each runtime directly depends on its separately
+// retained identity and consumes that resource's resolved binding.
 // ---------------------------------------------------------------------------
-resource nativeAgentIdentity 'Radius.Resources/agentIdentities@2025-08-01-preview' = [for entry in nativeAgents: if (enableNativeAgents) {
-  name: entry.name
+resource writerIdentity 'Radius.Resources/agentIdentities@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'writer'
   properties: {
     environment: nativeAgentEnvironment
     application: tradingApp.id
-    agentName: entry.name
-    delegation: entry.?delegation ?? { enabled: false }
+    agentName: 'writer'
   }
-}]
+}
 
-resource nativeAgent 'Radius.Resources/agents@2025-08-01-preview' = [for (entry, index) in nativeAgents: if (enableNativeAgents) {
-  name: entry.name
+resource writerAgent 'Radius.Resources/agents@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'writer'
   properties: {
     environment: nativeAgentEnvironment
     application: tradingApp.id
-    kind: entry.kind
-    identityRef: nativeAgentIdentity[index].properties.identityRef
+    kind: 'prompt'
+    identityRef: writerIdentity.properties.identityRef
     binding: {
-      identity: nativeAgentIdentity[index].properties.identity
-      identityRef: nativeAgentIdentity[index].properties.identityRef
-      secretRef: nativeAgentIdentity[index].properties.secretRef
-      serviceAccountName: nativeAgentIdentity[index].properties.serviceAccountName
+      identity: writerIdentity.properties.identity
+      identityRef: writerIdentity.properties.identityRef
+      secretRef: writerIdentity.properties.secretRef
+      serviceAccountName: writerIdentity.properties.serviceAccountName
     }
-    definition: entry.definition
-    governance: entry.?governance ?? {}
-    resources: entry.?resources ?? {}
-    stateSize: entry.?stateSize ?? '1Gi'
+    definition: {
+      kind: 'prompt'
+      model: nativeAgentModel
+      runtimeImage: promptAgentImage
+      instructions: 'Draft a clear response to the user request.'
+    }
   }
-}]
+}
+
+resource auditorIdentity 'Radius.Resources/agentIdentities@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'auditor'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    agentName: 'auditor'
+  }
+}
+
+resource auditorAgent 'Radius.Resources/agents@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'auditor'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    kind: 'prompt'
+    identityRef: auditorIdentity.properties.identityRef
+    binding: {
+      identity: auditorIdentity.properties.identity
+      identityRef: auditorIdentity.properties.identityRef
+      secretRef: auditorIdentity.properties.secretRef
+      serviceAccountName: auditorIdentity.properties.serviceAccountName
+    }
+    definition: {
+      kind: 'prompt'
+      model: nativeAgentModel
+      runtimeImage: promptAgentImage
+      instructions: 'Audit the draft against the original request and return a corrected final response.'
+    }
+  }
+}
+
+resource editorIdentity 'Radius.Resources/agentIdentities@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'editor'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    agentName: 'editor'
+  }
+}
+
+resource editorAgent 'Radius.Resources/agents@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'editor'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    kind: 'hosted'
+    identityRef: editorIdentity.properties.identityRef
+    binding: {
+      identity: editorIdentity.properties.identity
+      identityRef: editorIdentity.properties.identityRef
+      secretRef: editorIdentity.properties.secretRef
+      serviceAccountName: editorIdentity.properties.serviceAccountName
+    }
+    definition: {
+      kind: 'hosted'
+      model: nativeAgentModel
+      image: editorAgentImage
+      environment: {
+        WRITER_NAME: 'writer'
+        WRITER_RESPONSES_BASE_URL: '${nativeAgentGatewayUrl}/agents/writer/'
+        AUDITOR_NAME: 'auditor'
+        AUDITOR_RESPONSES_BASE_URL: '${nativeAgentGatewayUrl}/agents/auditor/'
+      }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Governance (policy decision point) — opt-in.
@@ -619,7 +693,7 @@ resource frontend 'Applications.Core/containers@2023-10-01-preview' = {
   }
 }
 
-resource nativeAgentsUi 'Applications.Core/containers@2023-10-01-preview' = if (enableNativeAgents) {
+resource nativeAgentUi 'Applications.Core/containers@2023-10-01-preview' = if (enableNativeAgents) {
   name: 'native-agents-ui'
   properties: {
     application: tradingApp.id

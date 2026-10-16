@@ -430,49 +430,6 @@ export NATIVE_MODEL=local-chat
 export PROMPT_AGENT_IMAGE=$(jq -er '.images["prompt-agent"]' agents.json)
 export EDITOR_IMAGE=$(jq -er '.images.editor' agents.json)
 export NATIVE_UI_IMAGE=$(jq -er '.images["ui-embedded"]' agents.json)
-
-export NATIVE_AGENTS=$(jq -cn \
-  --arg promptImage "$PROMPT_AGENT_IMAGE" \
-  --arg editorImage "$EDITOR_IMAGE" \
-  --arg model "$NATIVE_MODEL" \
-  --arg gateway "$AGENT_GATEWAY_URL" \
-  '[
-    {
-      name: "writer",
-      kind: "prompt",
-      definition: {
-        kind: "prompt",
-        model: $model,
-        runtimeImage: $promptImage,
-        instructions: "Draft a clear response to the user request."
-      }
-    },
-    {
-      name: "auditor",
-      kind: "prompt",
-      definition: {
-        kind: "prompt",
-        model: $model,
-        runtimeImage: $promptImage,
-        instructions: "Audit the draft against the original request and return a corrected final response."
-      }
-    },
-    {
-      name: "editor",
-      kind: "hosted",
-      definition: {
-        kind: "hosted",
-        model: $model,
-        image: $editorImage,
-        environment: {
-          WRITER_NAME: "writer",
-          WRITER_RESPONSES_BASE_URL: ($gateway + "/agents/writer/"),
-          AUDITOR_NAME: "auditor",
-          AUDITOR_RESPONSES_BASE_URL: ($gateway + "/agents/auditor/")
-        }
-      }
-    }
-  ]')
 ```
 
 Set `NATIVE_MODEL` to the exact model-gateway name you configured. The example
@@ -502,15 +459,18 @@ rad deploy radius/app.bicep \
   --parameters nativeAgentNamespace="$NAMESPACE" \
   --parameters nativeAgentEnvironment="$AGENT_ENVIRONMENT" \
   --parameters nativeAgentGatewayUrl="$AGENT_GATEWAY_URL" \
+  --parameters nativeAgentModel="$NATIVE_MODEL" \
+  --parameters promptAgentImage="$PROMPT_AGENT_IMAGE" \
+  --parameters editorAgentImage="$EDITOR_IMAGE" \
   --parameters nativeUiImage="$NATIVE_UI_IMAGE" \
-  --parameters nativeAgents="$NATIVE_AGENTS" \
   "${AI_PARAMS[@]}"
 ```
 
-The single Radius deployment creates each `agentIdentities` resource before
-its corresponding `agents` resource. Updating a definition rolls the same
-StatefulSet; it does not create or promote a release. Verify the current
-runtimes with:
+The writer, auditor and editor are ordinary components declared directly in
+`radius/app.bicep`. Each `agents` resource references its corresponding
+`agentIdentities` resource, so Radius resolves the identity dependency before
+deploying the runtime. Updating a definition rolls the same StatefulSet; it
+does not create or promote a release. Verify the current runtimes with:
 
 ```bash
 kubectl -n "$NAMESPACE" get statefulset,pvc,httproute,securitypolicy

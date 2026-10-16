@@ -177,7 +177,12 @@ class NativeAgents(unittest.TestCase):
         self.assertIn("Radius.Resources/agentIdentities", serialized)
         self.assertIn("Radius.Resources/agents", serialized)
         self.assertIn("nativeAgentEnvironment", app["parameters"])
-        self.assertIn("nativeAgents", app["parameters"])
+        self.assertIn("nativeAgentModel", app["parameters"])
+        self.assertIn("promptAgentImage", app["parameters"])
+        self.assertIn("editorAgentImage", app["parameters"])
+        for name in ["writerIdentity", "writerAgent", "auditorIdentity", "auditorAgent",
+                     "editorIdentity", "editorAgent"]:
+            self.assertIn(name, app["resources"])
         policies = "\n".join(
             (ROOT / path).read_text()
             for path in [
