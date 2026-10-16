@@ -179,8 +179,10 @@ references and resolves missing components from `imageRegistry`/`imageTag`,
 then persists the complete immutable digest map in `agents.json`. This also
 upgrades older maps when a required component is added. Subsequent `ada init`
 runs no longer depend on mutable tags remaining in local K3s.
-`agentNames` controls the explicit gateway client allowlist; `peers` contains actual retained
-`keycloakClientId`, `agentId` and `targets`. For connected provisioning,
+`agentModel` selects the Model Gateway name printed for the application
+deployment. `agentNames` controls the explicit gateway client allowlist;
+`peers` contains actual retained `keycloakClientId`, `agentId` and `targets`.
+For connected provisioning,
 `connected` requires `tenantId`, `provisionerClientId`, `sponsorUserId`,
 `ownerUserId`, `oidcIssuer`, `certificateFile` and `certificatePasswordFile`.
 Supply reviewed credentials; the CLI never invents tenant/issuer IDs or uses
@@ -202,7 +204,10 @@ Gateway mounts and rollout input digests are derived from the declared models.
 Project `--state-dir` defaults to `.adaptive`, **not** `$ADA_HOME`.
 `init`/native `bootstrap` generate missing secrets, a checked localhost TLS pair,
 secure Radius parameters, `portfolio.values.json` and `secrets.json` under
-`private/`. Demo seeding saves `demo-users.json` before creating users, assigns
+`private/`. Native bootstrap prints the complete second-terminal export and
+`rad deploy radius/app.bicep` block; `--keep-port-forward` keeps its HTTPS
+ingress available on `localhost:8444`. Demo seeding saves `demo-users.json`
+before creating users, assigns
 only the API client's `agent.invoke` role, and never resets an existing password.
 Generated files use mode 0600 and the private directory mode 0700 on Unix.
 Unchanged setup is repeatable; mismatching inputs fail rather than overwrite

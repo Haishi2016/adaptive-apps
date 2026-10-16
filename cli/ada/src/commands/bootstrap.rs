@@ -464,6 +464,7 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
         print_app_deploy_hint(&args);
     }
 
+    let mut native_port_forward = None;
     if let Some(prepared) = prepared {
         for (file, parameters) in [
             ("agents-env.bicep", "environment.parameters.json"),
@@ -507,7 +508,16 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
                 local_port: 18080,
             })?;
         }
-        ui::note("Native services ready; deploy the trading Radius application to create its retained identities and mutable agents");
+        print_native_app_exports(&args, &prepared)?;
+        if args.keep_port_forward {
+            let service = native_ui_gateway_service(&args.namespace)?;
+            native_port_forward = Some(oidc::PortForward::start_service(
+                "envoy-gateway-system",
+                &service,
+                8444,
+                8444,
+            )?);
+        }
     } else {
         maybe_provision_oidc_client(&args)?;
     }
@@ -517,7 +527,111 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
         ui::note("AKS Istio add-on revision (use to label app namespaces):");
         println!("export ISTIO_REVISION={rev}");
     }
+    if let Some(mut pf) = native_port_forward {
+        println!();
+        ui::note("keeping native HTTPS ingress on https://localhost:8444 — press Ctrl-C to stop");
+        ui::note("copy the exports and `rad deploy` command above into another terminal");
+        let _ = pf.wait();
+    }
     Ok(())
+}
+
+fn print_native_app_exports(args: &BootstrapArgs, prepared: &agents::Prepared) -> Result<()> {
+    let client_secret =
+        std::fs::read_to_string(prepared.private.join("adaptive-trading-client-secret"))?;
+    let keycloak = format!(
+        "http://{}-keycloak.{}.svc.cluster.local:8080",
+        args.release, args.namespace
+    );
+    println!();
+    ui::note("Native services ready. In a second terminal, run:");
+    println!("export AUTH_USERNAME=admin");
+    println!("export AUTH_PASSWORD=admin");
+    println!("export OIDC_CLIENT_ID=adaptive-trading");
+    println!("export OIDC_CLIENT_SECRET={}", client_secret.trim());
+    println!("export OIDC_ISSUER=https://localhost:8444/realms/adaptive");
+    println!("export OIDC_AUTH_ENDPOINT={keycloak}/realms/adaptive/protocol/openid-connect/auth");
+    println!(
+        "export OIDC_BROWSER_AUTH_ENDPOINT=https://localhost:8444/realms/adaptive/protocol/openid-connect/auth"
+    );
+    println!("export OIDC_TOKEN_ENDPOINT={keycloak}/realms/adaptive/protocol/openid-connect/token");
+    println!(
+        "export OIDC_USERINFO_ENDPOINT={keycloak}/realms/adaptive/protocol/openid-connect/userinfo"
+    );
+    println!("export AGENT_ENVIRONMENT={}", prepared.environment);
+    println!(
+        "export AGENT_GATEWAY_URL=http://agent-ingress.{}.svc.cluster.local:8080",
+        args.namespace
+    );
+    println!("export NATIVE_MODEL={}", prepared.agent_model);
+    println!("export PROMPT_AGENT_IMAGE={}", prepared.prompt_agent_image);
+    println!("export EDITOR_IMAGE={}", prepared.editor_image);
+    println!("export NATIVE_UI_IMAGE={}", prepared.embedded_ui_image);
+    println!();
+    println!("rad deploy radius/app.bicep \\");
+    println!("  --group {} \\", args.radius_group);
+    println!("  --environment {} \\", args.radius_environment);
+    println!("  --parameters imageRegistry=ghcr.io/microsoft/adaptive-apps \\");
+    println!("  --parameters imageTag=latest \\");
+    println!("  --parameters authUsername=\"$AUTH_USERNAME\" \\");
+    println!("  --parameters authPassword=\"$AUTH_PASSWORD\" \\");
+    println!(
+        "  --parameters otelCollectorEndpoint=\"http://otel-collector.{}:4318\" \\",
+        args.namespace
+    );
+    println!("  --parameters oidcIssuer=\"$OIDC_ISSUER\" \\");
+    println!("  --parameters oidcAuthEndpoint=\"$OIDC_AUTH_ENDPOINT\" \\");
+    println!("  --parameters oidcBrowserAuthEndpoint=\"$OIDC_BROWSER_AUTH_ENDPOINT\" \\");
+    println!("  --parameters oidcTokenEndpoint=\"$OIDC_TOKEN_ENDPOINT\" \\");
+    println!("  --parameters oidcUserInfoEndpoint=\"$OIDC_USERINFO_ENDPOINT\" \\");
+    println!("  --parameters oidcClientId=\"$OIDC_CLIENT_ID\" \\");
+    println!("  --parameters oidcClientSecret=\"$OIDC_CLIENT_SECRET\" \\");
+    println!("  --parameters enableNativeAgents=true \\");
+    println!("  --parameters nativeAgentNamespace={} \\", args.namespace);
+    println!("  --parameters nativeAgentEnvironment=\"$AGENT_ENVIRONMENT\" \\");
+    println!("  --parameters nativeAgentGatewayUrl=\"$AGENT_GATEWAY_URL\" \\");
+    println!("  --parameters nativeAgentModel=\"$NATIVE_MODEL\" \\");
+    println!("  --parameters promptAgentImage=\"$PROMPT_AGENT_IMAGE\" \\");
+    println!("  --parameters editorAgentImage=\"$EDITOR_IMAGE\" \\");
+    println!("  --parameters nativeUiImage=\"$NATIVE_UI_IMAGE\"");
+    Ok(())
+}
+
+fn native_ui_gateway_service(namespace: &str) -> Result<String> {
+    let selector = format!(
+        "gateway.envoyproxy.io/owning-gateway-name=ui-ingress,gateway.envoyproxy.io/owning-gateway-namespace={namespace}"
+    );
+    let output = Command::new("kubectl")
+        .args([
+            "-n",
+            "envoy-gateway-system",
+            "get",
+            "services",
+            "-l",
+            &selector,
+            "-o",
+            "jsonpath={.items[*].metadata.name}",
+        ])
+        .output()
+        .context("failed to find the native UI gateway Service")?;
+    if !output.status.success() {
+        bail!(
+            "failed to find the native UI gateway Service: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    single_service_name(&String::from_utf8(output.stdout)?)
+}
+
+fn single_service_name(services: &str) -> Result<String> {
+    let mut names = services.split_whitespace();
+    let service = names
+        .next()
+        .context("native UI gateway Service was not found")?;
+    if names.next().is_some() {
+        bail!("native UI gateway Service ownership is ambiguous");
+    }
+    Ok(service.to_owned())
 }
 
 /// Idempotently provision a local k3d cluster. If a cluster with the
@@ -1196,6 +1310,7 @@ fn keycloak_service_present(namespace: &str, service: &str) -> Result<bool> {
     if out.status.success() {
         return Ok(true);
     }
+
     let stderr = String::from_utf8_lossy(&out.stderr);
     if stderr.contains("NotFound") || stderr.contains("not found") {
         return Ok(false);
@@ -1204,6 +1319,21 @@ fn keycloak_service_present(namespace: &str, service: &str) -> Result<bool> {
         "`kubectl get svc -n {namespace} {service}` failed: {}",
         stderr.trim()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::single_service_name;
+
+    #[test]
+    fn native_gateway_service_must_have_one_owner() {
+        assert_eq!(
+            single_service_name("envoy-ui-123\n").unwrap(),
+            "envoy-ui-123"
+        );
+        assert!(single_service_name("").is_err());
+        assert!(single_service_name("envoy-ui-1 envoy-ui-2").is_err());
+    }
 }
 
 /// Federated identity subjects for the Radius control plane service

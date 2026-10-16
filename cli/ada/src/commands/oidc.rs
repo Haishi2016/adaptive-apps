@@ -429,8 +429,17 @@ pub struct PortForward {
 
 impl PortForward {
     fn start(namespace: &str, service: &str, local_port: u16) -> Result<Self> {
+        Self::start_service(namespace, service, local_port, 8080)
+    }
+
+    pub fn start_service(
+        namespace: &str,
+        service: &str,
+        local_port: u16,
+        remote_port: u16,
+    ) -> Result<Self> {
         ui::step(&format!(
-            "kubectl port-forward -n {namespace} svc/{service} {local_port}:8080"
+            "kubectl port-forward -n {namespace} svc/{service} {local_port}:{remote_port}"
         ));
         let mut child = Command::new("kubectl")
             .args([
@@ -438,7 +447,7 @@ impl PortForward {
                 "-n",
                 namespace,
                 &format!("svc/{service}"),
-                &format!("{local_port}:8080"),
+                &format!("{local_port}:{remote_port}"),
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())

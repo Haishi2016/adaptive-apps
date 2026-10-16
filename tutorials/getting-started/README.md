@@ -186,15 +186,17 @@ and Radius environment. Pick **one**:
     workspace and group, the `trading` environment, registers the project's
     resource types, and deploys `radius/local-env.bicep` (or
     `aks-env.bicep` on `--platform aks`).
-    4. **OIDC client** — port-forwards to Keycloak, creates/reuses the
-    `adaptive-apps` OIDC client, prints an `export OIDC_*` block, and (with
-    `--keep-port-forward`) holds the port-forward open in the foreground.
+    4. **OIDC client** — creates or reuses the sample's OIDC client and prints
+    the copyable exports plus application deployment command. For the standard
+    sample, `--keep-port-forward` holds Keycloak on `localhost:8080`. For the
+    native sample, it holds the HTTPS ingress on `localhost:8444` and includes
+    retained identity, model and immutable image exports.
 
 5. Continue to [3 Deploy the sample app](#3-deploy-the-sample-app).
 
-   For the standard sample, copy the printed `export OIDC_*` lines into that
-   terminal. The integrated native path instead uses the retained
-   `adaptive-trading` client created by `ada init` and deployed by bootstrap.
+   Copy the printed block into that terminal. The integrated native block uses
+   the retained `adaptive-trading` client and includes its complete
+   `rad deploy radius/app.bicep` command.
 
 ### 2.2 OPTION 2 — Manual
 
@@ -409,62 +411,26 @@ rad deploy radius/app.bicep \
   "${AI_PARAMS[@]}"
 ```
 
-For `SAMPLE=trading-native`, export the additional native settings. The image
-lookups fail explicitly unless `ada agents-config --import-images` persisted
-the complete immutable image map:
+For `SAMPLE=trading-native`, the `ada bootstrap --with agents
+--keep-port-forward` command from §2 prints a complete copyable block containing:
 
-```bash
-export AUTH_USERNAME=admin
-export AUTH_PASSWORD=admin
-export OIDC_CLIENT_ID=adaptive-trading
-export OIDC_CLIENT_SECRET=$(<.adaptive/private/adaptive-trading-client-secret)
-export OIDC_ISSUER=https://localhost:8444/realms/adaptive
-export OIDC_AUTH_ENDPOINT=http://$RELEASE-keycloak.$NAMESPACE.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/auth
-export OIDC_BROWSER_AUTH_ENDPOINT=https://localhost:8444/realms/adaptive/protocol/openid-connect/auth
-export OIDC_TOKEN_ENDPOINT=http://$RELEASE-keycloak.$NAMESPACE.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/token
-export OIDC_USERINFO_ENDPOINT=http://$RELEASE-keycloak.$NAMESPACE.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/userinfo
-export AGENT_ENVIRONMENT=/planes/radius/local/resourceGroups/adaptive/providers/Applications.Core/environments/agents
-export AGENT_GATEWAY_URL=http://agent-ingress.$NAMESPACE.svc.cluster.local:8080
-export NATIVE_MODEL=local-chat
+- all `AUTH_*` and `OIDC_*` exports;
+- the retained agent Environment ID and stable Agent Gateway URL;
+- the configured `agentModel`;
+- immutable prompt, editor and embedded-UI image references resolved from
+  `agents.json`; and
+- the complete `rad deploy radius/app.bicep` command.
 
-export PROMPT_AGENT_IMAGE=$(jq -er '.images["prompt-agent"]' agents.json)
-export EDITOR_IMAGE=$(jq -er '.images.editor' agents.json)
-export NATIVE_UI_IMAGE=$(jq -er '.images["ui-embedded"]' agents.json)
-```
+Leave that first terminal running so `https://localhost:8444` remains forwarded
+to the native HTTPS ingress. Copy the printed block into a second terminal and
+run it without editing a parameter file. If `agents.json` predates the embedded
+UI image, rerun `ada agents-config --import-images`; existing immutable pins are
+preserved and the missing image is added.
 
-Set `NATIVE_MODEL` to the exact model-gateway name you configured. The example
-uses `local-chat`; `--without-models` requires a separately declared model
-before agent invocation.
-
-Deploy the trading application, embedded native pages, retained agent
-identities and mutable agent runtimes together:
-
-```bash
-rad deploy radius/app.bicep \
-  --group adaptive \
-  --environment trading \
-  --parameters imageRegistry=ghcr.io/microsoft/adaptive-apps \
-  --parameters imageTag=latest \
-  --parameters authUsername="$AUTH_USERNAME" \
-  --parameters authPassword="$AUTH_PASSWORD" \
-  --parameters otelCollectorEndpoint="http://otel-collector.$NAMESPACE:4318" \
-  --parameters oidcIssuer="$OIDC_ISSUER" \
-  --parameters oidcAuthEndpoint="$OIDC_AUTH_ENDPOINT" \
-  --parameters oidcBrowserAuthEndpoint="$OIDC_BROWSER_AUTH_ENDPOINT" \
-  --parameters oidcTokenEndpoint="$OIDC_TOKEN_ENDPOINT" \
-  --parameters oidcUserInfoEndpoint="$OIDC_USERINFO_ENDPOINT" \
-  --parameters oidcClientId="$OIDC_CLIENT_ID" \
-  --parameters oidcClientSecret="$OIDC_CLIENT_SECRET" \
-  --parameters enableNativeAgents=true \
-  --parameters nativeAgentNamespace="$NAMESPACE" \
-  --parameters nativeAgentEnvironment="$AGENT_ENVIRONMENT" \
-  --parameters nativeAgentGatewayUrl="$AGENT_GATEWAY_URL" \
-  --parameters nativeAgentModel="$NATIVE_MODEL" \
-  --parameters promptAgentImage="$PROMPT_AGENT_IMAGE" \
-  --parameters editorAgentImage="$EDITOR_IMAGE" \
-  --parameters nativeUiImage="$NATIVE_UI_IMAGE" \
-  "${AI_PARAMS[@]}"
-```
+The default `agentModel` is `local-chat`. Set it in `agents.json` before
+bootstrap when the agents should use a different Model Gateway name.
+`--without-models` requires that named model to be declared separately before
+agent invocation.
 
 The writer, auditor and editor are ordinary components declared directly in
 `radius/app.bicep`. Each `agents` resource references its corresponding
@@ -494,17 +460,9 @@ Browse to <http://localhost:3000>. Log in with the local admin account
 (`admin` / `admin`), or click **Sign in with OIDC** to authenticate through
 Keycloak.
 
-For `SAMPLE=trading-native`, keep the native Keycloak browser endpoint
-available on `localhost:8444`:
-
-```bash
-service=$(kubectl -n envoy-gateway-system get services \
-  -l "gateway.envoyproxy.io/owning-gateway-name=ui-ingress,gateway.envoyproxy.io/owning-gateway-namespace=$NAMESPACE" \
-  -o jsonpath='{.items[0].metadata.name}')
-
-kubectl -n envoy-gateway-system port-forward --address 127.0.0.1 \
-  "service/$service" 8444:8444
-```
+For `SAMPLE=trading-native`, leave the first `ada bootstrap
+--keep-port-forward` terminal running. It keeps the native Keycloak browser
+endpoint available on `https://localhost:8444`.
 
 Sign in with OIDC, select **Agents** in the trading header, open `writer`,
 invoke it and open Monitor. Local password users can use the

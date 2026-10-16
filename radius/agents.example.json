@@ -3,6 +3,7 @@
   "recipeRegistry": "ghcr.io/REPLACE_WITH_LOWERCASE_OWNER/REPLACE_WITH_LOWERCASE_REPOSITORY/recipes",
   "imageRegistry": "ghcr.io/REPLACE_WITH_LOWERCASE_OWNER/REPLACE_WITH_LOWERCASE_REPOSITORY",
   "imageTag": "latest",
+  "agentModel": "local-chat",
   "models": [{
     "name": "local-chat",
     "recipe": "kaito",

@@ -38,6 +38,8 @@ pub struct Config {
     pub connected: Option<Connected>,
     #[serde(default = "default_agents")]
     pub agent_names: Vec<String>,
+    #[serde(default = "default_agent_model")]
+    pub agent_model: String,
     #[serde(default)]
     pub peers: Vec<Peer>,
     #[serde(default)]
@@ -74,6 +76,9 @@ pub struct Peer {
 
 fn default_agents() -> Vec<String> {
     ["writer", "auditor", "editor"].map(String::from).into()
+}
+fn default_agent_model() -> String {
+    "local-chat".into()
 }
 fn default_recipe() -> String {
     "default".into()
@@ -152,6 +157,10 @@ pub fn check_ownership(namespace: &str, release: &str) -> Result<()> {
 pub struct Prepared {
     pub private: PathBuf,
     pub environment: String,
+    pub prompt_agent_image: String,
+    pub editor_image: String,
+    pub embedded_ui_image: String,
+    pub agent_model: String,
 }
 
 pub fn pinned(image: &str) -> bool {
@@ -358,6 +367,7 @@ pub fn prepare(
     for value in [namespace, release, group]
         .into_iter()
         .chain(config.agent_names.iter().map(String::as_str))
+        .chain(std::iter::once(config.agent_model.as_str()))
         .chain(config.models.iter().map(|model| model.name.as_str()))
     {
         if value.is_empty()
@@ -710,6 +720,10 @@ pub fn prepare(
     Ok(Prepared {
         private,
         environment,
+        prompt_agent_image: images["prompt-agent"].clone(),
+        editor_image: images["editor"].clone(),
+        embedded_ui_image: images["ui-embedded"].clone(),
+        agent_model: config.agent_model,
     })
 }
 
@@ -764,6 +778,7 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(parsed.image_tag, "dev");
+        assert_eq!(parsed.agent_model, "local-chat");
         assert!(parsed.connected.is_none());
     }
 
@@ -872,6 +887,10 @@ mod tests {
         fs::write(&config, serde_json::to_vec(&invalid).unwrap()).unwrap();
         assert!(prepare(&config, &root, "demo-test", "demo", "adaptive", false).is_err());
         invalid["agentNames"] = json!(["writer"]);
+        invalid["agentModel"] = json!("unsafe model");
+        fs::write(&config, serde_json::to_vec(&invalid).unwrap()).unwrap();
+        assert!(prepare(&config, &root, "demo-test", "demo", "adaptive", false).is_err());
+        invalid["agentModel"] = json!("local-chat");
         invalid["models"][0]["properties"]["localService"]["cpuInference"] = json!(true);
         fs::write(&config, serde_json::to_vec(&invalid).unwrap()).unwrap();
         assert!(
