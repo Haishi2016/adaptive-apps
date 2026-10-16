@@ -13,9 +13,11 @@ var claimName = 'state-${uniqueString(p.agentUid)}'
 var path = '/agents/${p.agentName}'
 var image = def.kind == 'prompt' ? def.runtimeImage : def.image
 var graph = def.kind == 'prompt' && !empty(def.?tools ?? []) && (id.?graphDelegation ?? false)
-var governed = !empty(p.?governance ?? {})
+var governanceConfig = p.?governance.?config ?? ''
+var governanceDigest = p.?governance.?digest ?? ''
+var governanceMode = p.?governance.?mode ?? ''
+var governed = !empty(governanceConfig)
 var modelUrl = 'http://model-ingress.${namespace}.svc.cluster.local:8080/v1'
-var proxy = p.?governance ?? {}
 var peers = filter(platform.?peers ?? [], peer => contains(peer.targets, p.agentName))
 var labels = {
   'app.kubernetes.io/managed-by': 'radius'
@@ -108,7 +110,7 @@ resource governance 'core/ConfigMap@v1' = if (governed) {
     labels: labels
     annotations: annotations
   }
-  data: { 'proxy.json': proxy.config }
+  data: { 'proxy.json': governanceConfig }
 }
 var metadata = {
   name: name
@@ -203,9 +205,9 @@ resource workload 'apps/StatefulSet@v1' = {
           image: platform.governanceImage
           securityContext: union(security, { readOnlyRootFilesystem: true })
           env: [
-            { name: 'ADAPTIVE_GOVERNANCE_SHA256', value: proxy.digest }
+            { name: 'ADAPTIVE_GOVERNANCE_SHA256', value: governanceDigest }
             { name: 'ADAPTIVE_GOVERNANCE_AGENT_ID', value: '${namespace}/${p.agentName}' }
-            { name: 'ADAPTIVE_GOVERNANCE_MODE', value: proxy.mode }
+            { name: 'ADAPTIVE_GOVERNANCE_MODE', value: governanceMode }
             { name: 'ADAPTIVE_GOVERNANCE_DEPLOYMENT', value: name }
             { name: 'OTEL_EXPORTER_OTLP_ENDPOINT', value: platform.otelEndpoint }
           ]

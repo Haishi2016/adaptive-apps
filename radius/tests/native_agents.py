@@ -120,6 +120,8 @@ class NativeAgents(unittest.TestCase):
         self.assertIn("/agents/{0}", runtime["variables"]["path"])
         self.assertIn("radius.resource.id", serialized)
         self.assertIn("item_ttl_seconds=-1", runtime["variables"]["stateInit"])
+        self.assertIn("tryGet(tryGet(variables('p'), 'governance'), 'config')", json.dumps(runtime["variables"]["governanceConfig"]))
+        self.assertNotIn("variables('proxy').config", serialized)
 
     def test_shared_identity_and_collector(self):
         credentials = self.compiled["radius/credentials.bicep"]
