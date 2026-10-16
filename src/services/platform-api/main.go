@@ -42,7 +42,7 @@ func main() {
 	defer cancel()
 	api := &API{namespace: namespace, objects: objects, core: configs, monitor: monitor}
 	server := &http.Server{
-		Addr: ":8080", Handler: api.handler(),
+		Addr: "0.0.0.0:8080", Handler: api.handler(),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second,
 		WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 		MaxHeaderBytes: 16 << 10,
