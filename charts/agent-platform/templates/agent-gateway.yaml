@@ -80,7 +80,7 @@ spec:
               gateway.envoyproxy.io/owning-gateway-name: agent-ingress
         - podSelector:
             matchLabels:
-              app.kubernetes.io/component: agent-release
+              app.kubernetes.io/component: agent-runtime
       ports:
         - protocol: TCP
           port: 8083

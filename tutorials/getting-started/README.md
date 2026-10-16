@@ -388,7 +388,8 @@ AI_PARAMS=(--parameters aiProvider=openai --parameters aiModelName=gpt-4o --para
 
 Skip this subsection for `SAMPLE=trading`.
 
-Create the logical agent and its independently retained identity:
+Deploy the mutable agent and its independently retained identity together.
+Use the exact imported prompt-agent digest from `agents.json`:
 
 ```bash
 export GROUP=adaptive
@@ -397,27 +398,22 @@ export AGENT_ENV=agents
 rad deploy radius/agents.bicep \
   --group "$GROUP" \
   --environment "$AGENT_ENV" \
-  --parameters agentName=writer kind=prompt activeVersion= releases='{}'
-
-rad deploy radius/agent-identity.bicep \
-  --group "$GROUP" \
-  --environment "$AGENT_ENV" \
-  --parameters agentName=writer
+  --parameters agentName=writer \
+  --parameters kind=prompt \
+  --parameters definition='{"kind":"prompt","model":"local-chat","runtimeImage":"<prompt-agent@sha256:...>","instructions":"Write clearly."}'
 ```
 
-Record the identity outputs. Add release `v1` to the same agent's `releases`
-map with that identity binding, `model: local-chat`, a pinned `runtimeImage`
-and prompt instructions. Redeploy with `activeVersion=''`.
+The declaration creates a separate `agentIdentities` resource first and passes
+its retained binding to the mutable `agents` runtime. Updating `definition`
+rolls the same StatefulSet; it does not create or promote a release.
 
-Verify the candidate:
+Verify the current runtime:
 
 ```bash
 kubectl -n "$NAMESPACE" get statefulset,pvc,httproute,securitypolicy
 ```
 
-Invoke `/agents/writer/versions/v1/responses` from the agent playground. After
-that succeeds, redeploy the unchanged release map with `activeVersion=v1`.
-Publishing and promotion must be separate updates.
+Invoke `/agents/writer/responses` from the agent playground.
 
 ### 3.3 Deploy the selected sample
 
@@ -520,9 +516,9 @@ k3d cluster delete k3s
 ```
 
 For `SAMPLE=trading-native`, deleting the trading application does not delete
-retained agent identities, immutable release captures or release state. Delete
+retained agent identities or agent state. Delete
 the entire disposable k3d cluster for a full local reset; do not treat ordinary
-application deletion as release pruning.
+application deletion as identity or state pruning.
 
 ---
 

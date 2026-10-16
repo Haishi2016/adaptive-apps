@@ -76,7 +76,7 @@ function Shell({ embedded }: { embedded: boolean }): JSX.Element {
           <Badge
             appearance="tint"
             color={governance.isError ? 'warning' : governance.data?.enabled ? 'brand' : 'subtle'}
-            title="Global policy configuration only; agent releases may also have attachments. This catalogue does not verify runtime enforcement."
+            title="Global policy configuration only; agents may also have attachments. This catalogue does not verify runtime enforcement."
           >
             Global policies: {governance.isError ? 'unavailable' : governance.isLoading ? 'loading' : governance.data?.enabled ? 'configured' : 'none'}
           </Badge>

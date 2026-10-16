@@ -111,7 +111,7 @@ func TestGraphIdentityAdmission(t *testing.T) {
 			if tc.name == "no-bound-worker" {
 				a.graph.worker = ""
 			}
-			path := "/agents/demo/versions/v2/responses"
+			path := "/agents/demo/responses"
 			request := httptest.NewRequest("POST", path, strings.NewReader(`{"input":"Call graph_me","store":false}`))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("X-Impersonation-Mode", tc.mode)

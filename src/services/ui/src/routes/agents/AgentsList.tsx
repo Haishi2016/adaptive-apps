@@ -13,15 +13,8 @@ import {
 } from '@fluentui/react-components';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Agent, listAgents, listAgentVersions } from '../../api/client';
+import { Agent, listAgents } from '../../api/client';
 import { embeddedMode } from '../../auth/config';
-
-function ReleaseInventory({ name }: { name: string }): JSX.Element {
-  const query = useQuery({ queryKey: ['agent-versions', name], queryFn: () => listAgentVersions(name), refetchInterval: 10_000 });
-  if (query.isLoading) return <Text>Loading releases…</Text>;
-  if (query.error) return <Text>Release inventory unavailable</Text>;
-  return <Text>{query.data?.map((release) => `${release.version} · ${release.status}`).join(', ') || 'No captured releases'}</Text>;
-}
 
 const columns: TableColumnDefinition<Agent>[] = [
   createTableColumn<Agent>({
@@ -30,23 +23,8 @@ const columns: TableColumnDefinition<Agent>[] = [
     renderCell: (agent) => <Text weight="semibold">{agent.name}</Text>,
   }),
   createTableColumn<Agent>({
-    columnId: 'version',
-    renderHeaderCell: () => 'Releases',
-    renderCell: (agent) => <ReleaseInventory name={agent.name} />,
-  }),
-  createTableColumn<Agent>({
-    columnId: 'requested',
-    renderHeaderCell: () => 'Requested active',
-    renderCell: (agent) => agent.requestedActiveVersion ?? '—',
-  }),
-  createTableColumn<Agent>({
-    columnId: 'effective',
-    renderHeaderCell: () => 'Effective active',
-    renderCell: (agent) => agent.activeVersion ?? '—',
-  }),
-  createTableColumn<Agent>({
     columnId: 'readiness',
-    renderHeaderCell: () => 'Active readiness',
+    renderHeaderCell: () => 'Runtime readiness',
     renderCell: (agent) => agent.phase ?? 'Unknown',
   }),
   createTableColumn<Agent>({
@@ -88,8 +66,8 @@ export function AgentsList(): JSX.Element {
       {agentsQuery.isLoading ? <Spinner label="Loading agents" /> : null}
       {agentsQuery.error ? <div className="error-text">Failed to load agents.</div> : null}
       <Text size={200} className="muted-text">
-        Active readiness is qualified from native workload, state and ingress conditions.
-        An Available release does not declare promotion. — means the API did not report a value.
+        Runtime readiness is qualified from native workload, retained state, and ingress conditions.
+        — means the API did not report a value.
       </Text>
       <DataGrid items={agents} columns={columns} getRowId={(item) => item.name} className="foundry-grid">
         <DataGridHeader>

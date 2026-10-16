@@ -1,53 +1,28 @@
 mock_provider "keycloak" {}
-mock_provider "random" {}
-mock_provider "kubernetes" {
-  mock_data "kubernetes_resource" {
-    defaults = { object = { metadata = {
-      uid = "agent-uid"
-      annotations = {
-        "radius.resource.id" = "/radius/agents/scout"
-        "radius.identity.id" = "/radius/agentIdentities/scout"
-      }
-    } } }
-  }
-}
+mock_provider "kubernetes" {}
 variables {
   namespace = "adaptive"
   context = { runtime = { kubernetes = { namespace = "adaptive" } }, resource = {
     name       = "scout", id = "/radius/agentIdentities/scout"
-    properties = { agentName = "scout", agentUid = "agent-uid", agentResourceId = "/radius/agents/scout" }
+    properties = { agentName = "scout" }
   } }
 }
 run "correct_binding" {
   command = plan
   assert {
-    condition     = data.kubernetes_resource.agent.metadata[0].namespace == "adaptive"
-    error_message = "Logical identity must use the explicit shared namespace, not Radius's application namespace."
+    condition     = kubernetes_secret_v1.identity.metadata[0].labels["adaptive.jplck.io/agent-uid"] == substr(sha256("/radius/agents/scout"), 0, 32)
+    error_message = "Identity must derive the same stable logical owner from its separate same-name Radius resource."
   }
 }
-run "wrong_uid" {
+run "wrong_name" {
   command = plan
   variables {
     context = { runtime = { kubernetes = { namespace = "adaptive" } }, resource = {
       name       = "scout", id = "/radius/agentIdentities/scout"
-      properties = { agentName = "scout", agentUid = "other-uid", agentResourceId = "/radius/agents/scout" }
+      properties = { agentName = "other" }
     } }
   }
-  expect_failures = [data.kubernetes_resource.agent]
-}
-run "wrong_owner" {
-  command = plan
-  override_data {
-    target = data.kubernetes_resource.agent
-    values = { object = { metadata = {
-      uid = "agent-uid"
-      annotations = {
-        "radius.resource.id" = "/radius/agents/scout"
-        "radius.identity.id" = "/radius/agentIdentities/other"
-      }
-    } } }
-  }
-  expect_failures = [data.kubernetes_resource.agent]
+  expect_failures = [var.context]
 }
 run "partial_connected_ids" {
   command = plan

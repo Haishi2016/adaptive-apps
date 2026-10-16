@@ -14,10 +14,10 @@ application -> Agent Gateway -> agent -> Model Gateway -> model
 ```
 
 Envoy plus the shared `agent-gateway-policy` service authenticate callers,
-authorize exact agent releases and restrict the native Responses request shape.
+authorize exact agent routes and restrict the native Responses request shape.
 Agents use their paired Keycloak OAuth clients for Model Gateway and peer-agent
 calls. LiteLLM separately owns provider routing and cloud provider identity.
-Connected prompt releases add a per-release Graph delegation broker only when
+Connected prompt agents add a Graph delegation broker only when
 their retained identity declares that capability.
 
 Start with [Getting Started](../../tutorials/getting-started/README.md). See

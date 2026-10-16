@@ -15,7 +15,7 @@ type Conversation = {
   failed?: boolean;
 };
 
-export function useAgentConversation(name: string, impersonation: ImpersonationMode, faultEnabled: boolean, version?: string) {
+export function useAgentConversation(name: string, impersonation: ImpersonationMode, faultEnabled: boolean) {
   const conversation = useRef<Conversation>();
   const [pinned, setPinned] = useState<Agent>();
   const [failed, setFailed] = useState(false);
@@ -27,7 +27,7 @@ export function useAgentConversation(name: string, impersonation: ImpersonationM
     setFailed(false);
     setStarted(false);
   }, []);
-  useEffect(reset, [name, version, reset]);
+  useEffect(reset, [name, reset]);
 
   const send = async ({ prompt, signal, onDelta, onModel, onToolEvent }: SendChatArgs): Promise<void> => {
     try {
@@ -48,11 +48,11 @@ export function useAgentConversation(name: string, impersonation: ImpersonationM
         }
       };
       if (!conversation.current) {
-        const agent = await getAgent(name, version);
+        const agent = await getAgent(name);
         signal.throwIfAborted();
         assertCaller();
-        if (agent.phase !== 'Ready' || !agent.version || agent.version !== (version ?? agent.activeVersion) || !agent.endpoint) {
-          throw new Error('Selected release is unavailable. No fallback release will be used.');
+        if (agent.phase !== 'Ready' || !agent.endpoint) {
+          throw new Error('Agent runtime is unavailable.');
         }
         if (!allowedIdentityModes(agent, faultEnabled, principal).includes(impersonation)) {
           throw new Error('Selected identity is unsupported by the captured tools.');

@@ -320,7 +320,7 @@ spec:
         - method: POST
           path:
             type: RegularExpression
-            value: ^/agents/[a-z0-9-]+/versions/[a-z0-9-]+/responses$
+            value: ^/agents/[a-z0-9-]+/responses$
         - method: POST
           path:
             type: RegularExpression

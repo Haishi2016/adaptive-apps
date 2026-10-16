@@ -63,10 +63,7 @@ export function resetMockData(): void {
     {
       name: 'handoff-service',
       type: 'prompt',
-      version: '1',
-      requestedActiveVersion: '1',
-      activeVersion: '1',
-      endpoint: '/agents/handoff-service/versions/1/responses',
+      endpoint: '/agents/handoff-service/responses',
       created: epoch('2026-05-20T14:22:05Z'),
       description: 'Zava Handoff Service Agent',
       model: 'gpt-5.4-mini',
@@ -81,10 +78,7 @@ export function resetMockData(): void {
     {
       name: 'trip-scout',
       type: 'hosted',
-      version: '2',
-      requestedActiveVersion: '2',
-      activeVersion: '2',
-      endpoint: '/agents/trip-scout/versions/2/responses',
+      endpoint: '/agents/trip-scout/responses',
       created: epoch('2026-05-20T14:21:58Z'),
       description: 'Portable hosted travel agent',
       image: 'adaptiveghcracr1.azurecr.io/adaptive/trip-scout:dev',
@@ -195,7 +189,7 @@ export const handlers = [
   http.get('*/v1/agents/:name/guardrails', ({ params }) => {
     const agent = findAgent(String(params.name));
     return agent ? HttpResponse.json({
-      name: agent.name, version: agent.version, enabled: false, mode: null,
+      name: agent.name, enabled: false, mode: null,
       inherited: [], attached: null, policy_sha256: null, deployment: null, phase: null,
     }) : HttpResponse.json({ detail: 'Agent not found' }, { status: 404 });
   }),
@@ -217,30 +211,9 @@ export const handlers = [
   http.get('*/v1/agents/:name', ({ params }) => {
     const agent = findAgent(String(params.name));
     return agent ? HttpResponse.json(agent)
-      : HttpResponse.json({ code: 'not_found', message: 'Agent release not found' }, { status: 404 });
-  }),
-  http.get('*/v1/agents/:name/versions/:version', ({ params }) => {
-    const agent = findAgent(String(params.name));
-    return agent && params.version === agent.version ? HttpResponse.json(agent)
-      : HttpResponse.json({ code: 'not_found', message: 'Agent release not found' }, { status: 404 });
+      : HttpResponse.json({ code: 'not_found', message: 'Agent not found' }, { status: 404 });
   }),
   http.get('*/v1/tools', () => HttpResponse.json({ object: 'list', data: tools })),
-  http.get('*/v1/agents/:name/versions', ({ params }) => {
-    const agent = findAgent(String(params.name));
-    if (!agent) return HttpResponse.json({ code: 'not_found', message: 'Agent not found' }, { status: 404 });
-    return HttpResponse.json({ object: 'list', data: [
-        {
-          name: agent.name,
-          version: agent.version,
-          created_at: epoch('2026-05-20T14:00:00Z'),
-          status: 'Available',
-          endpoint: agent.endpoint,
-          definitionDigest: 'sha256:mock',
-          requestedActive: true,
-          active: true,
-        },
-      ] });
-  }),
   http.get('*/v1/agents/:name/agent-card', ({ params }) => {
     const name = String(params.name);
     return HttpResponse.json({
@@ -297,7 +270,7 @@ export const handlers = [
       cardUrl: 'https://foundry.example/agents/research/agentCard/v1.0',
     });
   }),
-  http.post('*/agents/:name/versions/:version/responses', ({ params }) =>
+  http.post('*/agents/:name/responses', ({ params }) =>
     sseResponse([
       { type: 'response.output_text.delta', delta: `Mock response from ${String(params.name)}: ` },
       { type: 'response.output_text.delta', delta: 'hello from the agent.' },

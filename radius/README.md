@@ -6,16 +6,17 @@ chart; applications do not deploy another Keycloak.
 
 The optional [native agent capability](../docs/agents/native-radius.md) uses
 `agents-env.bicep`, `agent-services.bicep`, `agents.bicep`,
-and `agent-identity.bicep`. Agent declarations contain append-only immutable
-releases and explicit promotion state. These deploy native resources,
+and the advanced standalone `agent-identity.bicep`. A normal `agents.bicep`
+deployment creates the separately owned retained identity and one mutable
+runtime together. These deploy native resources,
 not an agent operator or lifecycle CRDs. The trading application remains unchanged.
 `agent-models.bicep` provides separately owned KAITO/vLLM and Foundry model
 backends plus a priority-based `aiGateways` declaration using their actual outputs.
 Foundry **agent hosting** has a source-tested
 [initial-deployment recipe](../docs/agents/native-radius.md#pending-foundry-11-agent-hosting-proof):
-`foundry-env.bicep`, `foundry-agent.bicep` and `recipes/foundry-release`.
+`foundry-env.bicep`, `foundry-agent.bicep` and `recipes/foundry-agent`.
 It deploys native prompt/hosted kinds, not a hosted prompt-runtime substitute.
-Live proof, additional release lifecycle and unchanged editor peer invocation
+Live proof and unchanged editor peer invocation
 remain unqualified; the guide documents the current Foundry routing difference.
 Connected clusters use the existing [Arc preparation guide](../tutorials/common/prepare-arc.md)
 before Radius/application deployment. Use the shared CLI/manual

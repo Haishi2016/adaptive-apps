@@ -92,55 +92,22 @@ type monitorRecord struct {
 }
 
 func (a *API) monitorServices(r *http.Request) (string, map[string]string, error) {
-	name, version, err := selection(r)
+	name, err := selection(r)
 	if err != nil {
 		return "", nil, err
-	}
-	// Browser input cannot select a store, service or query expression.
-	query, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil {
-		return "", nil, failure{http.StatusUnprocessableEntity, "Monitor query is malformed"}
-	}
-	for key := range query {
-		if key != "version" {
-			return "", nil, failure{http.StatusUnprocessableEntity, "Monitor accepts only an optional exact version"}
-		}
 	}
 	agent, err := a.agent(r, name)
 	if err != nil {
 		return "", nil, err
 	}
-	releases, err := a.releases(r, agent)
+	runtime, err := a.runtime(r, agent)
 	if err != nil {
 		return "", nil, err
 	}
-	if version != "" {
-		rel, err := selectedRelease(agent, version, releases)
-		if err != nil {
-			return "", nil, err
-		}
-		releases = []release{rel}
+	if runtime.deployment == nil || text(agent, "data", "agentUid") == "" || agent.GetDeletionTimestamp() != nil {
+		return "", nil, failure{http.StatusConflict, "Agent has no verified runtime service to monitor"}
 	}
-	services := map[string]string{}
-	for _, rel := range releases {
-		d := rel.deployment
-		if d == nil {
-			continue
-		}
-		if agent.GetUID() == "" || agent.GetDeletionTimestamp() != nil ||
-			!ownedBy(d, rel.snapshot) ||
-			text(rel.document, "agentUid") != string(agent.GetUID()) {
-			return "", nil, unavailable("Monitor native release ownership is invalid")
-		}
-		services[d.GetName()] = text(rel.document, "version")
-	}
-	if len(services) == 0 {
-		return "", nil, failure{http.StatusConflict, "Agent has no verified release service to monitor"}
-	}
-	if len(services) > 16 {
-		return "", nil, failure{http.StatusConflict, "Monitor release query bound exceeded; select an explicit version"}
-	}
-	return name, services, nil
+	return name, map[string]string{runtime.deployment.GetName(): ""}, nil
 }
 
 func (a *API) monitorRecords(r *http.Request, m *monitorReader) ([]monitorRecord, error) {

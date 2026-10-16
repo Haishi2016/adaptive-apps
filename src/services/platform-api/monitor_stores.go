@@ -263,10 +263,9 @@ func (m *monitorReader) logRecords(ctx context.Context, services map[string]stri
 					metadata[k] = v
 				}
 			}
-			version, owned := services[metadata["adaptive_agent_deployment"]]
+			_, owned := services[metadata["adaptive_agent_deployment"]]
 			if !owned || metadata["adaptive_agent_name"] != agent || metadata["service_namespace"] != namespace ||
-				metadata["service_name"] != "governance-sidecar" ||
-				(metadata["adaptive_agent_version"] != "" && metadata["adaptive_agent_version"] != version) {
+				metadata["service_name"] != "governance-sidecar" {
 				continue
 			}
 			stamp, err := strconv.ParseInt(timestamp, 10, 64)

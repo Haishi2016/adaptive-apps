@@ -8,14 +8,24 @@ param environment string
 param agentName string
 @allowed(['prompt', 'hosted'])
 param kind string = 'prompt'
-param activeVersion string = ''
-param identityRef string = ''
-@description('Append-only immutable releases keyed by explicit version.')
-param releases object = {}
+param definition object
+param delegation object = { enabled: false }
+param governance object = {}
+param resources object = {}
+param stateSize string = '1Gi'
 
 resource app 'Applications.Core/applications@2023-10-01-preview' = {
   name: '${agentName}-logical'
   properties: { environment: environment }
+}
+resource identity 'Radius.Resources/agentIdentities@2025-08-01-preview' = {
+  name: agentName
+  properties: {
+    application: app.id
+    environment: environment
+    agentName: agentName
+    delegation: delegation
+  }
 }
 resource agent 'Radius.Resources/agents@2025-08-01-preview' = {
   name: agentName
@@ -23,9 +33,19 @@ resource agent 'Radius.Resources/agents@2025-08-01-preview' = {
     application: app.id
     environment: environment
     kind: kind
-    activeVersion: activeVersion
-    identityRef: identityRef
-    releases: releases
+    identityRef: identity.properties.identityRef
+    binding: {
+      identity: identity.properties.identity
+      identityRef: identity.properties.identityRef
+      secretRef: identity.properties.secretRef
+      serviceAccountName: identity.properties.serviceAccountName
+    }
+    definition: definition
+    governance: governance
+    resources: resources
+    stateSize: stateSize
   }
 }
 output agentUid string = agent.properties.agentUid
+output identityRef string = identity.properties.identityRef
+output endpoint string = agent.properties.endpoint

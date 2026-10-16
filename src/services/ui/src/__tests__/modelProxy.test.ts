@@ -13,8 +13,8 @@ describe('native model development proxy', () => {
     expect(nginx).toContain('set $model_gateway model-ingress.${POD_NAMESPACE}.svc.cluster.local;');
     expect(nginx).toContain('rewrite ^/models(/v1/.*)$ $1 break;');
     expect(nginx).toContain('proxy_pass http://$model_gateway:8080;');
-    expect(nginx).toMatch(/location \/v1\/ \{\s*proxy_pass http:\/\/agent-ingress:8080;/);
-    expect(nginx).toMatch(/location ~ \^\/agents\/\[\^\/\]\+\/versions\/ \{\s*proxy_pass http:\/\/agent-ingress:8080;/);
+    expect(nginx).toMatch(/location \/v1\/ \{[\s\S]*?proxy_pass http:\/\/\$agent_gateway:8080;/);
+    expect(nginx).toMatch(/location ~ \^\/agents\/\[\^\/\]\+\/ \{[\s\S]*?proxy_pass http:\/\/\$agent_gateway:8080;/);
     expect(nginx).not.toContain('/api/projects');
   });
 
@@ -26,7 +26,7 @@ describe('native model development proxy', () => {
       console.log(JSON.stringify({
         target: proxy.target,
         inventoryTarget: config.server.proxy['/v1'].target,
-        responsesTarget: config.server.proxy['^/agents/[^/]+/versions/'].target,
+        responsesTarget: config.server.proxy['^/agents/[^/]+/'].target,
         proxyPaths: Object.keys(config.server.proxy),
         paths: ['/models/v1/models', '/models/v1/chat/completions', '/models/v1/responses',
                 '/models/v10/models', '/v1/agents'].map(proxy.rewrite),
@@ -37,7 +37,7 @@ describe('native model development proxy', () => {
       target: 'http://127.0.0.1:8092',
       inventoryTarget: 'http://127.0.0.1:8091',
       responsesTarget: 'http://127.0.0.1:8091',
-      proxyPaths: ['/models/v1', '^/agents/[^/]+/versions/', '/v1'],
+      proxyPaths: ['/models/v1', '^/agents/[^/]+/', '/v1'],
       paths: ['/v1/models', '/v1/chat/completions', '/v1/responses', '/models/v10/models', '/v1/agents'],
       headers: null,
     });

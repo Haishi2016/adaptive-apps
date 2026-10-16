@@ -7,6 +7,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 func TestBuiltinCatalogueMatchesUIContract(t *testing.T) {
@@ -29,10 +30,9 @@ func TestBuiltinCatalogueMatchesUIContract(t *testing.T) {
 	}
 }
 
-func TestInventoryProjectsCapturedDefinitionAndDelegation(t *testing.T) {
+func TestInventoryProjectsCurrentDefinitionAndDelegation(t *testing.T) {
 	f := newFixture(t)
 	f.agent.SetCreationTimestamp(metav1.NewTime(time.Unix(1770000000, 0)))
-	f.snapshot.SetCreationTimestamp(metav1.NewTime(time.Unix(1770000010, 0)))
 	binding, err := f.objects.Resource(configMaps).Namespace("adaptive").Get(context.Background(), "binding-demo", metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -52,10 +52,16 @@ func TestInventoryProjectsCapturedDefinitionAndDelegation(t *testing.T) {
 		"requireApproval": "never", "authType": "entra", "audience": "https://graph.microsoft.com",
 		"identityModes": []any{"app", "endUserOBO", "agentUser"}, "executionIdentity": "caller",
 	}
-	doc := document(f.snapshot)
-	def := doc["definition"].(map[string]any)
+	def := map[string]any{}
+	if err := json.Unmarshal([]byte(text(f.agent, "data", "definition")), &def); err != nil {
+		t.Fatal(err)
+	}
 	def["description"], def["tools"], def["temperature"], def["top_p"] = "Profile demo", []any{tool}, "0.2", "0.9"
-	capture(f.snapshot, doc)
+	definition, err := json.Marshal(def)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = unstructured.SetNestedField(f.agent.Object, string(definition), "data", "definition")
 	content, err := json.Marshal(identity)
 	if err != nil {
 		t.Fatal(err)
@@ -63,24 +69,19 @@ func TestInventoryProjectsCapturedDefinitionAndDelegation(t *testing.T) {
 	binding.Object["data"] = map[string]any{"identity.json": string(content)}
 	update(t, f, "configmaps", binding)
 	update(t, f, "configmaps", f.agent)
-	update(t, f, "configmaps", f.snapshot)
-	view := request(t, f.api, "GET", "/v1/agents/demo/versions/v1", "", 200)
+	view := request(t, f.api, "GET", "/v1/agents/demo", "", 200)
 	if view["instructions"] != "Be concise" || view["model"] != "local-chat" || view["description"] != "Profile demo" ||
 		view["created"] != float64(1770000000) || view["temperature"] != 0.2 || view["topP"] != 0.9 {
-		t.Fatalf("inventory read obsolete snapshot fields: %#v", view)
+		t.Fatalf("inventory read obsolete definition fields: %#v", view)
 	}
 	captured := view["tools"].([]any)[0].(map[string]any)
 	if captured["type"] != "builtin" || captured["connectionRef"] != "profile" {
-		t.Fatal("captured tools missing")
+		t.Fatal("agent tools missing")
 	}
 	gotIdentity := view["identity"].(map[string]any)
 	for _, key := range []string{"entraTenantId", "oboClientId", "agentUserId", "graphDelegation"} {
 		if gotIdentity[key] != identity[key] {
 			t.Fatalf("UI identity prerequisite %s missing", key)
 		}
-	}
-	versions := request(t, f.api, "GET", "/v1/agents/demo/versions", "", 200)["data"].([]any)
-	if versions[0].(map[string]any)["created_at"] != float64(1770000010) {
-		t.Fatal("release timestamp is not Unix seconds")
 	}
 }

@@ -13,7 +13,7 @@ import {
 } from '@fluentui/react-components';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   getAgent,
   type ImpersonationMode,
@@ -28,7 +28,6 @@ import { AgentGuardrails } from '../guardrails/Guardrails';
 import { useConnectivityFaultStore } from '../../state/connectivityFault';
 import { authTypeLabel, executionIdentityLabel, identityModeLabels } from '../tools/toolCatalog';
 import { useAgentConversation } from './useAgentConversation';
-import { AgentReleases } from './AgentReleases';
 import { allowedIdentityModes } from './identityModes';
 import { embeddedMode } from '../../auth/config';
 
@@ -36,14 +35,12 @@ export function PromptAgentPlayground(): JSX.Element {
   const embedded = embeddedMode();
   const { name = '' } = useParams();
   const navigate = useNavigate();
-  const [search, setSearch] = useSearchParams();
-  const version = search.get('version') || undefined;
-  const agentQuery = useQuery({ queryKey: version ? ['agent', name, version] : ['agent', name], queryFn: () => getAgent(name, version), enabled: Boolean(name) });
+  const agentQuery = useQuery({ queryKey: ['agent', name], queryFn: () => getAgent(name), enabled: Boolean(name) });
   const [tab, setTab] = useState<TabValue>('chat');
   const [impersonation, setImpersonation] = useState<ImpersonationMode>('app');
   const user = useAuthStore((state) => state.user);
   const mode = useConnectivityFaultStore((state) => state.enabled);
-  const conversation = useAgentConversation(name, impersonation, mode, version);
+  const conversation = useAgentConversation(name, impersonation, mode);
   const agent = conversation.pinned ?? agentQuery.data;
   const entraTools = agent?.tools?.filter((tool) => tool.authType === 'entra') ?? [];
   const allowedModes = allowedIdentityModes(agent, mode, user);
@@ -67,7 +64,7 @@ export function PromptAgentPlayground(): JSX.Element {
           <Badge appearance="tint">prompt</Badge>
         </div>
         <div className="titlebar-actions">
-          <Text>{conversation.pinned ? 'Conversation release' : 'Definition version'} {agent?.version ?? '—'}</Text>
+          <Text>{conversation.pinned ? 'Conversation runtime pinned' : 'Current mutable runtime'}</Text>
         </div>
       </div>
       {agentQuery.isLoading ? <Spinner label="Loading agent" /> : null}
@@ -82,12 +79,6 @@ export function PromptAgentPlayground(): JSX.Element {
           />
           <Text size={200}>Model calls always use application identity. Graph /me requires a user;
             app mode reports that limitation rather than impersonating a user.</Text>
-          <AgentReleases name={name} agent={agentQuery.data} version={version} disabled={conversation.started}
-            onSelect={(selected) => setSearch((current) => {
-              if (selected) current.set('version', selected);
-              else current.delete('version');
-              return current;
-            })} />
           {unsupportedIdentity ? (
             <Text className="error-text" role="alert">
               Selected identity is unsupported by an attached Entra tool. Choose a supported call identity before invoking.
@@ -150,7 +141,7 @@ export function PromptAgentPlayground(): JSX.Element {
                   <Text weight="semibold">{skill.name} (Skill)</Text>
                   <Text size={200}>{skill.path}</Text>
                   <Text>{skill.description}</Text>
-                  <Text size={200}>Captured with this agent version. Instructions load on demand; no script execution.</Text>
+                  <Text size={200}>Configured on the current agent. Instructions load on demand; no script execution.</Text>
                 </Card>
               ))}
             </div>
@@ -166,7 +157,7 @@ export function PromptAgentPlayground(): JSX.Element {
           </TabList>
           <div hidden={tab !== 'chat'} className="tab-pane">
             <ChatPanel
-              key={`${name}:${version ?? ''}`}
+              key={name}
               emptyTitle={agent?.name ?? 'Prompt agent'}
               emptySubtitle={agent?.description}
               placeholder="Message the agent..."
@@ -179,7 +170,7 @@ export function PromptAgentPlayground(): JSX.Element {
             <MonitorPanel name={name} visible={tab === 'monitor'} />
           </div>
           {!embedded ? <div hidden={tab !== 'guardrails'} className="tab-pane">
-            <AgentGuardrails name={name} version={agent?.version ?? undefined} visible={tab === 'guardrails'} />
+            <AgentGuardrails name={name} visible={tab === 'guardrails'} />
           </div> : null}
           {!embedded ? <div hidden={tab !== 'a2a'} className="tab-pane">
             <A2APanel name={name} />

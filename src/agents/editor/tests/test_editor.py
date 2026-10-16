@@ -8,17 +8,14 @@ from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, use_s
 
 from editor import agent
 
-EXPECTED_TEXT = "## writer (v1)\n\nwriter result\n\n## auditor (v1)\n\nauditor result"
+EXPECTED_TEXT = "## writer\n\nwriter result\n\n## auditor\n\nauditor result"
 
 
 @pytest.fixture
 def pipeline(monkeypatch):
     for prefix, name in (("WRITER", "writer"), ("AUDITOR", "auditor")):
         monkeypatch.setenv(f"{prefix}_NAME", name)
-        monkeypatch.setenv(f"{prefix}_VERSION", "v1")
-        monkeypatch.setenv(
-            f"{prefix}_RESPONSES_BASE_URL", f"https://example.test/agents/{name}/versions/v1/"
-        )
+        monkeypatch.setenv(f"{prefix}_RESPONSES_BASE_URL", f"https://example.test/agents/{name}/")
     requests = []
     faults = {}
     tokens = []
@@ -36,8 +33,7 @@ def pipeline(monkeypatch):
         prefix = next(
             prefix for prefix in ("WRITER", "AUDITOR") if agent.os.environ[f"{prefix}_NAME"] == name
         )
-        version = agent.os.environ[f"{prefix}_VERSION"]
-        assert request.url.path == f"/agents/{name}/versions/{version}/responses"
+        assert request.url.path == f"/agents/{name}/responses"
         assert request.headers["authorization"] == "Bearer application-token"
         assert json.loads(request.content)["store"] is False
         if name in faults and isinstance(faults[name], int):
@@ -104,19 +100,19 @@ async def test_sequence_and_request_local_context(pipeline):
 @pytest.mark.parametrize(
     "endpoint",
     [
-        "https://example.test/agents/other/versions/v1/",
-        "https://example.test/agents/writer/versions/active/",
+        "https://example.test/agents/other/",
+        "https://example.test/agents/writer/versions/v1/",
         "https://user:password@example.test/agents/writer/versions/v1/",
-        "https://example.test/agents/writer/versions/v1/?redirect=elsewhere",
-        "https://example.test/agents/writer/versions/v1/#fragment",
-        "file:///agents/writer/versions/v1/",
+        "https://example.test/agents/writer/?redirect=elsewhere",
+        "https://example.test/agents/writer/#fragment",
+        "file:///agents/writer/",
     ],
 )
 async def test_invalid_peer_endpoint_fails_before_credentials_or_network(
     pipeline, monkeypatch, prefix, endpoint
 ):
     monkeypatch.setenv(f"{prefix}_RESPONSES_BASE_URL", endpoint)
-    with pytest.raises(ValueError, match="explicit release"):
+    with pytest.raises(ValueError, match="configured agent"):
         await agent.edit([Message("user", ["Brief"])])
     assert pipeline[0] == []
     assert pipeline[2] == []
@@ -177,21 +173,20 @@ async def test_empty_input_is_rejected_before_invocation(pipeline):
     assert pipeline[0] == []
 
 
-async def test_labels_and_urls_use_configured_explicit_versions(pipeline, monkeypatch):
-    for prefix, name, version in (
-        ("WRITER", "draft-writer", "draft-v2"),
-        ("AUDITOR", "reviewer", "review-v3"),
+async def test_labels_and_urls_use_configured_agents(pipeline, monkeypatch):
+    for prefix, name in (
+        ("WRITER", "draft-writer"),
+        ("AUDITOR", "reviewer"),
     ):
         monkeypatch.setenv(f"{prefix}_NAME", name)
-        monkeypatch.setenv(f"{prefix}_VERSION", version)
         monkeypatch.setenv(
             f"{prefix}_RESPONSES_BASE_URL",
-            f"https://example.test/agents/{name}/versions/{version}/",
+            f"https://example.test/agents/{name}/",
         )
     result = await agent.edit([Message("user", ["Brief"])])
     assert result.text == (
-        "## draft-writer (draft-v2)\n\ndraft-writer result\n\n"
-        "## reviewer (review-v3)\n\nreviewer result"
+        "## draft-writer\n\ndraft-writer result\n\n"
+        "## reviewer\n\nreviewer result"
     )
     assert json.loads(pipeline[0][1].content)["input"][1]["content"] == "draft-writer result"
 

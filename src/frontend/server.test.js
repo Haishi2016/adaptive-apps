@@ -20,16 +20,14 @@ function request(method, path, provider = "microsoft") {
   };
 }
 
-test("native API allowlist accepts only inventory and immutable response routes", () => {
+test("native API allowlist accepts only inventory and stable response routes", () => {
   for (const [method, path] of [
     ["GET", "/v1/agents"],
     ["GET", "/v1/agents/writer"],
-    ["GET", "/v1/agents/writer/versions"],
-    ["GET", "/v1/agents/writer/versions/v1"],
     ["GET", "/v1/agents/writer/spans"],
     ["GET", "/v1/agents/writer/guardrails"],
     ["GET", "/v1/agents/writer/agent-card"],
-    ["POST", "/agents/writer/versions/v1/responses"],
+    ["POST", "/agents/writer/responses"],
   ]) {
     assert.equal(exactNativeRequest(request(method, path)), true, `${method} ${path}`);
   }
@@ -38,7 +36,10 @@ test("native API allowlist accepts only inventory and immutable response routes"
     ["PATCH", "/v1/connectivity-fault"],
     ["POST", "/v1/agents/writer/agent-card/validate"],
     ["POST", "/v1/agents/writer/a2a/test-call"],
-    ["POST", "/agents/writer/versions/v1/responses/extra"],
+    ["GET", "/v1/agents/writer/versions"],
+    ["GET", "/v1/agents/writer/versions/v1"],
+    ["POST", "/agents/writer/versions/v1/responses"],
+    ["POST", "/agents/writer/responses/extra"],
     ["GET", "/v1/agents/Writer"],
   ]) {
     assert.equal(exactNativeRequest(request(method, path)), false, `${method} ${path}`);

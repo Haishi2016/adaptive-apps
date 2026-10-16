@@ -243,7 +243,7 @@ function logSummary(record: MonitorLog): string {
       ]
         .filter(Boolean)
         .join(' · ')
-    : `${attrs['guardrail.action'] ?? ''} ${attrs['guardrail.resource'] ?? ''} · ${attrs['guardrail.policy'] ?? '—'} / ${attrs['guardrail.rule'] ?? '—'} · version ${attrs['adaptive.agent.version'] || 'unversioned'}`;
+    : `${attrs['guardrail.action'] ?? ''} ${attrs['guardrail.resource'] ?? ''} · ${attrs['guardrail.policy'] ?? '—'} / ${attrs['guardrail.rule'] ?? '—'}`;
 }
 
 export function MonitorPanel({ name, visible }: MonitorPanelProps): JSX.Element {

@@ -10,7 +10,7 @@ variable "context" {
   type = object({ runtime = object({ kubernetes = object({ namespace = string }) }), resource = object({
     name = string, id = string
     properties = object({
-      agentName = string, agentResourceId = string, agentUid = string
+      agentName = string
       delegation = optional(object({
         enabled  = optional(bool, false)
         tenantId = optional(string, "")
@@ -114,10 +114,10 @@ provider "kubernetes" {
 }
 
 locals {
-  # Keep every creation input here. Promotion changes must never repeat a Graph POST.
+  # Keep every creation input here. Runtime updates must never repeat a Graph POST.
   identity_inputs = {
     name      = var.context.resource.name
-    radius_id = var.context.resource.properties.agentResourceId
+    radius_id = replace(var.context.resource.id, "agentIdentities", "agents")
     sponsor   = var.sponsor_user_id
     owner     = var.owner_user_id
     issuer    = var.oidc_issuer

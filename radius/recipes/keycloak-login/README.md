@@ -62,7 +62,7 @@ The declaration uses `Radius.Resources/keycloakLogins`; only this dedicated
 administrator environment registers its default recipe. Configuration properties
 arrive through `context.resource.properties`, not an extender parameter bag.
 
-Keep this environment separate from agent/release deployment and restrict who
+Keep this environment separate from agent deployment and restrict who
 can deploy to it. Its Kubernetes namespace matches its environment name:
 Radius requires a unique namespace per environment. The provider still
 configures the existing `adaptive` realm through its explicit Service URL.
@@ -131,5 +131,5 @@ local-to-Entra identity mapping. Do not reinterpret Keycloak `oid` as an Entra
 object ID. The native release recipe uses the shared Agent Gateway and validates
 native Keycloak user tokens with `azp=adaptive-ui` and the explicit `agent.invoke`
 role; include that exact role in `platformRoles` for the bounded agent path.
-Delegated Graph tokens continue through the per-release broker/Entra SDK
+Delegated Graph tokens continue through the colocated broker/Entra SDK
 sidecar path; current native identity flows need no platform broker service.

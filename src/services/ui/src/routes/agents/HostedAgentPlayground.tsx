@@ -1,7 +1,7 @@
 import { Badge, Button, Card, Tab, TabList, TabValue, Text } from '@fluentui/react-components';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { getAgent } from '../../api/client';
 import { AgentInfoPanel } from '../../components/AgentInfoPanel';
 import { ChatPanel } from '../../components/ChatPanel';
@@ -11,19 +11,16 @@ import { A2APanel } from './A2APanel';
 import { AgentGuardrails } from '../guardrails/Guardrails';
 import { useConnectivityFaultStore } from '../../state/connectivityFault';
 import { useAgentConversation } from './useAgentConversation';
-import { AgentReleases } from './AgentReleases';
 import { embeddedMode } from '../../auth/config';
 
 export function HostedAgentPlayground(): JSX.Element {
   const embedded = embeddedMode();
   const { name = '' } = useParams();
   const navigate = useNavigate();
-  const [search, setSearch] = useSearchParams();
-  const version = search.get('version') || undefined;
   const [tab, setTab] = useState<TabValue>('chat');
-  const agentQuery = useQuery({ queryKey: version ? ['agent', name, version] : ['agent', name], queryFn: () => getAgent(name, version), enabled: Boolean(name) });
+  const agentQuery = useQuery({ queryKey: ['agent', name], queryFn: () => getAgent(name), enabled: Boolean(name) });
   const mode = useConnectivityFaultStore((state) => state.enabled);
-  const conversation = useAgentConversation(name, 'app', mode, version);
+  const conversation = useAgentConversation(name, 'app', mode);
   const agent = conversation.pinned ?? agentQuery.data;
 
   return (
@@ -50,12 +47,6 @@ export function HostedAgentPlayground(): JSX.Element {
             />
             <Text size={200}>Hosted delegated identity is unavailable. Use application identity.</Text>
           </Card>
-          <AgentReleases name={name} agent={agentQuery.data} version={version} disabled={conversation.started}
-            onSelect={(selected) => setSearch((current) => {
-              if (selected) current.set('version', selected);
-              else current.delete('version');
-              return current;
-            })} />
           <Card appearance="filled-alternative" className="metadata-card">
             <Text weight="semibold">Hosted metadata</Text>
             <Text size={200}>Hosted-agent tools are defined in the container’s code, not attached in this playground.</Text>
@@ -63,10 +54,6 @@ export function HostedAgentPlayground(): JSX.Element {
               <div>
                 <dt>Name</dt>
                 <dd>{agent?.name ?? name}</dd>
-              </div>
-              <div>
-                <dt>{conversation.pinned ? 'Conversation release' : 'Version'}</dt>
-                <dd>{agent?.version ?? '—'}</dd>
               </div>
               <div>
                 <dt>Image</dt>
@@ -88,7 +75,7 @@ export function HostedAgentPlayground(): JSX.Element {
           </TabList>
           <div hidden={tab !== 'chat'} className="tab-pane">
             <ChatPanel
-              key={`${name}:${version ?? ''}`}
+              key={name}
               emptyTitle={agent?.name ?? 'Hosted agent'}
               emptySubtitle={agent?.description}
               placeholder="Message the hosted agent..."
@@ -101,7 +88,7 @@ export function HostedAgentPlayground(): JSX.Element {
             <MonitorPanel name={name} visible={tab === 'monitor'} />
           </div>
           {!embedded ? <div hidden={tab !== 'guardrails'} className="tab-pane">
-            <AgentGuardrails name={name} version={agent?.version ?? undefined} visible={tab === 'guardrails'} />
+            <AgentGuardrails name={name} visible={tab === 'guardrails'} />
           </div> : null}
           {!embedded ? <div hidden={tab !== 'a2a'} className="tab-pane">
             <A2APanel name={name} />

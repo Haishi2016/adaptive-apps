@@ -8,10 +8,9 @@ var p = context.resource.properties
 var def = p.definition
 var binding = p.binding
 var id = binding.identity
-var name = 'run-${uniqueString(namespace, p.agentUid, p.version)}'
-var captureName = 'release-${uniqueString(namespace, p.agentUid, p.version)}'
-var claimName = 'state-${uniqueString(p.agentUid, p.version)}'
-var path = '/agents/${p.agentName}/versions/${p.version}'
+var name = 'agent-${uniqueString(namespace, p.agentUid)}'
+var claimName = 'state-${uniqueString(p.agentUid)}'
+var path = '/agents/${p.agentName}'
 var image = def.kind == 'prompt' ? def.runtimeImage : def.image
 var graph = def.kind == 'prompt' && !empty(def.?tools ?? []) && (id.?graphDelegation ?? false)
 var governed = !empty(p.?governance ?? {})
@@ -20,10 +19,9 @@ var proxy = p.?governance ?? {}
 var peers = filter(platform.?peers ?? [], peer => contains(peer.targets, p.agentName))
 var labels = {
   'app.kubernetes.io/managed-by': 'radius'
-  'app.kubernetes.io/component': 'agent-release'
+  'app.kubernetes.io/component': 'agent-runtime'
   'adaptive.jplck.io/agent': p.agentName
   'adaptive.jplck.io/agent-uid': p.agentUid
-  'adaptive.jplck.io/version': p.version
   'adaptive.jplck.io/cloud-egress': 'true'
 }
 var annotations = {
@@ -61,7 +59,7 @@ var agentEnv = concat([
   { name: 'OTEL_EXPORTER_OTLP_ENDPOINT', value: platform.otelEndpoint }
   { name: 'OTEL_EXPORTER_OTLP_PROTOCOL', value: 'http/protobuf' }
   { name: 'OTEL_SERVICE_NAME', value: name }
-  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'service.namespace=${namespace},k8s.namespace.name=${namespace},adaptive.agent.name=${p.agentName},adaptive.agent.deployment=${name}' }
+  { name: 'OTEL_RESOURCE_ATTRIBUTES', value: 'service.namespace=${namespace},k8s.namespace.name=${namespace},adaptive.agent.name=${p.agentName}' }
 ], def.kind == 'prompt' ? [
   { name: 'AGENT_INSTRUCTIONS', value: def.instructions }
   { name: 'AGENT_TOOLS', value: string(def.?tools ?? []) }
@@ -103,37 +101,20 @@ extension kubernetes with {
   namespace: namespace
 }
 
-resource capture 'core/ConfigMap@v1' = {
+resource governance 'core/ConfigMap@v1' = if (governed) {
   metadata: {
-    name: captureName
+    name: '${name}-governance'
     namespace: namespace
-    labels: union(labels, { 'adaptive.jplck.io/resource': 'agent-release' })
+    labels: labels
     annotations: annotations
   }
-  immutable: true
-  data: union({
-    'release.json': string(union(p, {
-      workload: name
-      claim: claimName
-      gateway: 'agent-ingress'
-      endpoint: '${platform.ingressUrl}${path}'
-      platform: platform
-      radiusResourceId: context.resource.id
-    }))
-  }, governed ? { 'proxy.json': proxy.config } : {})
+  data: { 'proxy.json': proxy.config }
 }
-var owner = [{
-  apiVersion: 'v1'
-  kind: 'ConfigMap'
-  name: capture.metadata.name
-  uid: any(capture).metadata.uid
-}]
 var metadata = {
   name: name
   namespace: namespace
   labels: labels
   annotations: annotations
-  ownerReferences: owner
 }
 
 resource state 'core/PersistentVolumeClaim@v1' = {
@@ -147,7 +128,6 @@ resource state 'core/PersistentVolumeClaim@v1' = {
     accessModes: ['ReadWriteOnce']
     resources: { requests: { storage: p.?stateSize ?? '1Gi' } }
   }
-  dependsOn: [capture]
 }
 resource workload 'apps/StatefulSet@v1' = {
   // The extension schema omits native ObjectMeta.ownerReferences.
@@ -226,7 +206,6 @@ resource workload 'apps/StatefulSet@v1' = {
             { name: 'ADAPTIVE_GOVERNANCE_SHA256', value: proxy.digest }
             { name: 'ADAPTIVE_GOVERNANCE_AGENT_ID', value: '${namespace}/${p.agentName}' }
             { name: 'ADAPTIVE_GOVERNANCE_MODE', value: proxy.mode }
-            { name: 'ADAPTIVE_GOVERNANCE_AGENT_VERSION', value: p.version }
             { name: 'ADAPTIVE_GOVERNANCE_DEPLOYMENT', value: name }
             { name: 'OTEL_EXPORTER_OTLP_ENDPOINT', value: platform.otelEndpoint }
           ]
@@ -243,7 +222,7 @@ resource workload 'apps/StatefulSet@v1' = {
           } }] } }
           { name: 'sidecar-keys', emptyDir: {} }
           { name: 'sidecar-tmp', emptyDir: {} }
-        ] : [], governed ? [{ name: 'governance', configMap: { name: capture.metadata.name } }] : [])
+        ] : [], governed ? [{ name: 'governance', configMap: { name: governance!.metadata.name } }] : [])
       }
     }
   }
@@ -401,19 +380,20 @@ resource isolation 'networking.k8s.io/NetworkPolicy@v1' = {
   }
 }
 
-// Radius deletes runtime resources, never the capture or native state.
+// Radius deletes the mutable runtime resources, never the retained native state.
 output result object = {
-  resources: [
+  resources: concat([
     '/planes/kubernetes/local/namespaces/${namespace}/providers/apps/StatefulSet/${name}'
     '/planes/kubernetes/local/namespaces/${namespace}/providers/core/Service/${name}'
     '/planes/kubernetes/local/namespaces/${namespace}/providers/gateway.networking.k8s.io/HTTPRoute/${name}'
     '/planes/kubernetes/local/namespaces/${namespace}/providers/gateway.envoyproxy.io/SecurityPolicy/${name}'
     '/planes/kubernetes/local/namespaces/${namespace}/providers/gateway.envoyproxy.io/EnvoyExtensionPolicy/${name}'
     '/planes/kubernetes/local/namespaces/${namespace}/providers/networking.k8s.io/NetworkPolicy/${name}'
-  ]
+  ], governed ? [
+    '/planes/kubernetes/local/namespaces/${namespace}/providers/core/ConfigMap/${governance!.metadata.name}'
+  ] : [])
   values: {
-    version: p.version
-    captureName: capture.metadata.name
-    endpoint: ''
+    endpoint: '${platform.ingressUrl}${path}'
+    nativeName: name
   }
 }

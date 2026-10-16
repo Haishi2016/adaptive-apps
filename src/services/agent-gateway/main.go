@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-var responsePath = regexp.MustCompile(`^/agents/[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?/versions/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?/responses$`)
+var responsePath = regexp.MustCompile(`^/agents/[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?/responses$`)
 
 type adapter struct {
 	tokenURL, sidecarURL, entraID, admissionURL string
@@ -158,7 +158,7 @@ func (a *adapter) responseAdmission(path string) http.Handler {
 			w.Header().Set(admissionToken, "")
 			w.Header().Set(admissionUser, "")
 			if mode := r.Header.Get("X-Impersonation-Mode"); mode != "" && mode != "app" {
-				reject(w, http.StatusForbidden, "Delegated identity requires a connected agent release")
+				reject(w, http.StatusForbidden, "Delegated identity requires a connected agent runtime")
 				return
 			}
 			if r.Header.Get("X-Entra-User-Token") != "" {

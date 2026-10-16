@@ -2,7 +2,7 @@
 
 Native prompt-agent Responses host. The Dockerfile's source paths use
 `agents/prompt-agent`.
-The native Radius recipe creates a configured singleton for each prompt release, just as it
+The native Radius recipe creates a configured singleton for each prompt agent, just as it
 spawns hosted agents. There is no shared prompt service or operational API hop.
 Deployment supplies instructions, model binding, supported tools and direct Keycloak
 client-credentials configuration through `KEYCLOAK_TOKEN_URL`, `KEYCLOAK_CLIENT_ID`

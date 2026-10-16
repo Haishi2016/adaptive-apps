@@ -507,7 +507,7 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
                 local_port: 18080,
             })?;
         }
-        ui::note("Native services ready; publish logical agents, retained identities and explicit releases using Radius");
+        ui::note("Native services ready; deploy retained identities and mutable agents using Radius");
     } else {
         maybe_provision_oidc_client(&args)?;
     }

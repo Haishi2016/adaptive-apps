@@ -25,11 +25,6 @@ beforeEach(() => {
   useConnectivityFaultStore.setState({ enabled: false });
   server.use(
     http.get('*/v1/agents/graph-demo', () => HttpResponse.json(graphAgent)),
-    http.get('*/v1/agents/graph-demo/versions/:version', () => HttpResponse.json(graphAgent)),
-    http.get('*/v1/agents/graph-demo/versions', () => HttpResponse.json({ object: 'list', data: [{
-        name: graphAgent.name, version: graphAgent.version!, status: 'Available',
-        endpoint: graphAgent.endpoint, definitionDigest: 'digest', active: true, requestedActive: true,
-      }] })),
   );
 });
 
@@ -61,7 +56,7 @@ function respond() {
   );
 }
 
-it.each(['app', 'agentUser', 'endUserOBO'] as const)('invokes %s with native Graph events and pins mode/release until reset', async (mode) => {
+it.each(['app', 'agentUser', 'endUserOBO'] as const)('invokes %s with native Graph events and pins mode/runtime until reset', async (mode) => {
   const popup = vi.spyOn(UserManager.prototype, 'signinPopup').mockResolvedValue(assertion());
   const headers: Headers[] = [];
   server.use(http.post(`*${graphAgent.endpoint}`, ({ request }) => {
@@ -79,7 +74,6 @@ it.each(['app', 'agentUser', 'endUserOBO'] as const)('invokes %s with native Gra
   expect(await screen.findByText('Graph reply')).toBeInTheDocument();
   expect(screen.getByText('Tool call: graph_me')).toBeInTheDocument();
   for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
-  expect(screen.getByLabelText('Invocation release')).toBeDisabled();
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument());
   await send('Second');
   await waitFor(() => expect(headers).toHaveLength(2));

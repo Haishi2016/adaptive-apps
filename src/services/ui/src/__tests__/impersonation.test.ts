@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { invokeAgent } from '../api/client';
 
-const endpoint = '/agents/demo/versions/amber/responses';
+const endpoint = '/agents/demo/responses';
 
 afterEach(() => {
   vi.unstubAllGlobals();

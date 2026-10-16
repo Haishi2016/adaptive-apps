@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
 	"regexp"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -60,28 +59,14 @@ func respond(f func(*http.Request) (any, error)) http.HandlerFunc {
 	}
 }
 
-var (
-	versionPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$`)
-	namePattern    = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
-)
+var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
-func selection(r *http.Request) (string, string, error) {
+func selection(r *http.Request) (string, error) {
 	name := r.PathValue("name")
-	query, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil {
-		return "", "", failure{http.StatusUnprocessableEntity, "Malformed query parameters"}
+	if !namePattern.MatchString(name) || r.URL.RawQuery != "" {
+		return "", failure{http.StatusUnprocessableEntity, "Invalid agent name or unsupported query parameters"}
 	}
-	versions, present := query["version"]
-	version := r.PathValue("version")
-	if !namePattern.MatchString(name) || len(query) > 1 || (len(query) == 1 && !present) ||
-		(present && (version != "" || len(versions) != 1 || !versionPattern.MatchString(versions[0]))) ||
-		(version != "" && !versionPattern.MatchString(version)) {
-		return "", "", failure{http.StatusUnprocessableEntity, "Invalid agent name or explicit release identifier"}
-	}
-	if present {
-		version = versions[0]
-	}
-	return name, version, nil
+	return name, nil
 }
 
 func decodeJSON(r *http.Request, value any) error {
@@ -110,8 +95,6 @@ func (a *API) handler() http.Handler {
 	mux.HandleFunc("GET /v1/environment", respond(a.environment))
 	mux.HandleFunc("GET /v1/agents", respond(a.listAgents))
 	mux.HandleFunc("GET /v1/agents/{name}", respond(a.getAgent))
-	mux.HandleFunc("GET /v1/agents/{name}/versions", respond(a.listVersions))
-	mux.HandleFunc("GET /v1/agents/{name}/versions/{version}", respond(a.getAgent))
 	mux.HandleFunc("GET /v1/tools", respond(a.tools))
 	mux.HandleFunc("GET /v1/guardrails", respond(a.platformGuardrails))
 	mux.HandleFunc("GET /v1/agents/{name}/guardrails", respond(a.agentGuardrails))

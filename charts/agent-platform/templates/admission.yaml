@@ -30,21 +30,15 @@ spec:
         has(object.data) && 'name' in object.data &&
         object.data.name.matches('^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$') &&
         'kind' in object.data && object.data.kind in ['prompt', 'hosted'] &&
-        'activeVersion' in object.data &&
-        object.data.activeVersion.matches('^$|^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$') &&
-        'releases' in object.data &&
-        object.data.releases.matches('^$|^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?(,[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?)*$')
-      message: Logical agent name, kind and explicit release identifier must satisfy the native contract.
+        'identityRef' in object.data && object.data.identityRef != ''
+      message: Agent name, kind, and identity binding must satisfy the native contract.
     - expression: >-
-        oldObject == null ? object.data.activeVersion == '' :
+        oldObject == null ? true :
         (object.data.name == oldObject.data.name && object.data.kind == oldObject.data.kind &&
         object.metadata.annotations['radius.resource.id'] == oldObject.metadata.annotations['radius.resource.id'] &&
         object.metadata.annotations['radius.identity.id'] == oldObject.metadata.annotations['radius.identity.id'] &&
-        oldObject.data.releases.split(',').all(version,
-        version == '' || object.data.releases.split(',').exists(candidate, candidate == version)) &&
-        (object.data.activeVersion == oldObject.data.activeVersion ||
-        oldObject.data.releases.split(',').exists(version, version == object.data.activeVersion)))
-      message: Logical ownership and published releases are immutable; promote only a previously published release in a separate update.
+        object.data.identityRef == oldObject.data.identityRef)
+      message: Logical ownership and the retained identity binding cannot be replaced.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -68,13 +62,13 @@ spec:
         resources: ["statefulsets", "statefulsets/scale"]
   matchConditions:
     - name: native-agent-runtime
-      expression: request.namespace == {{ .Release.Namespace | quote }} && object.metadata.name.startsWith('run-')
+      expression: request.namespace == {{ .Release.Namespace | quote }} && object.metadata.name.startsWith('agent-')
   variables:
     - name: isScale
       expression: has(request.subResource) && request.subResource == 'scale'
   validations:
     - expression: object.spec.replicas >= 0 && object.spec.replicas <= 1
-      message: A native release permits at most one state writer.
+      message: A native agent permits at most one state writer.
     - expression: >-
         variables.isScale ||
         object.spec.template.spec.containers.all(c,
@@ -84,14 +78,11 @@ spec:
         variables.isScale ||
         (object.metadata.annotations['adaptive.jplck.io/identity-owner-uid'] ==
         object.metadata.labels['adaptive.jplck.io/agent-uid'])
-      message: The release must use its exact logical agent identity.
+      message: The runtime must use its exact retained agent identity.
     - expression: >-
         variables.isScale || oldObject == null ||
-        (object.spec.template == oldObject.spec.template &&
-        object.spec.serviceName == oldObject.spec.serviceName &&
-        object.metadata.ownerReferences == oldObject.metadata.ownerReferences &&
-        object.metadata.annotations['radius.resource.id'] == oldObject.metadata.annotations['radius.resource.id'])
-      message: Published runtime content and ownership are immutable; publish a new release.
+        object.metadata.annotations['radius.resource.id'] == oldObject.metadata.annotations['radius.resource.id']
+      message: Runtime ownership cannot be replaced.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

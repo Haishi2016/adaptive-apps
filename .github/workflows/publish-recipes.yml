@@ -138,7 +138,7 @@ jobs:
             identity-local \
             identity-connected \
             keycloak-login \
-            foundry-release |
+            foundry-agent |
             gzip -n > dist/recipes.tgz
           (
             cd dist
@@ -169,7 +169,7 @@ jobs:
                   "identity-local",
                   "identity-connected",
                   "keycloak-login",
-                  "foundry-release"
+                  "foundry-agent"
                 ]
               },
               bicep: {

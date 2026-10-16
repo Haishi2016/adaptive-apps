@@ -30,11 +30,8 @@ const entraTool: AgentToolRef = {
   identityModes: ['app', 'endUserOBO'],
   executionIdentity: 'server',
 };
-const release = {
-  version: 'amber',
-  requestedActiveVersion: 'amber',
-  activeVersion: 'amber',
-  endpoint: '/agents/handoff-service/versions/amber/responses',
+const runtime = {
+  endpoint: '/agents/handoff-service/responses',
   phase: 'Ready' as const,
 };
 
@@ -57,14 +54,13 @@ function renderAgent(tools: AgentToolRef[]): ReturnType<typeof renderWithProvide
   const agent: Agent = {
     name: 'handoff-service',
     type: 'prompt',
-    ...release,
+    ...runtime,
     model: 'gpt-5.4-mini',
     identity: { entraClientId: 'agent-client-id', blueprintId: 'agent-blueprint', keycloakClientId: 'mirror' },
     tools,
   };
   server.use(
     http.get('*/v1/agents/handoff-service', () => HttpResponse.json(agent)),
-    http.get('*/v1/agents/handoff-service/versions/:version', () => HttpResponse.json(agent)),
   );
   return renderWithProviders(
     <Routes><Route path="/agents/:name" element={<PromptAgentPlayground />} /></Routes>,
@@ -77,7 +73,7 @@ it('shows configured tools and read-only settings while preserving streamed invo
   const agent: Agent = {
       name: 'handoff-service',
       type: 'prompt',
-      ...release,
+      ...runtime,
       model: 'gpt-5.4-mini',
       instructions: 'Use the configured tools.',
       tools: [genericTool],
@@ -89,8 +85,7 @@ it('shows configured tools and read-only settings while preserving streamed invo
     };
   server.use(
     http.get('*/v1/agents/handoff-service', () => HttpResponse.json(agent)),
-    http.get('*/v1/agents/handoff-service/versions/:version', () => HttpResponse.json(agent)),
-    http.post('*/agents/handoff-service/versions/amber/responses', async ({ request }) => {
+    http.post('*/agents/handoff-service/responses', async ({ request }) => {
       body = await request.json();
       return nativeReply('Tool-backed reply');
     }),
@@ -164,7 +159,7 @@ it.each([
 ])('preserves $label with supported app identity during injected cloud loss', async ({ tools }) => {
   useConnectivityFaultStore.setState({ enabled: true });
   let selectedIdentity: string | null = null;
-  server.use(http.post('*/agents/handoff-service/versions/amber/responses', ({ request }) => {
+  server.use(http.post('*/agents/handoff-service/responses', ({ request }) => {
     selectedIdentity = request.headers.get('X-Impersonation-Mode');
     return nativeReply('Local conversation continues');
   }));
@@ -196,7 +191,7 @@ it('does not offer OBO even when legacy browser credentials remain', async () =>
   localStorage.setItem('adaptive.providerToken', 'login-subject');
   sessionStorage.setItem('adaptive.refreshToken', 'refresh-token');
   const invoke = vi.fn(() => HttpResponse.json({}));
-  server.use(http.post('*/agents/handoff-service/versions/amber/responses', invoke));
+  server.use(http.post('*/agents/handoff-service/responses', invoke));
   renderAgent([entraTool]);
   await screen.findByText('azure (MCP)');
   expect(screen.getByRole('radio', { name: 'On behalf of me' })).toBeDisabled();

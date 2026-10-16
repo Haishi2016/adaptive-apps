@@ -1,4 +1,4 @@
-"""Bounded native tools from immutable prompt-release bindings."""
+"""Bounded native tools from the current prompt-agent bindings."""
 
 from __future__ import annotations
 

@@ -5,7 +5,7 @@ param platform object
 
 var p = context.resource.properties
 var identityId = replace(context.resource.id, '/agents/', '/agentIdentities/')
-var releaseEntries = items(p.?releases ?? {})
+var agentUid = p.binding.identity.ownerUid
 
 extension kubernetes with {
   kubeConfig: ''
@@ -28,44 +28,38 @@ resource agent 'core/ConfigMap@v1' = {
   data: {
     name: context.resource.name
     kind: p.kind
-    activeVersion: p.?activeVersion ?? ''
+    agentUid: agentUid
     identityRef: p.?identityRef ?? ''
-    releases: join(map(releaseEntries, release => release.key), ',')
+    definition: string(p.definition)
+    governance: string(p.?governance ?? {})
   }
 }
 
-module deployedReleases 'release.bicep' = [for release in releaseEntries: {
-  name: 'release-${release.key}'
+module runtime 'runtime.bicep' = {
+  name: 'runtime'
   params: {
     context: {
       resource: {
         id: context.resource.id
-        properties: union(release.value, {
+        properties: union(p, {
           agentName: context.resource.name
-          agentUid: any(agent).metadata.uid
-          version: release.key
+          agentUid: agentUid
         })
       }
     }
     namespace: namespace
     platform: platform
   }
-}]
+}
 
-// Logical metadata and identity survive application deletion. Purge is explicit.
 output result object = {
-  resources: flatten(map(releaseEntries, release => map([
-    'apps/StatefulSet'
-    'core/Service'
-    'gateway.networking.k8s.io/HTTPRoute'
-    'gateway.envoyproxy.io/SecurityPolicy'
-    'gateway.envoyproxy.io/EnvoyExtensionPolicy'
-    'networking.k8s.io/NetworkPolicy'
-  ], kind => '/planes/kubernetes/local/namespaces/${namespace}/providers/${kind}/run-${uniqueString(namespace, any(agent).metadata.uid, release.key)}')))
+  resources: runtime.outputs.result.resources
   values: {
     agentName: context.resource.name
     namespace: namespace
-    agentUid: any(agent).metadata.uid
-    publishedVersions: map(releaseEntries, release => release.key)
+    agentUid: agentUid
+    endpoint: runtime.outputs.result.values.endpoint
+    nativeName: runtime.outputs.result.values.nativeName
+    nativeIdentity: p.binding.identity
   }
 }

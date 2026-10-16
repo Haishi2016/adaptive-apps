@@ -16,7 +16,7 @@ function ResourceView({ policy }: { policy: PolicyResource }): JSX.Element {
   const owner = policy.namespace === 'adaptive-guardrails-platform' ? 'Platform-owned' : 'Application-owned';
   return (
     <section className="guardrails-panel">
-      <Text size={200}><strong>{owner}</strong> · {policy.targets.length ? `Automatic targets: ${policy.targets.join(', ')}` : 'Explicitly attached by agent version'} · Default: deny</Text>
+      <Text size={200}><strong>{owner}</strong> · {policy.targets.length ? `Automatic targets: ${policy.targets.join(', ')}` : 'Explicitly attached to the agent'} · Default: deny</Text>
       <div className="guardrails-table-wrap">
         <table className="guardrails-table" aria-label={`${owner} policy rules`}>
           <thead><tr><th scope="col">Policy</th><th scope="col">Rule</th><th scope="col">Stage</th><th scope="col">Condition</th><th scope="col">Decision</th></tr></thead>
@@ -60,17 +60,17 @@ export function PlatformGuardrails(): JSX.Element {
           <Text>Matching platform policies and agent attachments all apply. Application policies cannot override inherited restrictions.</Text>
           <Text>Runtime enforcement: {config.enforcementVerified ? 'verified' : 'unverified'}. Catalogue configuration is not rollout evidence.</Text>
           {config.policies.map((policy) => <ResourceView key={policy.reference} policy={policy} />)}
-          {!config.policies.length ? <Text>No global policy resources configured. Agent releases may still have attached policies.</Text> : null}
+          {!config.policies.length ? <Text>No global policy resources configured. Agents may still have attached policies.</Text> : null}
         </>
       ) : null}
     </section>
   );
 }
 
-export function AgentGuardrails({ name, version, visible }: { name: string; version?: string; visible: boolean }): JSX.Element {
+export function AgentGuardrails({ name, visible }: { name: string; visible: boolean }): JSX.Element {
   const query = useQuery({
-    queryKey: ['agent-guardrails', name, version],
-    queryFn: () => getAgentGuardrails(name, version),
+    queryKey: ['agent-guardrails', name],
+    queryFn: () => getAgentGuardrails(name),
     enabled: visible && Boolean(name),
   });
   const config = query.data;
@@ -81,7 +81,7 @@ export function AgentGuardrails({ name, version, visible }: { name: string; vers
       {query.error ? <Text role="alert">Failed to load agent guardrails: {query.error.message}</Text> : null}
       {config ? (
         <>
-          <Text weight="semibold">{config.name} · version {config.version ?? 'unversioned'}</Text>
+          <Text weight="semibold">{config.name}</Text>
           <Text>Policies: {config.enabled ? 'configured' : 'none attached'}</Text>
           <Text>Runtime enforcement: {config.enforcementVerified ? 'verified' : 'unverified'}</Text>
           <Text>Runtime: {config.deployment ?? 'not deployed'} · {config.phase ?? 'not observed'}</Text>

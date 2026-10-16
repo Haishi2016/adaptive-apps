@@ -21,7 +21,7 @@ class NativeAgents(unittest.TestCase):
         cls.compiled = {}
         for path in [
             "radius/recipes/agents/logical.bicep",
-            "radius/recipes/agents/release.bicep",
+            "radius/recipes/agents/runtime.bicep",
             "radius/recipes/ai-agent/native-model.bicep",
             "radius/recipes/ai-agent/native-model-kaito.bicep",
             "radius/recipes/ai-agent/native-gateway.bicep",
@@ -92,8 +92,8 @@ class NativeAgents(unittest.TestCase):
         cls.resources = [obj for obj in yaml.safe_load_all(rendered) if obj]
 
     def test_only_native_lifecycle_resources(self):
-        release = self.compiled["radius/recipes/agents/release.bicep"]
-        resources = release["resources"]
+        runtime = self.compiled["radius/recipes/agents/runtime.bicep"]
+        resources = runtime["resources"]
         kinds = {entry["type"].split("@")[0] for entry in resources.values()}
         self.assertEqual(
             kinds,
@@ -108,18 +108,18 @@ class NativeAgents(unittest.TestCase):
                 "networking.k8s.io/NetworkPolicy",
             },
         )
-        serialized = json.dumps(release)
+        serialized = json.dumps(runtime)
         self.assertNotIn("adaptive.jplck.io/Agent", serialized)
         self.assertNotIn("CLUSTER_MODE", serialized)
-        self.assertTrue(resources["capture"]["properties"]["immutable"])
+        self.assertNotIn("capture", resources)
         self.assertEqual(resources["workload"]["properties"]["spec"]["replicas"], 1)
-        deletion = json.dumps(release["outputs"]["result"])
+        deletion = json.dumps(runtime["outputs"]["result"])
         self.assertNotIn("/PersistentVolumeClaim/", deletion)
-        self.assertNotIn("/ConfigMap/", deletion)
-        self.assertIn("agentUid", release["variables"]["name"])
-        self.assertIn("version", release["variables"]["name"])
-        self.assertIn("radiusResourceId", serialized)
-        self.assertIn("item_ttl_seconds=-1", release["variables"]["stateInit"])
+        self.assertIn("agentUid", runtime["variables"]["name"])
+        self.assertNotIn("version", runtime["variables"]["name"])
+        self.assertIn("/agents/{0}", runtime["variables"]["path"])
+        self.assertIn("radius.resource.id", serialized)
+        self.assertIn("item_ttl_seconds=-1", runtime["variables"]["stateInit"])
 
     def test_shared_identity_and_collector(self):
         credentials = self.compiled["radius/credentials.bicep"]
@@ -149,14 +149,16 @@ class NativeAgents(unittest.TestCase):
                       and obj["metadata"]["name"] == "otel-collector-config")
         parsed = yaml.safe_load(config["data"]["collector-config.yaml"])
         self.assertEqual(parsed["service"]["pipelines"]["traces"]["exporters"], ["otlp/traces"])
-        release = self.compiled["radius/recipes/agents/release.bicep"]["resources"]
-        self.assertIn("app.kubernetes.io/component", json.dumps(release))
+        runtime = self.compiled["radius/recipes/agents/runtime.bicep"]["resources"]
+        self.assertIn("app.kubernetes.io/component", json.dumps(runtime))
         catalogue = yaml.safe_load((ROOT / "radius/resource-types/types.yaml").read_text())
         self.assertNotIn("agentPlatforms", catalogue["types"])
         self.assertNotIn("agentReleases", catalogue["types"])
         agent = catalogue["types"]["agents"]["apiVersions"]["2025-08-01-preview"]["schema"]
-        self.assertIn("releases", agent["properties"])
-        self.assertIn("releases", agent["required"])
+        self.assertNotIn("releases", agent["properties"])
+        self.assertNotIn("activeVersion", agent["properties"])
+        self.assertIn("binding", agent["required"])
+        self.assertIn("definition", agent["required"])
         model = catalogue["types"]["aiModels"]["apiVersions"]["2025-08-01-preview"]["schema"]
         gateway = catalogue["types"]["aiGateways"]["apiVersions"]["2025-08-01-preview"]["schema"]
         self.assertNotIn("members", model["properties"])
@@ -177,7 +179,7 @@ class NativeAgents(unittest.TestCase):
             for path in [
                 "charts/agent-platform/templates/ui.yaml",
                 "charts/agent-platform/templates/model-ingress.yaml",
-                "radius/recipes/agents/release.bicep",
+                "radius/recipes/agents/runtime.bicep",
             ]
         )
         self.assertIn('["adaptive-ui", "adaptive-trading"]', policies)
@@ -249,10 +251,11 @@ class NativeAgents(unittest.TestCase):
         self.assertNotIn("Radius.Resources/agentReleases", recipes)
         self.assertNotIn("Radius.Resources/agentIdentities", recipes)
         declared = self.compiled["radius/foundry-agent.bicep"]["resources"]
-        releases = declared["agent"]["properties"]["properties"]["releases"]
-        self.assertEqual(len(releases), 1)
-        self.assertIsNone(next(iter(releases.values()))["binding"])
-        self.assertIn("nativeVersion", self.compiled["radius/foundry-agent.bicep"]["outputs"])
+        properties = declared["agent"]["properties"]["properties"]
+        self.assertIsNone(properties["binding"])
+        self.assertIn("definition", properties)
+        self.assertNotIn("releases", properties)
+        self.assertNotIn("nativeVersion", self.compiled["radius/foundry-agent.bicep"]["outputs"])
         logical = self.compiled["radius/recipes/agents/logical.bicep"]
         self.assertIn("platform", logical["parameters"])
 
@@ -276,12 +279,12 @@ class NativeAgents(unittest.TestCase):
                 self.assertEqual(len(collectors), 0 if profile.startswith("min") else 1)
 
     def test_direct_admission_boundary(self):
-        release = self.compiled["radius/recipes/agents/release.bicep"]["resources"]
-        route = release["route"]["properties"]["spec"]["rules"][0]
+        runtime = self.compiled["radius/recipes/agents/runtime.bicep"]["resources"]
+        route = runtime["route"]["properties"]["spec"]["rules"][0]
         self.assertEqual(route["matches"][0]["method"], "POST")
         self.assertEqual(route["matches"][0]["path"]["type"], "Exact")
         self.assertEqual(route["timeouts"], {"request": "0s", "backendRequest": "0s"})
-        auth = release["authorization"]["properties"]["spec"]["extAuth"]
+        auth = runtime["authorization"]["properties"]["spec"]["extAuth"]
         self.assertFalse(auth["failOpen"])
         self.assertFalse(auth["recomputeRoute"])
         self.assertEqual(auth["bodyToExtAuth"]["maxRequestBytes"], 1048576)
@@ -362,8 +365,9 @@ class NativeAgents(unittest.TestCase):
             obj for obj in policies if obj["metadata"]["name"].endswith("-agent-metadata")
         )
         lifecycle = metadata["spec"]["validations"][1]["expression"]
-        self.assertIn("oldObject.data.releases", lifecycle)
-        self.assertIn("object.data.activeVersion", lifecycle)
+        self.assertIn("object.data.identityRef", lifecycle)
+        self.assertNotIn("releases", lifecycle)
+        self.assertNotIn("activeVersion", lifecycle)
         envs = self.compiled["radius/agents-env.bicep"]["resources"]
         self.assertNotEqual(
             envs["environment"]["properties"]["properties"]["compute"]["namespace"],
@@ -380,7 +384,7 @@ class NativeAgents(unittest.TestCase):
         self.assertIn("ai-models-kaito:0.5.2", model_recipes["kaito"]["templatePath"])
         services = json.dumps(self.compiled["radius/agent-services.bicep"])
         self.assertIn("'recipe'", services)
-        for recipe in ["agents/logical", "agents/release", "ai-agent/native-gateway"]:
+        for recipe in ["agents/logical", "agents/runtime", "ai-agent/native-gateway"]:
             compiled = self.compiled[f"radius/recipes/{recipe}.bicep"]
             self.assertIn("namespace", compiled["parameters"])
             self.assertNotIn("runtime.kubernetes.namespace", json.dumps(compiled))

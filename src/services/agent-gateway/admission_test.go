@@ -8,7 +8,7 @@ import (
 )
 
 func TestStatelessAdmission(t *testing.T) {
-	path := "/agents/prompt/versions/v1/responses"
+	path := "/agents/prompt/responses"
 	cases := []struct {
 		name, method, path, body, encoding string
 		allowed                            bool
@@ -60,11 +60,11 @@ func TestSharedGatewayAdmission(t *testing.T) {
 		name, path, mode string
 		status           int
 	}{
-		{"release", "/agents/writer/versions/v1/responses", "", http.StatusOK},
-		{"another release", "/agents/auditor/versions/v2/responses", "app", http.StatusOK},
-		{"active alias", "/agents/writer/versions/active/responses", "", http.StatusOK},
-		{"invalid agent", "/agents/WRITER/versions/v1/responses", "", http.StatusForbidden},
-		{"delegation", "/agents/writer/versions/v1/responses", "endUserOBO", http.StatusForbidden},
+		{"writer", "/agents/writer/responses", "", http.StatusOK},
+		{"auditor", "/agents/auditor/responses", "app", http.StatusOK},
+		{"versioned route", "/agents/writer/versions/v1/responses", "", http.StatusForbidden},
+		{"invalid agent", "/agents/WRITER/responses", "", http.StatusForbidden},
+		{"delegation", "/agents/writer/responses", "endUserOBO", http.StatusForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := httptest.NewRequest(
@@ -95,7 +95,7 @@ func TestDelegationBrokerFailsClosedThroughSharedAdmission(t *testing.T) {
 		admissionURL: gateway.URL,
 		client:       gateway.Client(),
 	}
-	path := "/agents/writer/versions/v1/responses"
+	path := "/agents/writer/responses"
 	for _, tc := range []struct {
 		name, body string
 		status     int

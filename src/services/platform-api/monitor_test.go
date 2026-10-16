@@ -16,9 +16,7 @@ import (
 	"testing"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ktesting "k8s.io/client-go/testing"
 )
 
@@ -263,12 +261,12 @@ func TestMonitorExactOwnershipAndBoundaries(t *testing.T) {
 	f := newFixture(t)
 	f.api.monitor = nativeStores(t, fixtureHandler(t, "/api/traces", jaegerFixture), fixtureHandler(t, "/loki/api/v1/query_range", lokiFixture))
 	request(t, f.api, "GET", "/v1/agents/unknown/spans", "", 404)
-	request(t, f.api, "GET", "/v1/agents/demo/spans?version=missing", "", 404)
+	request(t, f.api, "GET", "/v1/agents/demo/spans?version=missing", "", 422)
 	request(t, f.api, "GET", "/v1/agents/demo/spans?service=other", "", 422)
 	request(t, f.api, "GET", "/v1/agents/demo/spans?backend=http://browser", "", 422)
 	request(t, f.api, "GET", "/v1/agents/demo/spans?version=UPPER", "", 422)
 	request(t, f.api, "GET", "/v1/agents/demo/spans?version=%", "", 422)
-	f.deployment.SetOwnerReferences(nil)
+	f.deployment.SetAnnotations(map[string]string{"radius.resource.id": "/other"})
 	update(t, f, "statefulsets", f.deployment)
 	request(t, f.api, "GET", "/v1/agents/demo/spans", "", 503)
 	f.objects.PrependReactor("list", "configmaps", func(ktesting.Action) (bool, runtime.Object, error) {
@@ -342,43 +340,14 @@ func TestMonitorNativeResultBoundsAndDecisionTypes(t *testing.T) {
 	}
 }
 
-func TestMonitorAllActualReleasesAndExplicitSelection(t *testing.T) {
+func TestMonitorUsesCurrentRuntime(t *testing.T) {
 	f := newFixture(t)
-	for n := 2; n <= 17; n++ {
-		version := fmt.Sprintf("v%d", n)
-		s, d := f.snapshot.DeepCopy(), f.deployment.DeepCopy()
-		s.SetName("snapshot-" + version)
-		s.SetUID(types.UID("snapshot-" + version))
-		doc := document(s)
-		doc["version"], doc["workload"] = version, "demo-"+version
-		capture(s, doc)
-		d.SetName("demo-" + version)
-		d.SetOwnerReferences([]metav1.OwnerReference{{APIVersion: "v1", Kind: "ConfigMap", Name: s.GetName(), UID: s.GetUID()}})
-		for plural, obj := range map[string]*object{"configmaps": s, "statefulsets": d} {
-			if err := f.objects.Tracker().Create(resource(plural), obj, "adaptive"); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
 	f.api.monitor = nativeStores(t, fixtureHandler(t, "/api/traces", jaegerFixture), fixtureHandler(t, "/loki/api/v1/query_range", lokiFixture))
-	request(t, f.api, "GET", "/v1/agents/demo/spans", "", 409)
-	r := httptest.NewRequest("GET", "/v1/agents/demo/spans?version=v1", nil)
+	r := httptest.NewRequest("GET", "/v1/agents/demo/spans", nil)
 	r.SetPathValue("name", "demo")
 	_, services, err := f.api.monitorServices(r)
-	if err != nil || len(services) != 1 || services["demo-v1"] != "v1" {
-		t.Fatal("explicit monitor version did not resolve exact native service")
-	}
-	if err := f.objects.Tracker().Delete(resource("configmaps"), "adaptive", "snapshot-v17"); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.objects.Tracker().Delete(resource("statefulsets"), "adaptive", "demo-v17"); err != nil {
-		t.Fatal(err)
-	}
-	r = httptest.NewRequest("GET", "/v1/agents/demo/spans", nil)
-	r.SetPathValue("name", "demo")
-	_, services, err = f.api.monitorServices(r)
-	if err != nil || len(services) != 16 {
-		t.Fatal("agent-wide Monitor did not retain actual non-active releases")
+	if err != nil || len(services) != 1 || services["demo-v1"] != "" {
+		t.Fatal("monitor did not resolve current native runtime")
 	}
 	for i := 0; i < cap(f.api.monitor.slots); i++ {
 		f.api.monitor.slots <- struct{}{}

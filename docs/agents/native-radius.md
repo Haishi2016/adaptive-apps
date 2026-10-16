@@ -11,16 +11,16 @@ trading recipes remain independent of the native-agent environment.
 
 | Declaration | Native implementation | Retention |
 | --- | --- | --- |
-| `agents` | Logical ConfigMap plus append-only immutable release map; singleton StatefulSet, Service, HTTPRoute, SecurityPolicy, Lua header boundary and NetworkPolicy per release | Logical metadata, release captures and state PVCs retained; runtimes independently deletable |
+| `agents` | Logical ConfigMap plus one mutable singleton StatefulSet, Service, HTTPRoute, SecurityPolicy, Lua header boundary and NetworkPolicy | Logical metadata and state PVC retained; current runtime updated in place |
 | `agentIdentities` | Keycloak client, optional Entra blueprint/principal/Agent ID, Secret, binding ConfigMap and ServiceAccount | Independent protected Terraform state |
 | `aiModels` | Gateway configuration; KAITO/vLLM inference, existing inference Service, remote Foundry binding or virtual priority group | Weights/cache retained |
-| `agentGuardrails` | Immutable native policy ConfigMap | Retained; release captures exact content |
+| `agentGuardrails` | Native policy ConfigMap | Retained; the current agent records exact attached content |
 | `keycloakLogins` | Existing-realm PKCE client and optional reviewed Entra federation | Separate administrator environment |
 
 The portfolio Helm release owns the additive native capability, shared
 PostgreSQL-backed Keycloak and one OTel Collector. A stock Helm release owns
 the upstream Envoy controller. Radius owns application models, login clients,
-logical agents, retained identities and explicit releases, not either Helm
+logical agents and retained identities, not either Helm
 release. Superseded native H2/Keycloak, collector and platform Terraform
 implementations have been removed.
 
@@ -31,27 +31,26 @@ application -> Agent Gateway -> agent -> Model Gateway -> model
 ```
 
 The Agent Gateway is Envoy plus one namespace-level Responses policy service.
-It authenticates callers, authorizes exact immutable releases and rejects
+It authenticates callers, authorizes exact stable agent routes and rejects
 unqualified stored, referenced or background Responses operations. Agents use
 their paired Keycloak OAuth clients directly for in-cluster Model Gateway and
 peer-agent calls. LiteLLM owns model routing and provider identity. Connected
-Graph delegation remains an explicit per-release broker backed by the official
+Graph delegation remains an explicit colocated broker backed by the official
 Entra sidecar; it is not part of model invocation.
 
-Native ValidatingAdmissionPolicies keep logical kind/ownership and the published
-release set append-only, require promotion in a later update,
+Native ValidatingAdmissionPolicies keep logical kind/ownership,
 prevent a second runtime replica (including the scale subresource), reject
-cross-agent identity bindings and prohibit replacing published pod content.
-Native names derive from logical UID and explicit version. A second Radius
-declaration for the same release encounters the same immutable capture, whose
-content includes its Radius resource ID; it cannot create a second state writer.
+cross-agent identity bindings and protect platform-injected runtime fields.
+Native names derive from the retained identity's stable logical UID. Updating
+the same Radius agent rolls the current workload and cannot create a second
+state writer.
 Do not force-delete a writer or bypass admission. Singleton scheduling is not
 distributed fencing or crash recovery.
 
 The agent environment explicitly binds one shared native namespace to logical,
-identity, release and model recipes. Radius's application-specific
+identity, runtime and model recipes. Radius's application-specific
 `context.runtime.kubernetes.namespace` is not this shared namespace. This keeps
-independently authored releases, identity federation subjects and diagnostics
+independently owned identities, identity federation subjects and diagnostics
 on the same contract; application deletion does not own the shared namespace.
 Guardrail policy declarations retain their separate application/platform scopes.
 
@@ -64,7 +63,7 @@ stored/child/background Responses, hosted delegation, evaluation Jobs and
 same-image cloud hosting are not qualified by this capability.
 
 Ordinary calls go directly through authorized Envoy ingress to
-`POST /agents/{agent}/versions/{version}/responses`. The shared Agent Gateway
+`POST /agents/{agent}/responses`. The shared Agent Gateway
 policy service admits only foreground plain-text requests with explicit
 `store=false`, removes browser assertions before SDK handling and never
 forwards Responses. Native child,
@@ -74,10 +73,10 @@ API or an inference Pod directly.
 
 The diagnostic API reads retained metadata and current native StatefulSet,
 PVC, Gateway, HTTPRoute and authorization-policy conditions. It writes no
-agent resource, workload, identity or promotion status. An effective endpoint
+agent resource, workload or identity. An effective endpoint
 requires one ready, current-revision replica, Bound state, current-generation
-accepted/programmed ingress and exact capture ownership. Requested promotion
-does not make an unready release available; missing selections never fall back.
+accepted/programmed ingress and exact Radius ownership. An unready update does
+not produce a success-shaped endpoint and there is no release fallback.
 Monitor reads bounded native Jaeger/Loki records, not manufactured events.
 
 ## Delivery
@@ -202,15 +201,15 @@ orchestration layer.
 | `agents-env.bicep` | Environment and recipe bindings |
 | `credentials.bicep` | Shared provisioning secret store |
 | `agent-services.bicep` | Explicit models, their AI gateways and separately owned browser login |
-| `agents.bicep` | Logical agent, append-only releases and promotion intent; `recipes/agents/logical.bicep` |
-| `agent-identity.bicep` | Independently retained identity; `recipes/identity-{local,connected}` |
+| `agents.bicep` | One composed declaration for the retained identity and mutable agent; `recipes/identity-{local,connected}` plus `recipes/agents/logical.bicep` |
+| `agent-identity.bicep` | Advanced standalone declaration for independently managing the retained identity |
 | `agent-policy.bicep` | Immutable policy; `recipes/agent-guardrails/native-policy.bicep` |
 
-Bicep can compose declarations, including multiple separately owned Radius
-applications. Keeping these small entrypoints separate makes selective
-promotion, identity retention and release retirement explicit. Do not fold
-recipe internals into application declarations or make shared identity,
-credentials and platform resources owned by a disposable release.
+Bicep composes the separately owned identity and agent in one customer-facing
+deployment. The identity recipe derives the same-name agent resource ID and
+stable logical UID, then `agents.bicep` passes its binding into the runtime.
+Do not fold recipe internals into application declarations or make shared
+identity, credentials and platform resources owned by the mutable workload.
 
 1. Register `radius/resource-types/types.yaml` using
    `rad resource-type create --from-file radius/resource-types/types.yaml`.
@@ -220,7 +219,7 @@ credentials and platform resources owned by a disposable release.
    `ai-models` at `0.5.2` and `ai-gateways` at `0.2.0`, using
    `rad bicep publish`.
    Their files are `recipes/agents/logical.bicep` (which includes the internal
-   `release.bicep` module),
+   `runtime.bicep` module),
    `recipes/ai-agent/native-model.bicep`,
    `recipes/ai-agent/native-gateway.bicep` and
    `recipes/agent-guardrails/native-policy.bicep`. Use the loopback registry
@@ -278,18 +277,13 @@ credentials and platform resources owned by a disposable release.
    creates or verifies the confidential `adaptive-trading` BFF client with its
    retained secret before Terraform adds its role and audience mappings, while
    the existing public `adaptive-ui` PKCE client remains unchanged.
-7. Deploy `radius/agents.bicep`, initially with `activeVersion=''` and
-   `releases={}`. Deploy
-   `radius/agent-identity.bicep` independently, then update the logical
-   declaration's `identityRef` to its returned retained binding.
-8. Append a version-keyed release to `radius/agents.bicep` with its immutable
-   image digest, identity binding and native definition, leaving
-   `activeVersion` unchanged. Wait for the native readiness gates and verify
-   direct authenticated invocation. In a later deployment, explicitly update
-   `activeVersion`. Append subsequent versions to the same Radius agent;
-   removing or changing a published release is rejected.
-   Publish a new immutable chart/recipe version for changes rather than
-   replacing an already published archive.
+7. Deploy `radius/agents.bicep` with the agent kind, definition, immutable image
+   digest and optional delegation/governance settings. The deployment creates
+   the separately owned retained identity before the mutable runtime.
+8. Wait for native readiness and verify direct authenticated invocation at the
+   stable endpoint. Subsequent deployments update the same current runtime.
+   Publish a new immutable chart/recipe archive for recipe implementation
+   changes rather than replacing an already published archive.
 
 Platform recipe bindings are `agentGatewayImage`, `sidecarImage`, `governanceImage`,
 `keycloakUrl`, `issuer`, `ingressUrl`, `otelEndpoint` and optional explicit
@@ -404,33 +398,23 @@ Use the UI's Sign in action and authorization-code PKCE. Do not enable password
 grants on `adaptive-ui`. Browser model discovery uses `/models/v1/models`,
 rewritten to the gateway's `/v1/models`; `/v1/models` on the browser origin is
 not a model discovery wrapper. Native agent calls pin
-`/agents/{name}/versions/{version}/responses` and send `store: false`.
+`/agents/{name}/responses` and send `store: false`.
 Stored/background/reference operations remain denied. Monitor uses
 authenticated streaming fetch at `/v1/agents/{name}/spans`.
 
-### Promotion and retirement qualification
+### Mutable update and retention qualification
 
-For a logical `writer`, Radius applications are `writer-logical`,
-`writer-identity` and one `writer-<version>` per release. Author a subsequent
-release as a new explicit `version` with the unchanged image digest; do not
-edit the prior release declaration. Wait for singleton workload/PVC and
-current-generation native route/policy readiness, then invoke its exact
-endpoint before separately updating `agents.bicep` with `activeVersion`.
-Preserve the existing `identityRef` when updating promotion intent.
+For a logical `writer`, `agents.bicep` creates separately owned identity and
+agent resources while exposing one stable endpoint. Update the definition or
+image digest by redeploying that declaration. Wait for the singleton
+StatefulSet to reach its current revision and for the route and policies to
+report their current generation before invoking the endpoint.
 
-Test an unavailable selection without accepting an earlier version as a
-fallback. A nonexistent selected release makes the diagnostic agent lookup
-return 404; it does not construct a v1 endpoint. Restore the intended ready
-selection before retiring a test release.
-
-Retire only its application, for example
-`rad app delete writer-v3 --group adaptive --yes`. Wait for graceful Pod
-deletion; do not force-delete or scale another writer. Before and after
-retirement, record the exact capture/PVC and logical/identity UIDs. The runtime
-and version routes must disappear while immutable capture, PVC, logical agent,
-identity, realm, shared models and other agents remain. Retained captures/PVCs
-are intentional state, not orphan cleanup candidates; purge requires a separate
-explicit authorized operation.
+There is no previous-release fallback. During an unavailable rollout the
+diagnostic record remains explicit and does not synthesize a ready endpoint.
+Identity credentials and the state PVC are retained independently; updates do
+not regenerate credentials or prune state. Deleting or purging either retained
+owner requires a separate explicit authorized operation.
 
 ## Models
 
@@ -551,7 +535,7 @@ transport-only policy.
 Connectivity is not deployment mode. Agents always obtain paired Keycloak
 application tokens directly for the in-cluster Agent and Model Gateways,
 including while Azure is reachable. Delegated Graph calls use the connected
-per-release broker and Entra sidecar and fail explicitly on outage;
+colocated broker and Entra sidecar and fail explicitly on outage;
 denials/timeouts never substitute a local or application actor.
 
 The UI button calls strict `GET/PATCH /v1/connectivity-fault`. The only write
@@ -703,12 +687,12 @@ inference installation. The host cluster's GPU/Foundry proof remains separate.
 **Status: initial-deployment source implemented and tested, not live-qualified.**
 Track this separately from calling Foundry models through the edge gateway.
 The cloud gate currently covers native deployment, not unchanged editor peer
-invocation or a complete multi-release cloud lifecycle.
+invocation or complete identity/state lifecycle evidence.
 
-`radius/recipes/foundry-release` is a stock Terraform recipe using pinned
+`radius/recipes/foundry-agent` is a stock Terraform recipe using pinned
 AzAPI 2.9.0 and the native data-plane type `Microsoft.Foundry/agents@v1`.
 `radius/foundry-env.bicep` binds it to `Radius.Resources/agents`;
-`radius/foundry-agent.bicep` authors one agent containing the first release.
+`radius/foundry-agent.bicep` authors one mutable named agent.
 There is no operator, management emulator,
 image build or invocation proxy.
 
@@ -724,39 +708,30 @@ identity receives required downstream permissions. `nativeIdentity` returns
 the actual provider client/principal and blueprint IDs, not edge identity
 substitutes.
 
-### Initial-deployment ownership limitation
+### Foundry ownership limitation
 
-AzAPI manages one **named agent**, not an independently owned resource per
-native version. Therefore this recipe is deliberately limited to one explicitly
-configured initial release entry per Radius agent. An immutable Terraform capture rejects changed
-definitions, bindings or target configuration; other release IDs are rejected
-before a provider operation. The native version must be `1`, and its concrete
-identifier is returned separately from the Radius release label.
-The native name includes a hash of the retained logical UID, not the release
-label; it is returned as `nativeName`. This avoids adopting unrelated existing
-agents that happen to share a display name. Use new proof-only logical names
-and one deployment owner. Do not import/adopt existing
-agents, run another writer, or interpret Terraform locking as distributed
-fencing.
+AzAPI manages one **named mutable agent** per Radius agent. Its native name
+includes a hash of the stable Radius resource ID and is returned as
+`nativeName`. Updating the Radius definition updates that same Foundry agent.
+This avoids adopting unrelated existing agents that happen to share a display
+name. Use new proof-only logical names and one deployment owner; do not
+import/adopt an existing cloud agent or interpret Terraform state locking as
+distributed fencing.
 
-Both capture and native agent use `prevent_destroy`: application deletion must
-fail rather than delete the agent, identity and retained versions. Cloud
-retirement and additional versions require a separately implemented and
-qualified lifecycle. Promotion records the already published initial release
-in a later Radius update; it does not issue another provider write.
-The recipe's endpoint output is a native URL, not a
-readiness assertion; provider write success does not prove `active`, effective
-guardrails or successful invocation.
+The Foundry runtime is not the retained identity owner. Provider write success
+and the recipe endpoint output do not prove readiness, effective guardrails or
+successful invocation. Native cloud identity and service state require their
+own qualified retention and deletion evidence.
 
 ### Current Responses routing difference
 
 Both images use native Responses hosts and serve `/responses`. Public routing
 differs:
 
-| Target | Public Responses path | Version selection |
+| Target | Public Responses path | Runtime selection |
 | --- | --- | --- |
-| Edge Envoy | `/agents/{name}/versions/{version}/responses` | Explicit URL version |
-| Foundry | `/api/projects/{project}/agents/{name}/endpoint/protocols/openai/responses` | Native endpoint selector; candidate-specific session |
+| Edge Envoy | `/agents/{name}/responses` | Current Radius agent |
+| Foundry | `/api/projects/{project}/agents/{name}/endpoint/protocols/openai/responses` | Current native named agent |
 
 The unchanged editor validates an exact edge-style peer base path in
 `src/agents/editor/src/editor/agent.py` before sending a request. It rejects
@@ -768,15 +743,15 @@ an Envoy compatibility route or silently rebuild the image.
 ### Source delivery and remaining live gate
 
 The environment requires an explicitly selected existing `projectEndpoint`,
-existing full `raiPolicyId`, `initialReleaseId`, immutable `agentRecipe`
-archive and native Azure `recipeConfig` credentials.
+existing full `raiPolicyId`, immutable `agentRecipe` archive and native Azure
+`recipeConfig` credentials.
 No project or registry is chosen or provisioned automatically. Use the existing
 Radius credential-store/workload-identity patterns; no browser bearer or Azure
 API key belongs in these parameters.
 
-Include `foundry-release` and its reviewed `.terraform.lock.hcl` in the immutable
+Include `foundry-agent` and its reviewed `.terraform.lock.hcl` in the immutable
 Terraform archive, excluding `.terraform`, test files and state. Point
-`agentRecipe` to `<immutable-archive-url>//foundry-release`.
+`agentRecipe` to `<immutable-archive-url>//foundry-agent`.
 Deliver the environment once, then the authored agent declaration:
 
 ```bash
@@ -809,12 +784,11 @@ Current contract references:
 [native identity and endpoint migration](https://learn.microsoft.com/azure/foundry/agents/how-to/migrate-hosted-agent-preview),
 and [endpoint/version management](https://learn.microsoft.com/azure/foundry/agents/how-to/manage-hosted-agent).
 
-1. Verify the current Foundry native prompt and hosted-version APIs, Responses
+1. Verify the current Foundry native prompt and hosted-agent APIs, Responses
    support, identity/blueprint support and cloud model/peer bindings. Preserve
    prompt instructions, model selection and supported tool/skill content;
    explicitly flag unsupported features rather than silently dropping them.
-   Establish idempotent explicit-release mapping and pin native endpoint
-   routing so creating a candidate cannot silently promote it.
+   Establish idempotent named-agent updates and stable native endpoint routing.
 2. Select an explicitly approved Foundry project, region, registry, identities
    and billing/compute scope. Mirror the existing hosted editor OCI image with
    an **identical manifest digest**, without rebuilding; verify registry pull
@@ -822,16 +796,16 @@ and [endpoint/version management](https://learn.microsoft.com/azure/foundry/agen
 3. Qualify the initial cloud recipe and required target bindings. Supply
    native cloud identity/configuration rather than edge Keycloak/gateway endpoints,
    sidecars or PVC paths. Replaying identical desired state must not allocate
-   another version or replace a logical identity. Additional release ownership,
-   promotion and retirement are separate from this initial-deployment proof.
+   another agent or replace a logical identity. Identity/state retirement
+   remains separate from this runtime proof.
 4. Deploy **both native Foundry kinds**. Verify the prompt resource
    really has prompt kind and matching supported definition content, and the
    hosted resource uses the unchanged OCI digest. Verify provider provenance,
-   active concrete versions and real native identity. Test prompt foreground
+   active native definitions and real native identity. Test prompt foreground
    Responses/SSE and model access. Record unchanged editor peer invocation as
    unqualified because of its URL/session assumptions. Preserve unrelated
    projects and record sanitized evidence in the existing guides. Do not claim
-   retirement, promotion, tool/skill/OBO or full multi-release portability from
+   retirement, tool/skill/OBO or full state portability from
    a successful initial deployment.
 
 The portability gates differ by kind: **prompt agents require native kind and

@@ -8,9 +8,8 @@ export const graphTool: AgentToolRef = {
 };
 
 export const graphAgent: Agent = {
-  name: 'graph-demo', type: 'prompt', version: 'graph-one', phase: 'Ready',
-  requestedActiveVersion: 'graph-one', activeVersion: 'graph-one',
-  endpoint: '/agents/graph-demo/versions/graph-one/responses', tools: [graphTool],
+  name: 'graph-demo', type: 'prompt', phase: 'Ready',
+  endpoint: '/agents/graph-demo/responses', tools: [graphTool],
   identity: {
     blueprintId: 'blueprint-id', entraClientId: 'agent-id', entraTenantId: 'tenant-id',
     oboClientId: 'spa-client-id', graphDelegation: true, agentUserId: 'worker-id',

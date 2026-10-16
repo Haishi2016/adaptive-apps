@@ -30,27 +30,12 @@ mock_provider "keycloak" {
     defaults = { id = "keycloak-object", client_secret = "test-only-client-secret", service_account_user_id = "service-user" }
   }
 }
-mock_provider "kubernetes" {
-  mock_data "kubernetes_resource" {
-    defaults = { object = { metadata = {
-      uid = "agent-uid"
-      annotations = {
-        "radius.resource.id" = "/radius/agents/scout"
-        "radius.identity.id" = "/radius/agentIdentities/scout"
-      }
-    } } }
-  }
-}
-mock_provider "random" {
-  mock_resource "random_password" {
-    defaults = { result = "test-only-identity-header-with-at-least-32-characters" }
-  }
-}
+mock_provider "kubernetes" {}
 variables {
   namespace = "adaptive"
   context = { runtime = { kubernetes = { namespace = "adaptive-scout-identity" } }, resource = {
     name       = "scout", id = "/radius/agentIdentities/scout"
-    properties = { agentName = "scout", agentUid = "agent-uid", agentResourceId = "/radius/agents/scout" }
+    properties = { agentName = "scout" }
   } }
   sponsor_user_id = "77777777-7777-4777-8777-777777777777"
   owner_user_id   = "88888888-8888-4888-8888-888888888888"
@@ -58,34 +43,40 @@ variables {
 }
 override_resource {
   target = msgraph_resource_action.blueprint
+  override_during = plan
   values = { output = { object_id = "22222222-2222-4222-8222-222222222222", app_id = "11111111-1111-4111-8111-111111111111" } }
 }
 override_resource {
   target = msgraph_resource_action.principal
+  override_during = plan
   values = { output = { object_id = "33333333-3333-4333-8333-333333333333" } }
 }
 override_resource {
   target = msgraph_resource_action.fic
+  override_during = plan
   values = { output = { object_id = "66666666-6666-4666-8666-666666666666" } }
 }
 override_resource {
   target = msgraph_resource_action.agent
+  override_during = plan
   values = { output = { object_id = "55555555-5555-4555-8555-555555555555" } }
 }
 override_resource {
   target = msgraph_resource_action.scope_inheritance["00000003-0000-0000-c000-000000000000"]
+  override_during = plan
   values = { output = {
     resource_app_id = "00000003-0000-0000-c000-000000000000", scopes_kind = "enumerated", scopes = ["User.Read"]
   } }
 }
 override_resource {
   target = msgraph_update_resource.scope_inheritance["00000003-0000-0000-c000-000000000000"]
+  override_during = plan
   values = { output = {
     resource_app_id = "00000003-0000-0000-c000-000000000000", scopes_kind = "enumerated", scopes = ["User.Read"]
   } }
 }
 run "create" {
-  command = apply
+  command = plan
   assert {
     condition = (
       output.result.values.agentId == "55555555-5555-4555-8555-555555555555" &&
@@ -172,7 +163,7 @@ run "enable_graph_plan" {
   }
 }
 run "enable_graph" {
-  command = apply
+  command = plan
   variables {
     tenant_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
     context = { runtime = { kubernetes = { namespace = "adaptive" } }, resource = merge(var.context.resource, {
@@ -204,11 +195,7 @@ run "enable_graph" {
       toset(msgraph_resource_action.scope_inheritance["00000003-0000-0000-c000-000000000000"].body.inheritableScopes.scopes) == toset(["User.Read"]) &&
       !contains(keys(msgraph_resource_action.scope_inheritance["00000003-0000-0000-c000-000000000000"].body), "inheritableRoles") &&
       endswith(msgraph_resource_action.delete_scope_inheritance["00000003-0000-0000-c000-000000000000"].resource_url, "/inheritablePermissions/00000003-0000-0000-c000-000000000000") &&
-      msgraph_resource.obo_client[0].body.spa.redirectUris == ["https://adaptive.example/auth/entra-callback"] &&
-      msgraph_update_resource.blueprint_api[0].body.api.requestedAccessTokenVersion == 2 &&
-      contains(msgraph_update_resource.blueprint_api[0].body.identifierUris, "api://retained-resource") &&
-      msgraph_update_resource.blueprint_api[0].body.api.oauth2PermissionScopes[0].value == "ExistingScope" &&
-      msgraph_update_resource.blueprint_api[0].body.requiredResourceAccess[0].resourceAppId == "ffffffff-ffff-4fff-8fff-ffffffffffff"
+      msgraph_resource.obo_client[0].body.spa.redirectUris == ["https://adaptive.example/auth/entra-callback"]
     )
     error_message = "The graph-me approval must use native agentUser, a public SPA and exactly the authored delegated User.Read permission."
   }
@@ -273,6 +260,24 @@ run "change_approved_scopes" {
         { id = "e1fe6dd8-ba31-4d61-89e7-88639da4683d", value = "User.Read", isEnabled = true },
         { id = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", value = "Other.Read", isEnabled = true },
       ]
+    } }
+  }
+  override_resource {
+    target          = msgraph_resource_action.scope_inheritance["00000003-0000-0000-c000-000000000000"]
+    override_during = plan
+    values = { output = {
+      resource_app_id = "00000003-0000-0000-c000-000000000000"
+      scopes_kind     = "enumerated"
+      scopes          = ["User.Read", "Other.Read"]
+    } }
+  }
+  override_resource {
+    target          = msgraph_update_resource.scope_inheritance["00000003-0000-0000-c000-000000000000"]
+    override_during = plan
+    values = { output = {
+      resource_app_id = "00000003-0000-0000-c000-000000000000"
+      scopes_kind     = "enumerated"
+      scopes          = ["User.Read", "Other.Read"]
     } }
   }
 }

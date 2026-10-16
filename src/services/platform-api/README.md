@@ -1,13 +1,12 @@
 # Agent diagnostics API
 
-Go `net/http` projects retained native agent/release ConfigMaps and current
+Go `net/http` projects retained native agent ConfigMaps and current
 StatefulSet, PVC and Gateway/policy readiness for the UI. It has no lifecycle
-CRD client, controller loop, identity provisioning, release writer, model
+CRD client, controller loop, identity provisioning, runtime writer, model
 inventory or inference proxy.
 
-`GET /v1/agents` and exact release detail/version routes expose operational
-records; missing selections never fall back. Guardrails are read-only retained
-policy views. Monitor streams bounded native Jaeger/Loki records through
+`GET /v1/agents` and `GET /v1/agents/{name}` expose current operational
+records. Guardrails are read-only retained policy views. Monitor streams bounded native Jaeger/Loki records through
 authenticated fetch, without forwarding browser tokens to stores.
 `GET/PATCH /v1/connectivity-fault` reads/patches only the exact existing demo
 NetworkPolicy; no workload or identity mutation is authorized.

@@ -57,7 +57,7 @@ func (a *API) agent(r *http.Request, name string) (*object, error) {
 	for i := range items {
 		if text(&items[i], "data", "name") == name {
 			if found != nil {
-				return nil, failure{http.StatusConflict, "Logical agent ownership is ambiguous"}
+				return nil, failure{http.StatusConflict, "Agent ownership is ambiguous"}
 			}
 			found = &items[i]
 		}
@@ -65,33 +65,19 @@ func (a *API) agent(r *http.Request, name string) (*object, error) {
 	if found == nil {
 		return nil, apierrors.NewNotFound(schema.GroupResource{Resource: "configmaps"}, name)
 	}
-	if found.GetUID() == "" || found.GetAnnotations()["radius.resource.id"] == "" ||
+	if text(found, "data", "agentUid") == "" || found.GetAnnotations()["radius.resource.id"] == "" ||
 		!namePattern.MatchString(name) ||
-		(text(found, "data", "kind") != "prompt" && text(found, "data", "kind") != "hosted") {
-		return nil, unavailable("Logical agent metadata is invalid")
+		(text(found, "data", "kind") != "prompt" && text(found, "data", "kind") != "hosted") ||
+		text(found, "data", "identityRef") == "" {
+		return nil, unavailable("Agent metadata is invalid")
 	}
 	return found, nil
 }
 
-type release struct {
-	snapshot   *object
+type agentRuntime struct {
 	document   *object
 	deployment *object
 	ready      bool
-	effective  string
-}
-
-func ownedBy(obj, snapshot *object) bool {
-	if obj == nil || snapshot == nil || obj.GetDeletionTimestamp() != nil {
-		return false
-	}
-	for _, owner := range obj.GetOwnerReferences() {
-		if owner.APIVersion == "v1" && owner.Kind == "ConfigMap" &&
-			owner.Name == snapshot.GetName() && owner.UID == snapshot.GetUID() && owner.UID != "" {
-			return obj.GetAnnotations()["radius.resource.id"] == snapshot.GetAnnotations()["radius.resource.id"]
-		}
-	}
-	return false
 }
 
 func conditions(value any, generation int64, required ...string) bool {
@@ -139,139 +125,96 @@ func routeReady(obj *object, gateway, namespace string, policy bool) bool {
 	return false
 }
 
-func (a *API) qualify(r *http.Request, agent *object, rel *release) error {
-	name := text(rel.document, "workload")
-	if !namePattern.MatchString(name) || !namePattern.MatchString(text(rel.document, "claim")) ||
-		!namePattern.MatchString(text(rel.document, "gateway")) {
-		return unavailable("Release resource coordinates are invalid")
+func exact(items []object, description string) (*object, error) {
+	if len(items) != 1 {
+		return nil, unavailable(description + " ownership is ambiguous")
 	}
-	resources := []struct {
-		gvr  schema.GroupVersionResource
-		name string
-	}{
-		{schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}, name},
-		{configMaps, rel.snapshot.GetName()},
-		{schema.GroupVersionResource{Version: "v1", Resource: "persistentvolumeclaims"}, text(rel.document, "claim")},
-		{schema.GroupVersionResource{Version: "v1", Resource: "services"}, name},
-		{schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}, name},
-		{schema.GroupVersionResource{Group: "gateway.envoyproxy.io", Version: "v1alpha1", Resource: "securitypolicies"}, name},
-		{schema.GroupVersionResource{Group: "gateway.envoyproxy.io", Version: "v1alpha1", Resource: "envoyextensionpolicies"}, name},
-		{schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}, text(rel.document, "gateway")},
+	return &items[0], nil
+}
+
+func (a *API) runtime(r *http.Request, agent *object) (agentRuntime, error) {
+	uid := text(agent, "data", "agentUid")
+	radiusID := agent.GetAnnotations()["radius.resource.id"]
+	selector := "adaptive.jplck.io/agent-uid=" + uid
+	statefulSets := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "statefulsets"}
+	workloads, err := a.objects.Resource(statefulSets).Namespace(a.namespace).List(r.Context(), metav1.ListOptions{
+		LabelSelector: selector + ",app.kubernetes.io/component=agent-runtime",
+	})
+	if err != nil {
+		return agentRuntime{}, err
 	}
-	actual := make([]*object, 0, len(resources))
-	for i, coordinate := range resources {
-		obj, err := a.objects.Resource(coordinate.gvr).Namespace(a.namespace).Get(r.Context(), coordinate.name, metav1.GetOptions{})
+	if len(workloads.Items) == 0 {
+		return agentRuntime{document: agentDocument(agent)}, nil
+	}
+	workload, err := exact(workloads.Items, "Agent runtime")
+	if err != nil {
+		return agentRuntime{}, err
+	}
+	name := workload.GetName()
+	coordinates := []schema.GroupVersionResource{
+		{Version: "v1", Resource: "services"},
+		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"},
+		{Group: "gateway.envoyproxy.io", Version: "v1alpha1", Resource: "securitypolicies"},
+		{Group: "gateway.envoyproxy.io", Version: "v1alpha1", Resource: "envoyextensionpolicies"},
+	}
+	actual := make([]*object, 0, len(coordinates))
+	for _, gvr := range coordinates {
+		item, err := a.objects.Resource(gvr).Namespace(a.namespace).Get(r.Context(), name, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
-			return nil
+			return agentRuntime{document: agentDocument(agent), deployment: workload}, nil
 		}
 		if err != nil {
-			return err
+			return agentRuntime{}, err
 		}
-		if i == 0 {
-			rel.deployment = obj
+		actual = append(actual, item)
+	}
+	claims, err := a.objects.Resource(schema.GroupVersionResource{Version: "v1", Resource: "persistentvolumeclaims"}).
+		Namespace(a.namespace).List(r.Context(), metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return agentRuntime{}, err
+	}
+	claim, err := exact(claims.Items, "Agent state")
+	if err != nil {
+		return agentRuntime{}, err
+	}
+	gateway, err := a.objects.Resource(schema.GroupVersionResource{
+		Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways",
+	}).Namespace(a.namespace).Get(r.Context(), "agent-ingress", metav1.GetOptions{})
+	if err != nil {
+		return agentRuntime{}, err
+	}
+	for _, item := range append([]*object{workload}, actual...) {
+		if item.GetDeletionTimestamp() != nil ||
+			item.GetAnnotations()["radius.resource.id"] != radiusID ||
+			item.GetLabels()["adaptive.jplck.io/agent-uid"] != uid {
+			return agentRuntime{}, unavailable("Agent runtime ownership is invalid")
 		}
-		actual = append(actual, obj)
 	}
-	sts, claim, service, route, policy, headers, gateway := actual[0], actual[2], actual[3], actual[4], actual[5], actual[6], actual[7]
-	if actual[1].GetUID() != rel.snapshot.GetUID() ||
-		text(actual[1], "data", "release.json") != text(rel.snapshot, "data", "release.json") {
-		return failure{http.StatusConflict, "Release capture changed during readiness qualification"}
-	}
-	if !ownedBy(sts, rel.snapshot) || !ownedBy(service, rel.snapshot) ||
-		!ownedBy(route, rel.snapshot) || !ownedBy(policy, rel.snapshot) || !ownedBy(headers, rel.snapshot) ||
-		claim.GetDeletionTimestamp() != nil || claim.GetLabels()["adaptive.jplck.io/agent-uid"] != string(agent.GetUID()) ||
-		claim.GetLabels()["adaptive.jplck.io/version"] != text(rel.document, "version") {
-		return unavailable("Native release resource ownership is invalid")
-	}
-	rel.ready = agent.GetDeletionTimestamp() == nil && rel.snapshot.GetDeletionTimestamp() == nil &&
-		field(sts, "status", "observedGeneration") == sts.GetGeneration() && sts.GetGeneration() > 0 &&
-		field(sts, "spec", "replicas") == int64(1) && field(sts, "status", "readyReplicas") == int64(1) &&
-		text(sts, "status", "currentRevision") != "" &&
-		text(sts, "status", "currentRevision") == text(sts, "status", "updateRevision") &&
+	service, route, policy, headers := actual[0], actual[1], actual[2], actual[3]
+	_ = service
+	ready := agent.GetDeletionTimestamp() == nil &&
+		field(workload, "status", "observedGeneration") == workload.GetGeneration() && workload.GetGeneration() > 0 &&
+		field(workload, "spec", "replicas") == int64(1) && field(workload, "status", "readyReplicas") == int64(1) &&
+		text(workload, "status", "currentRevision") != "" &&
+		text(workload, "status", "currentRevision") == text(workload, "status", "updateRevision") &&
 		text(claim, "status", "phase") == "Bound" && gateway.GetDeletionTimestamp() == nil &&
 		conditions(field(gateway, "status", "conditions"), gateway.GetGeneration(), "Accepted", "Programmed") &&
 		routeReady(route, gateway.GetName(), a.namespace, false) &&
 		routeReady(policy, gateway.GetName(), a.namespace, true) &&
 		routeReady(headers, gateway.GetName(), a.namespace, true)
-	return nil
+	return agentRuntime{document: agentDocument(agent), deployment: workload, ready: ready}, nil
 }
 
-func (a *API) releases(r *http.Request, agent *object) ([]release, error) {
-	items, err := a.catalogue(r, "agent-release")
-	if err != nil {
-		return nil, err
+func agentDocument(agent *object) *object {
+	definition := map[string]any{}
+	governance := map[string]any{}
+	_ = json.Unmarshal([]byte(text(agent, "data", "definition")), &definition)
+	_ = json.Unmarshal([]byte(text(agent, "data", "governance")), &governance)
+	document := map[string]any{"definition": definition}
+	if len(governance) > 0 {
+		document["governance"] = governance
 	}
-	result := make([]release, 0)
-	seen := map[string]bool{}
-	for i := range items {
-		cm := &items[i]
-		if cm.GetLabels()["adaptive.jplck.io/agent"] != text(agent, "data", "name") {
-			continue
-		}
-		content := text(cm, "data", "release.json")
-		var doc map[string]any
-		if len(content) > 128000 || json.Unmarshal([]byte(content), &doc) != nil ||
-			field(cm, "immutable") != true || cm.GetUID() == "" || cm.GetAnnotations()["radius.resource.id"] == "" {
-			return nil, unavailable("Immutable native release capture is invalid")
-		}
-		record := &object{Object: doc}
-		if text(record, "agentUid") != string(agent.GetUID()) {
-			continue
-		}
-		version := text(record, "version")
-		if text(record, "radiusResourceId") != cm.GetAnnotations()["radius.resource.id"] ||
-			text(record, "binding", "identity", "ownerUid") != string(agent.GetUID()) ||
-			!versionPattern.MatchString(version) || text(record, "definition", "kind") != text(agent, "data", "kind") ||
-			text(record, "definition", "model") == "" || text(record, "agentName") != text(agent, "data", "name") ||
-			text(record, "endpoint") == "" {
-			return nil, unavailable("Native release definition is invalid")
-		}
-		if seen[version] {
-			return nil, failure{http.StatusConflict, "Release ownership is ambiguous"}
-		}
-		seen[version] = true
-		rel := release{snapshot: cm, document: record}
-		if err := a.qualify(r, agent, &rel); err != nil {
-			return nil, err
-		}
-		result = append(result, rel)
-	}
-	sort.Slice(result, func(i, j int) bool { return text(result[i].document, "version") < text(result[j].document, "version") })
-	effective := ""
-	for _, rel := range result {
-		if rel.ready && text(rel.document, "version") == text(agent, "data", "activeVersion") {
-			effective = text(rel.document, "version")
-		}
-	}
-	for i := range result {
-		result[i].effective = effective
-	}
-	return result, nil
-}
-
-func selectedRelease(agent *object, version string, releases []release) (release, error) {
-	if version == "" {
-		version = text(agent, "data", "activeVersion")
-	}
-	if version == "" {
-		return release{}, nil
-	}
-	for _, rel := range releases {
-		if text(rel.document, "version") == version {
-			return rel, nil
-		}
-	}
-	return release{}, failure{http.StatusNotFound, "Selected release has no retained capture; no fallback"}
-}
-
-func (rel release) available(_ *object) bool { return rel.ready }
-
-func responsesEndpoint(rel release, _ *object) any {
-	if !rel.ready {
-		return nil
-	}
-	return "/agents/" + text(rel.document, "agentName") +
-		"/versions/" + text(rel.document, "version") + "/responses"
+	return &object{Object: document}
 }
 
 func created(o *object) any {
@@ -285,32 +228,31 @@ func created(o *object) any {
 	return stamp.Unix()
 }
 
-func (a *API) agentView(r *http.Request, agent *object, rel release) (any, error) {
+func responsesEndpoint(runtime agentRuntime, agent *object) any {
+	if !runtime.ready {
+		return nil
+	}
+	return "/agents/" + text(agent, "data", "name") + "/responses"
+}
+
+func (a *API) agentView(r *http.Request, agent *object, runtime agentRuntime) (any, error) {
 	name := text(agent, "data", "name")
 	identity := map[string]any{}
 	ref := text(agent, "data", "identityRef")
-	if ref != "" {
-		binding, err := a.objects.Resource(configMaps).Namespace(a.namespace).Get(r.Context(), ref, metav1.GetOptions{})
-		if err != nil {
-			return nil, err
-		}
-		if json.Unmarshal([]byte(text(binding, "data", "identity.json")), &identity) != nil || identity["ownerUid"] != string(agent.GetUID()) {
-			return nil, unavailable("Logical agent identity binding is invalid")
-		}
-	} else if rel.ready {
-		return nil, unavailable("Ready release has no logical identity binding")
+	binding, err := a.objects.Resource(configMaps).Namespace(a.namespace).Get(r.Context(), ref, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if json.Unmarshal([]byte(text(binding, "data", "identity.json")), &identity) != nil ||
+		identity["ownerUid"] != text(agent, "data", "agentUid") {
+		return nil, unavailable("Agent identity binding is invalid")
 	}
 	publicIdentity := map[string]any{"graphDelegation": identity["graphDelegation"] == true}
 	for _, key := range []string{"entraClientId", "blueprintId", "keycloakClientId", "entraTenantId", "oboClientId", "agentUserId"} {
 		value, _ := identity[key].(string)
 		publicIdentity[key] = nullable(value)
 	}
-	active := text(agent, "data", "activeVersion")
-	phase := "Pending"
-	if rel.ready {
-		phase = "Ready"
-	}
-	d := rel.document
+	d := runtime.document
 	numbers := map[string]any{}
 	for _, key := range []string{"temperature", "top_p"} {
 		value := field(d, "definition", key)
@@ -324,14 +266,17 @@ func (a *API) agentView(r *http.Request, agent *object, rel release) (any, error
 			max = 2
 		}
 		if !ok || err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 || n > max {
-			return nil, unavailable("Captured sampling parameter is invalid")
+			return nil, unavailable("Sampling parameter is invalid")
 		}
 		numbers[key] = n
 	}
+	phase := "Pending"
+	if runtime.ready {
+		phase = "Ready"
+	}
 	return map[string]any{
 		"name": name, "type": text(agent, "data", "kind"), "phase": phase,
-		"version": nullable(text(d, "version")), "requestedActiveVersion": nullable(active), "activeVersion": nullable(rel.effective),
-		"endpoint": responsesEndpoint(rel, agent), "identity": publicIdentity, "created": created(agent),
+		"endpoint": responsesEndpoint(runtime, agent), "identity": publicIdentity, "created": created(agent),
 		"description": nullable(text(d, "definition", "description")), "instructions": field(d, "definition", "instructions"),
 		"model": nullable(text(d, "definition", "model")), "temperature": numbers["temperature"],
 		"topP": numbers["top_p"], "tools": field(d, "definition", "tools"), "skills": field(d, "definition", "skills"),
@@ -350,15 +295,11 @@ func (a *API) listAgents(r *http.Request) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		releases, err := a.releases(r, agent)
+		runtime, err := a.runtime(r, agent)
 		if err != nil {
 			return nil, err
 		}
-		rel, err := selectedRelease(agent, "", releases)
-		if err != nil {
-			return nil, err
-		}
-		view, err := a.agentView(r, agent, rel)
+		view, err := a.agentView(r, agent, runtime)
 		if err != nil {
 			return nil, err
 		}
@@ -367,58 +308,23 @@ func (a *API) listAgents(r *http.Request) (any, error) {
 	return map[string]any{"object": "list", "data": data}, nil
 }
 
-func (a *API) selected(r *http.Request) (*object, release, error) {
-	name, version, err := selection(r)
+func (a *API) selected(r *http.Request) (*object, agentRuntime, error) {
+	name, err := selection(r)
 	if err != nil {
-		return nil, release{}, err
+		return nil, agentRuntime{}, err
 	}
 	agent, err := a.agent(r, name)
 	if err != nil {
-		return nil, release{}, err
+		return nil, agentRuntime{}, err
 	}
-	releases, err := a.releases(r, agent)
-	if err != nil {
-		return nil, release{}, err
-	}
-	rel, err := selectedRelease(agent, version, releases)
-	return agent, rel, err
+	runtime, err := a.runtime(r, agent)
+	return agent, runtime, err
 }
 
 func (a *API) getAgent(r *http.Request) (any, error) {
-	agent, rel, err := a.selected(r)
+	agent, runtime, err := a.selected(r)
 	if err != nil {
 		return nil, err
 	}
-	return a.agentView(r, agent, rel)
-}
-
-func (a *API) listVersions(r *http.Request) (any, error) {
-	name, _, err := selection(r)
-	if err != nil {
-		return nil, err
-	}
-	agent, err := a.agent(r, name)
-	if err != nil {
-		return nil, err
-	}
-	releases, err := a.releases(r, agent)
-	if err != nil {
-		return nil, err
-	}
-	data := make([]any, 0, len(releases))
-	for _, rel := range releases {
-		phase := "Pending"
-		if rel.ready {
-			phase = "Available"
-		} else if rel.deployment == nil {
-			phase = "Retired"
-		}
-		active := text(agent, "data", "activeVersion") == text(rel.document, "version")
-		data = append(data, map[string]any{
-			"name": name, "version": text(rel.document, "version"), "status": phase, "endpoint": responsesEndpoint(rel, agent),
-			"created_at": created(rel.snapshot), "definitionDigest": contentDigest(text(rel.snapshot, "data", "release.json")),
-			"requestedActive": active, "active": active && rel.ready,
-		})
-	}
-	return map[string]any{"object": "list", "data": data}, nil
+	return a.agentView(r, agent, runtime)
 }

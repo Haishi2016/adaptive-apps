@@ -80,20 +80,20 @@ describe('Guardrails', () => {
 
   it('shows pinned agent attachment separately from baseline', async () => {
     server.use(http.get('*/v1/agents/demo/guardrails', () => HttpResponse.json({
-      name: 'demo', version: '1', enabled: true, mode: 'audit',
+      name: 'demo', enabled: true, mode: 'audit',
       inherited: [platform], attached, policy_sha256: 'digest',
       deployment: 'demo-v1', phase: 'Available',
     })));
     renderWithProviders(<AgentGuardrails name="demo" visible />);
     expect(await screen.findByText('application-ref')).toBeInTheDocument();
-    expect(screen.getByText('demo · version 1')).toBeInTheDocument();
+    expect(screen.getByText('demo')).toBeInTheDocument();
     expect(screen.getByText(/matching platform policies AND attached bundle/)).toBeInTheDocument();
     expect(screen.getByText(/does not verify enforcement/)).toBeInTheDocument();
   });
 
   it('shows configured release attachment with unknown runtime mode and no inherited policy', async () => {
     server.use(http.get('*/v1/agents/demo/guardrails', () => HttpResponse.json({
-      name: 'demo', version: '1', enabled: true, mode: null, enforcementVerified: false,
+      name: 'demo', enabled: true, mode: null, enforcementVerified: false,
       inherited: [], attached, policy_sha256: null, deployment: 'demo-v1', phase: 'Available',
     })));
     renderWithProviders(<AgentGuardrails name="demo" visible />);

@@ -235,7 +235,7 @@ test('models and prompt-agent smoke flow', async ({ page }) => {
   await expect(page.getByText('No guardrails attached')).toBeVisible();
   await page.getByRole('tab', { name: 'Chat' }).click();
   await expect(page.getByLabel('Message the agent...')).toHaveValue('Hello agent');
-  const firstRequest = page.waitForRequest((request) => request.url().includes('/agents/handoff-service/versions/1/responses'));
+  const firstRequest = page.waitForRequest((request) => request.url().includes('/agents/handoff-service/responses'));
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText(/Mock response/)).toBeVisible();
   expect((await firstRequest).postDataJSON()).toEqual({
@@ -244,7 +244,7 @@ test('models and prompt-agent smoke flow', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
   await expect(page.getByText('Conversation release 1')).toBeVisible();
   await expect(page.getByLabel('Invocation release')).toBeDisabled();
-  const secondRequest = page.waitForRequest((request) => request.url().includes('/agents/handoff-service/versions/1/responses'));
+  const secondRequest = page.waitForRequest((request) => request.url().includes('/agents/handoff-service/responses'));
   await page.getByLabel('Message the agent...').fill('Continue');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   expect((await secondRequest).postDataJSON()).toEqual({

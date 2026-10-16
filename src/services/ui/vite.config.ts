@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/models(?=\/v1(?:\/|$))/, ''),
         },
-        '^/agents/[^/]+/versions/': {
+        '^/agents/[^/]+/': {
           target,
           changeOrigin: true,
         },

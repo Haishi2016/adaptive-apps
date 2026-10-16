@@ -12,11 +12,10 @@ reviewed human role grants. Local port forwarding and browser certificate trust
 are environment-specific. `ada oidc demo-users` optionally provisions local demo users.
 
 The browser reads operational inventory/configuration from `platform-api`
-(`/v1/environment`, `/v1/agents` and `/v1/agents/{name}/versions`).
-Inventories return `{object:"list",data:[...]}` with direct operational agent
-or release records, without pagination or SDK metadata envelopes.
-`/v1/agents/{name}` returns the effective active agent directly; exact retained
-selections read `/v1/agents/{name}/versions/{version}` with the same agent shape.
+(`/v1/environment`, `/v1/agents` and `/v1/agents/{name}`).
+Inventories return `{object:"list",data:[...]}` with direct current agent
+records, without pagination or SDK metadata envelopes.
+`/v1/agents/{name}` returns the current mutable agent runtime directly.
 The environment reports name, description and cloud configuration,
 not an emulated project identifier. Cloud configuration may link a genuine Azure
 Foundry project independently of edge inventory.
@@ -28,27 +27,21 @@ append another `/v1` or fall back to operational API model discovery.
 The image build defaults to `VITE_GATEWAY_URL=/models/v1`, matching nginx's
 model-gateway proxy. Keep that value for the local UI; bare `/v1` is an
 operational/agent-ingress path on this UI origin, not its model proxy.
-Agent calls use the reported concrete release
-endpoint through `agent-ingress`, never the operational API.
-The Agents list refreshes inventory every ten seconds. Active readiness uses
-the API's `phase`, not the readiness of another retained release; `Pending`
-with an Available candidate can correctly mean no effective active release.
-Requested/effective columns use `requestedActiveVersion`/`activeVersion`;
-Created needs Unix-seconds `created`, and Description needs `description`.
+Agent calls use the reported stable endpoint through `agent-ingress`, never the
+operational API.
+The Agents list refreshes inventory every ten seconds. Readiness uses the
+current runtime's API `phase`. Created needs Unix-seconds `created`, and
+Description needs `description`.
 Absent values render as —, not fabricated metadata or readiness.
 
-Playgrounds use the effective release by default. Without one, the UI selects
-an Available requested release, otherwise the first Available endpoint-bearing
-release in lexicographic release-ID order. This is explicit UI selection, not
-promotion or a "newest release" claim. An unavailable effective release does not
-trigger fallback. All retained release IDs and readiness appear in Agents.
-The first send pins
-the release, captured configuration and call identity. Each send uses plain-text
+Playgrounds use the current runtime. The first send pins the observed agent
+configuration and call identity for that conversation. Each send uses plain-text
 input and explicit `store=false`, with no reference to a previous response.
-Displayed history is not model context. Promotion does not move a UI session.
+Displayed history is not model context. Updating the agent does not move an
+existing UI conversation to a different captured configuration.
 Failed, incomplete or cancelled turns require **New conversation**; no automatic
-replay or release fallback occurs. Hosted delegation remains unavailable.
-Prompt releases with the captured native `graph-me` tool can select app,
+replay or runtime fallback occurs. Hosted delegation remains unavailable.
+Prompt agents with the captured native `graph-me` tool can select app,
 signed-in-user OBO or the provisioned agent worker user when their actual
 identity prerequisites are reported. Graph `/me` rejects app identity explicitly;
 model calls always retain application identity.
@@ -66,7 +59,7 @@ The exact response schemas are in `src/api/client.ts`; Monitor event schemas
 are in `src/components/MonitorPanel.tsx`. API changes must preserve those contracts:
 
 - `GET /v1/guardrails`: `enabled`, nullable `mode`, and `policies`.
-- `GET /v1/agents/{name}/guardrails?version={release}`: exact captured release,
+- `GET /v1/agents/{name}/guardrails`: current agent configuration with
   `enabled`, nullable `mode`, `inherited`, nullable `attached`, `policy_sha256`,
   `deployment` and `phase`. Policy resources include `reference`, `namespace`,
   `targets` and the AGT `bundle`; do not report empty configuration on errors.

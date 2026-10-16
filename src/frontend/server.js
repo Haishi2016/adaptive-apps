@@ -408,14 +408,12 @@ const dnsLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
 const nativeReadPaths = [
   new RegExp("^/v1/agents$"),
   new RegExp(`^/v1/agents/${dnsLabel}$`),
-  new RegExp(`^/v1/agents/${dnsLabel}/versions$`),
-  new RegExp(`^/v1/agents/${dnsLabel}/versions/${dnsLabel}$`),
   new RegExp(`^/v1/agents/${dnsLabel}/spans$`),
   new RegExp(`^/v1/agents/${dnsLabel}/guardrails$`),
   new RegExp(`^/v1/agents/${dnsLabel}/agent-card$`),
 ];
 const nativeResponsePath = new RegExp(
-  `^/agents/${dnsLabel}/versions/${dnsLabel}/responses$`
+  `^/agents/${dnsLabel}/responses$`
 );
 
 function exactNativeRequest(req) {

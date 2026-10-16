@@ -9,16 +9,15 @@ terraform {
 variable "context" {
   type = object({ runtime = object({ kubernetes = object({ namespace = string }) }), resource = object({
     name       = string, id = string
-    properties = object({ agentName = string, agentResourceId = string, agentUid = string })
+    properties = object({ agentName = string })
   }) })
   validation {
     condition = (
       var.context.resource.name == var.context.resource.properties.agentName &&
       can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", var.context.resource.name)) &&
-      var.context.resource.properties.agentUid != "" &&
-      var.context.resource.id == replace(var.context.resource.properties.agentResourceId, "agents/", "agentIdentities/")
+      can(regex("/agentIdentities/${var.context.resource.name}$", var.context.resource.id))
     )
-    error_message = "Identity must reference its same-name logical Radius agent and exact nonempty UID."
+    error_message = "Identity must use the same DNS-label name in its Radius resource ID and properties."
   }
 }
 variable "namespace" {
@@ -71,11 +70,13 @@ variable "entra" {
 }
 
 locals {
-  name     = var.context.resource.name
-  ns       = var.namespace
-  owner    = { "radius.resource.id" = var.context.resource.id }
-  client   = "adaptive-${local.ns}-${local.name}"
-  namehash = substr(sha256(local.name), 0, 32)
+  name              = var.context.resource.name
+  ns                = var.namespace
+  owner             = { "radius.resource.id" = var.context.resource.id }
+  agent_resource_id = replace(var.context.resource.id, "agentIdentities", "agents")
+  agent_uid         = substr(sha256(local.agent_resource_id), 0, 32)
+  client            = "adaptive-${local.ns}-${local.name}"
+  namehash          = substr(sha256(local.name), 0, 32)
 }
 
 resource "keycloak_openid_client" "agent" {
@@ -123,30 +124,10 @@ resource "keycloak_openid_hardcoded_claim_protocol_mapper" "agent_id" {
   add_to_access_token = true
 }
 
-data "kubernetes_resource" "agent" {
-  api_version = "v1"
-  kind        = "ConfigMap"
-  metadata {
-    name      = "agent-${local.name}"
-    namespace = local.ns
-  }
-  lifecycle {
-    postcondition {
-      condition = (
-        self.object.metadata.uid == var.context.resource.properties.agentUid &&
-        self.object.metadata.annotations["radius.resource.id"] == var.context.resource.properties.agentResourceId &&
-        self.object.metadata.annotations["radius.identity.id"] == var.context.resource.id
-      )
-      error_message = "Identity binding must match the exact logical agent UID and separate Radius owners."
-    }
-  }
-}
-
 locals {
-  uid = data.kubernetes_resource.agent.object.metadata.uid
   labels = {
     "adaptive.jplck.io/agent"     = local.name
-    "adaptive.jplck.io/agent-uid" = local.uid
+    "adaptive.jplck.io/agent-uid" = local.agent_uid
   }
 }
 
@@ -187,7 +168,7 @@ resource "kubernetes_config_map_v1" "binding" {
   }
   data = {
     "identity.json" = jsonencode(merge(var.entra, {
-      ownerUid             = local.uid
+      ownerUid             = local.agent_uid
       keycloakClientId     = local.client
       keycloakUuid         = keycloak_openid_client.agent.id
       serviceAccountUserId = keycloak_openid_client.agent.service_account_user_id
@@ -205,6 +186,8 @@ output "result" {
     resources = []
     values = {
       agentName          = local.name
+      agentResourceId    = local.agent_resource_id
+      agentUid           = local.agent_uid
       namespace          = local.ns
       identityRef        = kubernetes_config_map_v1.binding.metadata[0].name
       secretRef          = kubernetes_secret_v1.identity.metadata[0].name

@@ -100,9 +100,6 @@ export const AgentSchema = z.object({
   name: z.string(),
   type: z.enum(['prompt', 'hosted']),
   description: z.string().nullish(),
-  version: z.string().nullish(),
-  requestedActiveVersion: z.string().nullable(),
-  activeVersion: z.string().nullable(),
   endpoint: z.string().nullable(),
   created: z.number().int().nullish(),
   updated: z.number().int().nullish(),
@@ -122,18 +119,6 @@ export const AgentSchema = z.object({
   port: z.number().int().nullish(),
   definition: z.string().nullish(),
 });
-
-export const AgentVersionSchema = z.object({
-  name: z.string(),
-  version: z.string(),
-  created_at: z.number().int().nullish(),
-  status: z.enum(['Available', 'Pending', 'Progressing', 'Failed', 'Retired']),
-  endpoint: z.string().nullable(),
-  definitionDigest: z.string().nullable(),
-  requestedActive: z.boolean(),
-  active: z.boolean(),
-});
-export type AgentVersion = z.infer<typeof AgentVersionSchema>;
 
 const PolicyRuleSchema = z.object({
   name: z.string(),
@@ -167,7 +152,6 @@ const PlatformGuardrailsSchema = z.object({
 });
 const AgentGuardrailsSchema = z.object({
   name: z.string(),
-  version: z.string().nullable(),
   enabled: z.boolean(),
   mode: z.enum(['enforce', 'audit']).nullable(),
   inherited: z.array(PolicyResourceSchema),
@@ -182,9 +166,8 @@ export function getPlatformGuardrails(): Promise<z.infer<typeof PlatformGuardrai
   return requestJson('/v1/guardrails', PlatformGuardrailsSchema);
 }
 
-export function getAgentGuardrails(name: string, version?: string): Promise<z.infer<typeof AgentGuardrailsSchema>> {
-  const query = version ? `?version=${encodeURIComponent(version)}` : '';
-  return requestJson(`/v1/agents/${encodeURIComponent(name)}/guardrails${query}`, AgentGuardrailsSchema);
+export function getAgentGuardrails(name: string): Promise<z.infer<typeof AgentGuardrailsSchema>> {
+  return requestJson(`/v1/agents/${encodeURIComponent(name)}/guardrails`, AgentGuardrailsSchema);
 }
 
 export const ConnectivityFaultStateSchema = z.object({
@@ -432,19 +415,8 @@ export async function listAgents(): Promise<Agent[]> {
   }))).data;
 }
 
-export async function getAgent(name: string, version?: string): Promise<Agent> {
-  const base = `/v1/agents/${encodeURIComponent(name)}`;
-  if (version) {
-    return requestJson(`${base}/versions/${encodeURIComponent(version)}`, AgentSchema);
-  }
-  return requestJson(base, AgentSchema);
-}
-
-export async function listAgentVersions(name: string): Promise<AgentVersion[]> {
-  return (await requestJson(`/v1/agents/${encodeURIComponent(name)}/versions`, z.object({
-    object: z.literal('list'),
-    data: z.array(AgentVersionSchema),
-  }))).data;
+export async function getAgent(name: string): Promise<Agent> {
+  return requestJson(`/v1/agents/${encodeURIComponent(name)}`, AgentSchema);
 }
 
 export async function listTools(): Promise<ToolCatalogEntry[]> {

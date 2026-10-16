@@ -1,4 +1,4 @@
-"""Invoke pinned writer and auditor releases through native Responses clients."""
+"""Invoke writer and auditor through stable native Responses clients."""
 
 from __future__ import annotations
 
@@ -46,12 +46,11 @@ async def edit(messages: list[Message]) -> AgentResponse:
     specialists = [
         (
             os.environ[f"{prefix}_NAME"],
-            os.environ[f"{prefix}_VERSION"],
             os.environ[f"{prefix}_RESPONSES_BASE_URL"],
         )
         for prefix in ("WRITER", "AUDITOR")
     ]
-    for name, version, endpoint in specialists:
+    for name, endpoint in specialists:
         url = urlsplit(endpoint)
         if (
             url.scheme not in ("http", "https")
@@ -60,9 +59,9 @@ async def edit(messages: list[Message]) -> AgentResponse:
             or url.password is not None
             or url.query
             or url.fragment
-            or url.path.rstrip("/") != f"/agents/{name}/versions/{version}"
+            or url.path.rstrip("/") != f"/agents/{name}"
         ):
-            raise ValueError("Peer endpoint must identify the configured explicit release")
+            raise ValueError("Peer endpoint must identify the configured agent")
     context: list[ResponseInputItemParam] = []
     if not messages:
         raise ValueError("Editor requires user and assistant text messages")
@@ -76,7 +75,7 @@ async def edit(messages: list[Message]) -> AgentResponse:
         role: Literal["user", "assistant"] = "user" if message.role == "user" else "assistant"
         context.append({"role": role, "content": message.text})
     outputs: list[str] = []
-    for index, (name, version, endpoint) in enumerate(specialists):
+    for index, (name, endpoint) in enumerate(specialists):
         if index == 1:
             context.append(
                 {
@@ -107,7 +106,7 @@ async def edit(messages: list[Message]) -> AgentResponse:
             raise ValueError(f"{name} did not complete foreground execution")
         if not result.output_text.strip():
             raise ValueError(f"{name} returned no editing result")
-        outputs.append(f"## {name} ({version})\n\n{result.output_text}")
+        outputs.append(f"## {name}\n\n{result.output_text}")
         context.append({"role": "assistant", "content": result.output_text})
     return AgentResponse(messages=[Message("assistant", ["\n\n".join(outputs)])])
 

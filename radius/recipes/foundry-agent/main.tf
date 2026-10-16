@@ -13,49 +13,32 @@ variable "context" {
       name = string
       id   = string
       properties = object({
-        environment       = string
-        application       = string
-        kind              = string
-        activeVersion     = optional(string, "")
-        identityRef       = optional(string, "")
-        releases          = map(any)
-        publishedVersions = optional(list(string), [])
+        environment = string
+        application = string
+        kind        = string
+        identityRef = optional(string, "")
+        binding     = any
+        definition  = any
+        governance  = optional(any, null)
+        resources   = optional(map(any), {})
+        stateSize   = optional(string, "")
       })
     })
   })
   validation {
-    condition     = length(var.context.resource.properties.releases) == 1 && contains(keys(var.context.resource.properties.releases), var.initial_release_id)
-    error_message = "This proof accepts exactly one explicitly configured initial release embedded in the logical agent."
-  }
-  validation {
-    condition     = var.context.resource.properties.releases[var.initial_release_id].binding == null
+    condition     = var.context.resource.properties.binding == null
     error_message = "Foundry supplies native identity. Set binding=null; never copy edge identity, Secret or ServiceAccount bindings."
-  }
-  validation {
-    condition = var.context.resource.properties.activeVersion == "" || contains(
-      var.context.resource.properties.publishedVersions,
-      var.context.resource.properties.activeVersion
-    )
-    error_message = "Publish a release in one deployment before promoting it in a later update."
   }
   validation {
     condition = (
       contains(["prompt", "hosted"], var.context.resource.properties.kind) &&
-      var.context.resource.properties.releases[var.initial_release_id].definition.kind == var.context.resource.properties.kind &&
-      length(try(var.context.resource.properties.releases[var.initial_release_id].definition.tools, [])) == 0 &&
-      try(var.context.resource.properties.releases[var.initial_release_id].governance, null) == null &&
-      try(var.context.resource.properties.releases[var.initial_release_id].stateSize, null) == null &&
-      length(try(var.context.resource.properties.releases[var.initial_release_id].resources, {})) == 0
+      var.context.resource.properties.definition.kind == var.context.resource.properties.kind &&
+      length(try(var.context.resource.properties.definition.tools, [])) == 0 &&
+      var.context.resource.properties.governance == null &&
+      var.context.resource.properties.stateSize == "" &&
+      length(var.context.resource.properties.resources) == 0
     )
-    error_message = "The initial Foundry proof supports prompt/hosted definitions without tools, edge governance, PVC state or edge resource settings. Configure native RAI and sandbox size separately."
-  }
-}
-
-variable "initial_release_id" {
-  type = string
-  validation {
-    condition     = can(regex("^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$", var.initial_release_id))
-    error_message = "Declare one explicit initial release ID as a lowercase DNS label, at most 32 characters."
+    error_message = "The Foundry proof supports prompt/hosted definitions without tools, edge governance, PVC state or edge resource settings. Configure native RAI and sandbox size separately."
   }
 }
 
@@ -87,13 +70,7 @@ variable "memory" {
 
 locals {
   logical   = var.context.resource.properties
-  release   = local.logical.releases[var.initial_release_id]
-  agent_uid = sha256(var.context.resource.id)
-  p = merge(local.release, {
-    agentName = var.context.resource.name
-    agentUid  = local.agent_uid
-    version   = var.initial_release_id
-  })
+  agent_uid = substr(sha256(var.context.resource.id), 0, 32)
   def = merge({
     image        = null
     runtimeImage = null
@@ -103,9 +80,9 @@ locals {
     top_p        = null
     tools        = []
     environment  = {}
-  }, local.p.definition)
+  }, local.logical.definition)
   endpoint    = trimsuffix(var.project_endpoint, "/")
-  native_name = "${local.p.agentName}-${substr(sha256(local.p.agentUid), 0, 10)}"
+  native_name = "${var.context.resource.name}-${substr(local.agent_uid, 0, 10)}"
   definitions = {
     prompt = merge({
       kind         = "prompt"
@@ -127,26 +104,29 @@ locals {
     }
   }
   definition = local.definitions[local.def.kind]
-  capture = {
-    radius_id  = var.context.resource.id
-    properties = local.p
-    endpoint   = local.endpoint
-    definition = local.definition
-  }
 }
 
-resource "terraform_data" "capture" {
-  input = local.capture
-  lifecycle {
-    ignore_changes  = [input]
-    prevent_destroy = true
-    postcondition {
-      condition     = self.output == local.capture
-      error_message = "A published Foundry proof release is immutable. This recipe does not support another release or update of the named agent."
+resource "azapi_data_plane_resource" "agent" {
+  type      = "Microsoft.Foundry/agents@v1"
+  name      = local.native_name
+  parent_id = trimprefix(local.endpoint, "https://")
+  body = {
+    name        = local.native_name
+    description = local.def.description
+    definition  = local.definition
+    metadata = {
+      radius_resource_id = var.context.resource.id
+      radius_agent_uid   = local.agent_uid
     }
+  }
+  response_export_values = [
+    "versions.latest.instance_identity",
+    "versions.latest.blueprint"
+  ]
+  lifecycle {
     precondition {
       condition     = local.def.kind != "hosted" || can(regex("^[a-zA-Z0-9.-]+\\.azurecr\\.io/[^@ ]+@sha256:[a-f0-9]{64}$", local.def.image))
-      error_message = "Hosted deployment requires an unchanged linux/amd64 image mirrored to ACR by its original manifest digest."
+      error_message = "Hosted deployment requires a linux/amd64 image mirrored to ACR by its original manifest digest."
     }
     precondition {
       condition     = local.def.kind != "prompt" || length(local.def.environment) == 0
@@ -158,7 +138,7 @@ resource "terraform_data" "capture" {
     }
     precondition {
       condition     = local.def.kind != "hosted" || (local.def.instructions == "" && local.def.temperature == null && local.def.top_p == null && local.def.runtimeImage == null)
-      error_message = "Hosted instructions and sampling belong to the unchanged image/configuration, not silently discarded prompt-runtime fields."
+      error_message = "Hosted instructions and sampling belong to the image/configuration, not silently discarded prompt-runtime fields."
     }
     precondition {
       condition     = local.def.kind != "prompt" || local.def.image == null
@@ -186,43 +166,13 @@ resource "terraform_data" "capture" {
   }
 }
 
-resource "azapi_data_plane_resource" "agent" {
-  type      = "Microsoft.Foundry/agents@v1"
-  name      = local.native_name
-  parent_id = trimprefix(terraform_data.capture.output.endpoint, "https://")
-  body = {
-    name        = local.native_name
-    description = terraform_data.capture.output.properties.definition.description
-    definition  = terraform_data.capture.output.definition
-    metadata = {
-      radius_resource_id = terraform_data.capture.output.radius_id
-      radius_release_id  = terraform_data.capture.output.properties.version
-      radius_agent_uid   = terraform_data.capture.output.properties.agentUid
-    }
-  }
-  response_export_values = [
-    "versions.latest.version",
-    "versions.latest.instance_identity",
-    "versions.latest.blueprint"
-  ]
-  lifecycle {
-    prevent_destroy = true
-    postcondition {
-      condition     = self.output.versions.latest.version == "1"
-      error_message = "Expected an exclusively owned initial native version. Stop: additional versions or another writer require a separate lifecycle implementation."
-    }
-  }
-}
-
 output "result" {
   value = {
     resources = []
     values = {
-      agentName         = var.context.resource.name
-      agentUid          = local.agent_uid
-      publishedVersions = keys(local.logical.releases)
-      nativeName        = azapi_data_plane_resource.agent.name
-      nativeVersion     = azapi_data_plane_resource.agent.output.versions.latest.version
+      agentName  = var.context.resource.name
+      agentUid   = local.agent_uid
+      nativeName = azapi_data_plane_resource.agent.name
       nativeIdentity = {
         clientId             = azapi_data_plane_resource.agent.output.versions.latest.instance_identity.client_id
         principalId          = azapi_data_plane_resource.agent.output.versions.latest.instance_identity.principal_id

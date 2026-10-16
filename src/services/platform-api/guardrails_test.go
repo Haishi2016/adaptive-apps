@@ -1,16 +1,28 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ktesting "k8s.io/client-go/testing"
 )
+
+func attachGovernance(t *testing.T, f fixture, reference, content string) {
+	t.Helper()
+	value, err := json.Marshal(map[string]any{"reference": reference, "content": content})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = unstructured.SetNestedField(f.agent.Object, string(value), "data", "governance")
+	update(t, f, "configmaps", f.agent)
+}
 
 const samplePolicy = `{"policies":[{"name":"local-only","apiVersion":"governance.toolkit/v1","default_action":"deny","rules":[{"name":"local-model","stage":"pre_input","condition":"true","action":"allow","description":"local"}]}],"targets":["adaptive/*"]}`
 
@@ -42,20 +54,15 @@ func TestGuardrailsReadRetainedNativePoliciesAndAttachment(t *testing.T) {
 	}
 	attachmentContent := strings.Replace(samplePolicy, `"targets":["adaptive/*"]`, `"targets":[]`, 1)
 	attachmentReference := "adaptive-guardrails-apps/" + cm.Name + "@sha256:" + contentDigest(attachmentContent)
-	doc := document(f.snapshot)
-	doc["governance"] = map[string]any{"reference": attachmentReference, "content": attachmentContent}
-	capture(f.snapshot, doc)
-	update(t, f, "configmaps", f.snapshot)
-	view := request(t, f.api, "GET", "/v1/agents/demo/guardrails?version=v1", "", 200)
-	if view["version"] != "v1" || view["enabled"] != true || view["deployment"] != "demo-v1" || view["phase"] != "Available" ||
+	attachGovernance(t, f, attachmentReference, attachmentContent)
+	view := request(t, f.api, "GET", "/v1/agents/demo/guardrails", "", 200)
+	if view["enabled"] != true || view["deployment"] != "demo-v1" || view["phase"] != "Ready" ||
 		len(view["inherited"].([]any)) != 1 || view["attached"].(map[string]any)["reference"] != attachmentReference ||
 		view["policy_sha256"] != nil || view["mode"] != nil || view["enforcementVerified"] != false {
 		t.Fatalf("incorrect desired policy projection: %#v", view)
 	}
-	doc["governance"].(map[string]any)["reference"] = attachmentReference + "bad"
-	capture(f.snapshot, doc)
-	update(t, f, "configmaps", f.snapshot)
-	request(t, f.api, "GET", "/v1/agents/demo/guardrails?version=v1", "", 503)
+	attachGovernance(t, f, attachmentReference+"bad", attachmentContent)
+	request(t, f.api, "GET", "/v1/agents/demo/guardrails", "", 503)
 }
 
 func TestGuardrailsDoNotInventEmptyCatalogueOnFailure(t *testing.T) {
@@ -68,7 +75,7 @@ func TestGuardrailsDoNotInventEmptyCatalogueOnFailure(t *testing.T) {
 		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, "", nil)
 	})
 	request(t, f.api, "GET", "/v1/guardrails", "", 503)
-	request(t, f.api, "GET", "/v1/agents/demo/guardrails?version=v1", "", 503)
+	request(t, f.api, "GET", "/v1/agents/demo/guardrails", "", 503)
 }
 
 func TestDeclaredPolicyModeDoesNotClaimRuntimeEnforcement(t *testing.T) {
@@ -93,15 +100,12 @@ func TestRetainedAttachmentWithoutGlobalPolicyRemainsConfigured(t *testing.T) {
 	f := newFixture(t)
 	content := strings.Replace(samplePolicy, `"targets":["adaptive/*"]`, `"targets":[]`, 1)
 	ref := "adaptive-guardrails-apps/guardrail-" + strings.Repeat("a", 24) + "@sha256:" + contentDigest(content)
-	doc := document(f.snapshot)
-	doc["governance"] = map[string]any{"reference": ref, "content": content}
-	capture(f.snapshot, doc)
-	update(t, f, "configmaps", f.snapshot)
+	attachGovernance(t, f, ref, content)
 	global := request(t, f.api, "GET", "/v1/guardrails", "", 200)
-	view := request(t, f.api, "GET", "/v1/agents/demo/guardrails?version=v1", "", 200)
+	view := request(t, f.api, "GET", "/v1/agents/demo/guardrails", "", 200)
 	if global["enabled"] != false || view["enabled"] != true ||
 		view["attached"].(map[string]any)["reference"] != ref || view["mode"] != nil || view["enforcementVerified"] != false {
-		t.Fatal("captured attachment was mistaken for absent governance")
+		t.Fatal("agent attachment was mistaken for absent governance")
 	}
 }
 
@@ -157,9 +161,9 @@ func TestCurrentRadiusPlatformPolicyNeedNotBeImmutable(t *testing.T) {
 	view := request(t, f.api, "GET", "/v1/guardrails", "", 200)
 	if view["enabled"] != true || view["projection"] != "current-platform-policy-catalogue" ||
 		view["mode"] != nil || view["enforcementVerified"] != false {
-		t.Fatal("current mutable desired policy was mistaken for an immutable release attachment")
+		t.Fatal("current mutable desired policy was mistaken for an agent attachment")
 	}
-	inherited := request(t, f.api, "GET", "/v1/agents/demo/guardrails?version=v1", "", 200)
+	inherited := request(t, f.api, "GET", "/v1/agents/demo/guardrails", "", 200)
 	if len(inherited["inherited"].([]any)) != 1 {
 		t.Fatal("active Radius policy was not projected as inherited")
 	}
@@ -168,7 +172,7 @@ func TestCurrentRadiusPlatformPolicyNeedNotBeImmutable(t *testing.T) {
 func TestGuardrailsMatchOnlyNativeTargets(t *testing.T) {
 	f := newFixture(t)
 	installPolicy(t, f, strings.Replace(samplePolicy, "adaptive/*", "different/*", 1))
-	view := request(t, f.api, "GET", "/v1/agents/demo/guardrails?version=v1", "", 200)
+	view := request(t, f.api, "GET", "/v1/agents/demo/guardrails", "", 200)
 	if view["enabled"] != false || len(view["inherited"].([]any)) != 0 || view["attached"] != nil {
 		t.Fatal("nonmatching native policy inherited")
 	}

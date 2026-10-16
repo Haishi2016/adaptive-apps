@@ -2,37 +2,26 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { delay, http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
 import { vi } from 'vitest';
-import { Agent, getAgent, listAgentVersions } from '../api/client';
+import { Agent } from '../api/client';
 import { server } from '../mocks/server';
 import { HostedAgentPlayground } from '../routes/agents/HostedAgentPlayground';
 import { PromptAgentPlayground } from '../routes/agents/PromptAgentPlayground';
 import { renderWithProviders } from './testUtils';
 
-beforeEach(() => {
-  server.use(http.get('*/v1/agents/demo/versions', () => HttpResponse.json({ object: 'list', data: [] })));
-});
-
-function release(version = 'amber', type: Agent['type'] = 'prompt'): Agent {
+function agentFixture(label = 'current', type: Agent['type'] = 'prompt'): Agent {
   return {
-    name: 'demo', type, version, phase: 'Ready',
-    requestedActiveVersion: version, activeVersion: version,
-    endpoint: `/agents/demo/versions/${version}/responses`,
-    instructions: `${version} instructions`, model: `${version}-model`,
-    identity: { blueprintId: `${version}-blueprint`, entraClientId: `${version}-identity` },
+    name: 'demo', type, phase: 'Ready',
+    endpoint: '/agents/demo/responses',
+    instructions: `${label} instructions`, model: `${label}-model`,
+    identity: { blueprintId: `${label}-blueprint`, entraClientId: `${label}-identity` },
   };
 }
 
-function discovery(resolve: (version?: string) => Agent | Response) {
-  return [
-    http.get('*/v1/agents/demo', () => {
-      const value = resolve();
-      return value instanceof Response ? value : HttpResponse.json(value);
-    }),
-    http.get('*/v1/agents/demo/versions/:version', ({ params }) => {
-      const value = resolve(String(params.version));
-      return value instanceof Response ? value : HttpResponse.json(value);
-    }),
-  ];
+function discovery(resolve: () => Agent | Response) {
+  return [http.get('*/v1/agents/demo', () => {
+    const value = resolve();
+    return value instanceof Response ? value : HttpResponse.json(value);
+  })];
 }
 
 function stream(events: unknown[], terminated = true) {
@@ -58,8 +47,8 @@ async function send(prompt: string) {
   fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 }
 
-it.each(['prompt', 'hosted'] as const)('pins %s release through promotion and API outage, then resets explicitly', async (type) => {
-  let current = release('amber', type);
+it.each(['prompt', 'hosted'] as const)('pins the %s runtime through updates and API outage, then resets explicitly', async (type) => {
+  let current = agentFixture('first', type);
   let discoveryCalls = 0;
   let outage = false;
   const bodies: unknown[] = [];
@@ -69,8 +58,8 @@ it.each(['prompt', 'hosted'] as const)('pins %s release through promotion and AP
       discoveryCalls += 1;
       return outage ? new HttpResponse(null, { status: 503 }) : current;
     }),
-    http.post('*/agents/demo/versions/:version/responses', async ({ params, request }) => {
-      endpoints.push(String(params.version));
+    http.post('*/agents/demo/responses', async ({ request }) => {
+      endpoints.push('current');
       bodies.push(await request.json());
       return stream([
         { type: 'response.output_item.added', item: { type: 'function_call', name: 'search' } },
@@ -85,16 +74,15 @@ it.each(['prompt', 'hosted'] as const)('pins %s release through promotion and AP
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument());
   expect(screen.getByText('Tool call: search')).toBeInTheDocument();
   const count = discoveryCalls;
-  current = release('birch', type);
+  current = agentFixture('updated', type);
   act(() => queryClient.setQueryData(['agent', 'demo'], current));
-  expect(screen.getByText(/Conversation release/)).toHaveTextContent(type === 'prompt' ? 'amber' : 'Conversation release');
-  if (type === 'prompt') expect(screen.getByLabelText('Instructions')).toHaveValue('amber instructions');
+  if (type === 'prompt') expect(screen.getByLabelText('Instructions')).toHaveValue('first instructions');
   outage = true;
   await send('Second');
   expect(await screen.findByText('Reply 2')).toBeInTheDocument();
   await waitFor(() => expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument());
   expect(discoveryCalls).toBe(count);
-  expect(endpoints).toEqual(['amber', 'amber']);
+  expect(endpoints).toEqual(['current', 'current']);
   expect(bodies).toEqual([
     { input: 'First', store: false, stream: true },
     { input: 'Second', store: false, stream: true },
@@ -103,7 +91,7 @@ it.each(['prompt', 'hosted'] as const)('pins %s release through promotion and AP
   fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
   await send('Fresh');
   await screen.findByText('Reply 3');
-  expect(endpoints).toEqual(['amber', 'amber', 'birch']);
+  expect(endpoints).toEqual(['current', 'current', 'current']);
   expect(bodies[2]).toEqual({ input: 'Fresh', store: false, stream: true });
 });
 
@@ -119,8 +107,8 @@ it.each([
 ] as const)('fails explicitly for %s without retry or fallback', async (_, response, message) => {
   const invoke = vi.fn(response);
   server.use(
-    ...discovery(() => release()),
-    http.post('*/agents/demo/versions/amber/responses', invoke),
+    ...discovery(() => agentFixture()),
+    http.post('*/agents/demo/responses', invoke),
   );
   renderAgent();
   await send('First');
@@ -134,8 +122,8 @@ it.each([
 
 it('keeps cancelled turns uncertain and requires reset', async () => {
   server.use(
-    ...discovery(() => release()),
-    http.post('*/agents/demo/versions/amber/responses', async () => {
+    ...discovery(() => agentFixture()),
+    http.post('*/agents/demo/responses', async () => {
       await delay(100);
       return stream([completed('resp-cancelled')]);
     }),
@@ -147,87 +135,16 @@ it('keeps cancelled turns uncertain and requires reset', async () => {
   expect(screen.getByRole('alert')).toHaveTextContent('will not be replayed');
 });
 
-it('refuses a release that becomes unavailable during initial resolution', async () => {
+it('refuses a runtime that becomes unavailable during initial resolution', async () => {
   let calls = 0;
   const invoke = vi.fn();
   server.use(
-    ...discovery(() => ++calls === 1 ? release()
-      : { ...release(), phase: 'Pending', endpoint: null }),
-    http.post('*/agents/demo/versions/amber/responses', invoke),
+    ...discovery(() => ++calls === 1 ? agentFixture()
+      : { ...agentFixture(), phase: 'Pending', endpoint: null }),
+    http.post('*/agents/demo/responses', invoke),
   );
   renderAgent();
   await send('First');
-  expect(await screen.findByRole('alert')).toHaveTextContent('Selected release is unavailable');
+  expect(await screen.findByRole('alert')).toHaveTextContent('Agent runtime is unavailable');
   expect(invoke).not.toHaveBeenCalled();
-});
-
-it.each(['prompt', 'hosted'] as const)('selects an explicit ready %s release without declaring promotion', async (type) => {
-  const selected = { ...release('candidate', type), activeVersion: null, requestedActiveVersion: null };
-  const bodies: unknown[] = [];
-  server.use(
-    ...discovery((version) =>
-      version === 'candidate'
-        ? selected : { ...selected, version: null, endpoint: null, phase: 'Pending' },
-    ),
-    http.get('*/v1/agents/demo/versions', () => HttpResponse.json({ object: 'list', data: [
-        { name: 'demo', version: 'candidate', status: 'Available', endpoint: selected.endpoint,
-          definitionDigest: 'digest', requestedActive: false, active: false },
-        { name: 'demo', version: 'not-ready', status: 'Progressing', endpoint: null,
-          definitionDigest: null, requestedActive: false, active: false },
-      ] })),
-    http.post('*/agents/demo/versions/candidate/responses', async ({ request }) => {
-      bodies.push(await request.json());
-      return stream([{ type: 'response.output_text.delta', delta: 'Candidate reply' }, completed('resp-candidate')]);
-    }),
-  );
-  renderAgent(type);
-  const selector = await screen.findByLabelText('Invocation release');
-  await waitFor(() => expect(selector).toBeEnabled());
-  expect(screen.getByRole('option', { name: 'not-ready · Progressing' })).toBeDisabled();
-  await waitFor(() => expect(selector).toHaveValue('candidate'));
-  expect(screen.getByText(/UI-selected candidate/)).toHaveTextContent('No active promotion');
-  await send('Independent turn');
-  expect(await screen.findByText('Candidate reply')).toBeInTheDocument();
-  expect(bodies).toEqual([{ input: 'Independent turn', store: false, stream: true }]);
-  expect(selector).toBeDisabled();
-  expect(screen.getByText(/Stateless requests/)).toHaveTextContent('display-only');
-  await waitFor(() => expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument());
-  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
-  expect(selector).toBeEnabled();
-});
-
-it('does not invoke a different release returned for an exact selection', async () => {
-  const invoke = vi.fn();
-  server.use(
-    ...discovery(() => release('other')),
-    http.post('*/agents/demo/versions/other/responses', invoke),
-  );
-  renderWithProviders(
-    <Routes><Route path="/agents/:name" element={<PromptAgentPlayground />} /></Routes>,
-    { route: '/agents/demo?version=requested' },
-  );
-  await send('First');
-  expect(await screen.findByRole('alert')).toHaveTextContent('Selected release is unavailable');
-  expect(invoke).not.toHaveBeenCalled();
-});
-
-it('requests exact opaque releases and preserves retained inventory order/status', async () => {
-  let requested: string | null = null;
-  server.use(
-    ...discovery((version) => {
-      requested = version ?? null;
-      return new HttpResponse(null, { status: 404 });
-    }),
-    http.get('*/v1/agents/demo/versions', () => HttpResponse.json({ object: 'list',
-      data: ['zebra', 'amber'].map((version, index) => ({
-        name: 'demo', version, created_at: 1, status: index ? 'Available' : 'Retired',
-        endpoint: index ? release().endpoint : null, definitionDigest: 'digest',
-        requestedActive: false, active: Boolean(index),
-      })),
-    })),
-  );
-  await expect(getAgent('demo', 'opaque-release')).rejects.toThrow('404');
-  expect(requested).toBe('opaque-release');
-  const versions = await listAgentVersions('demo');
-  expect(versions.map((version) => [version.version, version.status])).toEqual([['zebra', 'Retired'], ['amber', 'Available']]);
 });

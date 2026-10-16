@@ -128,7 +128,7 @@ func (a *API) platformGuardrails(r *http.Request) (any, error) {
 }
 
 func (a *API) agentGuardrails(r *http.Request) (any, error) {
-	agent, rel, err := a.selected(r)
+	agent, runtime, err := a.selected(r)
 	if err != nil {
 		return nil, err
 	}
@@ -147,9 +147,9 @@ func (a *API) agentGuardrails(r *http.Request) (any, error) {
 		}
 	}
 	var attached *policyResource
-	if governance := field(rel.document, "governance"); governance != nil {
-		reference := text(rel.document, "governance", "reference")
-		content := text(rel.document, "governance", "content")
+	if governance := field(runtime.document, "governance"); governance != nil {
+		reference := text(runtime.document, "governance", "reference")
+		content := text(runtime.document, "governance", "content")
 		policy, err := readPolicy(reference, content)
 		if err != nil {
 			return nil, err
@@ -157,12 +157,12 @@ func (a *API) agentGuardrails(r *http.Request) (any, error) {
 		attached = &policy
 	}
 	return map[string]any{
-		"name": text(agent, "data", "name"), "version": nullable(text(rel.document, "version")),
+		"name":    text(agent, "data", "name"),
 		"enabled": len(inherited) > 0 || attached != nil, "mode": nil,
 		"inherited": inherited, "attached": attached, "policy_sha256": nil,
-		"deployment":          nullable(text(rel.deployment, "metadata", "name")),
-		"phase":               map[bool]string{true: "Available", false: "Pending"}[rel.ready],
-		"projection":          "current-platform-policies-and-retained-release-attachment",
+		"deployment":          nullable(text(runtime.deployment, "metadata", "name")),
+		"phase":               map[bool]string{true: "Ready", false: "Pending"}[runtime.ready],
+		"projection":          "current-platform-policies-and-agent-attachment",
 		"enforcementVerified": false,
 	}, nil
 }

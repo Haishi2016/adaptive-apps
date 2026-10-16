@@ -57,7 +57,7 @@ describe('HostedAgentPlayground tabs', () => {
     localStorage.setItem('adaptive.providerToken', 'local-user-token');
     let bearer: string | null = 'not called';
     let identity: string | null = null;
-    server.use(http.post('*/agents/trip-scout/versions/2/responses', ({ request }) => {
+    server.use(http.post('*/agents/trip-scout/responses', ({ request }) => {
       bearer = request.headers.get('X-Adaptive-User-Token');
       identity = request.headers.get('X-Impersonation-Mode');
       return new HttpResponse('data: {"type":"response.output_text.delta","delta":"Local reply"}\n\ndata: {"type":"response.completed","response":{"id":"resp-local","status":"completed"}}\n\n', {

@@ -7,12 +7,10 @@ extension kubernetes with {
 param environmentName string = 'foundry-proof'
 @description('Dedicated Radius executor namespace; not a Foundry compute namespace.')
 param namespace string = 'foundry-proof'
-@description('Immutable Terraform archive URL including //foundry-release.')
+@description('Terraform archive URL including //foundry-agent.')
 param agentRecipe string
 @description('Explicitly selected existing Foundry project data-plane endpoint.')
 param projectEndpoint string
-@description('Only this explicit first release is supported; subsequent release lifecycle is not qualified.')
-param initialReleaseId string
 @description('Full ARM ID of an existing account-scoped RAI policy.')
 param raiPolicyId string
 @description('Native Azure executor credentials through Radius environment/secret bindings.')
@@ -35,7 +33,6 @@ resource environment 'Applications.Core/environments@2023-10-01-preview' = {
           templatePath: agentRecipe
           parameters: {
             project_endpoint: projectEndpoint
-            initial_release_id: initialReleaseId
             rai_policy_id: raiPolicyId
           }
         }
