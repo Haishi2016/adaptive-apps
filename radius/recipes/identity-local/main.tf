@@ -9,7 +9,7 @@ variable "context" {
   type = object({ runtime = object({ kubernetes = object({ namespace = string }) }), resource = object({
     name = string, id = string
     properties = object({
-      agentName  = string, agentResourceId = string, agentUid = string
+      agentName  = string
       delegation = optional(object({ enabled = optional(bool, false) }), {})
     })
   }) })

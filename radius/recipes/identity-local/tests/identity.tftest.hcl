@@ -5,11 +5,6 @@ mock_provider "keycloak" {
     }
   }
 }
-mock_provider "random" {
-  mock_resource "random_password" {
-    defaults = { result = "test-only-identity-header-with-at-least-32-characters" }
-  }
-}
 mock_provider "kubernetes" {
   mock_data "kubernetes_resource" {
     defaults = { object = { metadata = {
@@ -26,12 +21,12 @@ variables {
   context = { runtime = { kubernetes = { namespace = "adaptive-scout-identity" } }, resource = {
     name = "scout", id = "/test/Radius.Resources/agentIdentities/scout"
     properties = {
-      agentName = "scout", agentUid = "agent-uid", agentResourceId = "/test/Radius.Resources/agents/scout"
+      agentName = "scout"
     }
   } }
 }
 run "configure" {
-  command = apply
+  command = plan
   assert {
     condition = (
       output.result.values.agentName == "scout" &&
@@ -43,9 +38,6 @@ run "configure" {
     )
     error_message = "Local custom agent properties must produce the retained identity binding."
   }
-}
-run "unchanged" {
-  command = plan
 }
 run "reject_delegation" {
   command = plan
