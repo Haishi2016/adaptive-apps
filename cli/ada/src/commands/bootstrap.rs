@@ -567,12 +567,20 @@ fn print_native_app_exports(args: &BootstrapArgs, prepared: &agents::Prepared) -
     println!("export PROMPT_AGENT_IMAGE={}", prepared.prompt_agent_image);
     println!("export EDITOR_IMAGE={}", prepared.editor_image);
     println!("export NATIVE_UI_IMAGE={}", prepared.embedded_ui_image);
+    println!(
+        "export TRADING_IMAGE_REGISTRY={}",
+        shell_quote(OsStr::new(&prepared.image_registry))
+    );
+    println!(
+        "export TRADING_IMAGE_TAG={}",
+        shell_quote(OsStr::new(&prepared.image_tag))
+    );
     println!();
     println!("rad deploy radius/app.bicep \\");
     println!("  --group {} \\", args.radius_group);
     println!("  --environment {} \\", args.radius_environment);
-    println!("  --parameters imageRegistry=ghcr.io/microsoft/adaptive-apps \\");
-    println!("  --parameters imageTag=latest \\");
+    println!("  --parameters imageRegistry=\"$TRADING_IMAGE_REGISTRY\" \\");
+    println!("  --parameters imageTag=\"$TRADING_IMAGE_TAG\" \\");
     println!("  --parameters authUsername=\"$AUTH_USERNAME\" \\");
     println!("  --parameters authPassword=\"$AUTH_PASSWORD\" \\");
     println!(

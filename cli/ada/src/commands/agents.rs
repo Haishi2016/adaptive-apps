@@ -161,6 +161,8 @@ pub struct Prepared {
     pub editor_image: String,
     pub embedded_ui_image: String,
     pub agent_model: String,
+    pub image_registry: String,
+    pub image_tag: String,
 }
 
 pub fn pinned(image: &str) -> bool {
@@ -732,6 +734,8 @@ pub fn prepare(
         editor_image: images["editor"].clone(),
         embedded_ui_image: images["ui-embedded"].clone(),
         agent_model: config.agent_model,
+        image_registry: config.image_registry,
+        image_tag: config.image_tag,
     })
 }
 
@@ -845,6 +849,8 @@ mod tests {
             application["parameters"]["enableNativeAgents"]["value"],
             true
         );
+        assert_eq!(prepared.image_registry, "adaptive.local/adaptive");
+        assert_eq!(prepared.image_tag, "dev");
         assert_eq!(
             environment["parameters"]["platform"]["value"]["keycloakUrl"],
             "http://demo-keycloak.demo-test.svc.cluster.local:8080"
