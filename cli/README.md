@@ -166,12 +166,13 @@ ada oidc demo-users --namespace min-ai --release min-ai
 ```
 
 `ada agents-config` creates `agents.json` from the bundled
-`radius/agents.example.json`, the origin GitHub repository and the full `HEAD`
-commit. Pass `--repository OWNER/REPOSITORY`, `--commit FULL_SHA` or
-`--template PATH` to override those inputs. Running it again updates only the
-archive and registry locations, preserving reviewed models, explicit image
-digests and identity settings. The selected commit must have an immutable
-recipes release.
+`radius/agents.example.json`, the origin GitHub repository and its newest
+published immutable `recipes-<commit>` release containing `recipes.tgz`.
+Pass `--repository OWNER/REPOSITORY`, `--commit FULL_SHA` or `--template PATH`
+to override those inputs. An explicit commit must already have that release;
+the command fails before writing configuration otherwise. Running it again
+updates only the archive and registry locations, preserving reviewed models,
+explicit image digests and identity settings.
 
 `--import-images` runs `sudo k3s ctr -n k8s.io images pull` for required images
 that are not already present. It preserves configured immutable `images`

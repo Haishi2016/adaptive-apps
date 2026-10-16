@@ -232,14 +232,17 @@ or platform resources owned by the mutable workload.
    at their existing relative paths, including lockfiles. Keep private provider
    state, `.terraform`, credentials and test artifacts out of that archive.
 4. Run `ada agents-config --output agents.json --import-images` to create a
-   public reviewed configuration from the origin GitHub repository and current
-   commit and pull its six selected images into local K3s. The import uses
+   public reviewed configuration from the origin GitHub repository and newest
+   published immutable recipe release, then pull its seven selected images into
+   local K3s. The import uses
    immutable `images` references when configured, otherwise
    `imageRegistry`/`imageTag`, and writes the resolved immutable digest map back
    to the public config so later initialization does not depend on retained
    containerd tags. Use
    `--repository OWNER/REPOSITORY`, `--commit FULL_SHA` or `--template PATH`
-   when those defaults do not apply. Re-running the command updates only the
+   when those defaults do not apply. An explicit commit must already have a
+   `recipes-<commit>` release containing `recipes.tgz`; otherwise the command
+   fails before writing configuration. Re-running the command updates only the
    archive and registry locations and preserves reviewed inputs. Then run
    `ada init --agents-config agents.json --namespace <namespace> --release <release>`.
    This creates missing durable private inputs without AI: administrator,

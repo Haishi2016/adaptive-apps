@@ -25,7 +25,7 @@ pub struct AgentsConfigArgs {
     #[arg(long)]
     repository: Option<String>,
 
-    /// Full Git commit SHA used by the recipes release. Defaults to HEAD.
+    /// Full Git commit SHA used by an existing recipes release. Defaults to the newest published release.
     #[arg(long)]
     commit: Option<String>,
 
@@ -46,10 +46,7 @@ pub fn run(args: AgentsConfigArgs) -> Result<()> {
             repository_from_remote(&remote)?
         }
     };
-    let commit = match args.commit {
-        Some(commit) => validate_commit(&commit)?,
-        None => validate_commit(&git_output(&["rev-parse", "HEAD"])?)?,
-    };
+    let commit = resolve_recipe_commit(&repository, args.commit.as_deref())?;
     let template = match args.template {
         Some(template) => template,
         None => default_template()?,
@@ -64,7 +61,7 @@ pub fn run(args: AgentsConfigArgs) -> Result<()> {
     )?;
     ui::heading("ada agents-config");
     ui::detail("repository", &repository);
-    ui::detail("commit", &commit);
+    ui::detail("recipe commit", &commit);
     ui::ok(&format!("wrote {}", args.output.display()));
     if args.import_images {
         import_images(&args.output)?;
@@ -138,6 +135,68 @@ fn validate_commit(commit: &str) -> Result<String> {
         bail!("commit must be a full 40-character Git SHA");
     }
     Ok(commit.to_ascii_lowercase())
+}
+
+fn resolve_recipe_commit(repository: &str, requested: Option<&str>) -> Result<String> {
+    let requested = requested.map(validate_commit).transpose()?;
+    let url = format!("https://api.github.com/repos/{repository}/releases?per_page=100");
+    let mut request = ureq::get(&url)
+        .set("Accept", "application/vnd.github+json")
+        .set("User-Agent", "adaptive-apps-ada");
+    if let Ok(token) = std::env::var("GH_TOKEN") {
+        if !token.trim().is_empty() {
+            request = request.set("Authorization", &format!("Bearer {}", token.trim()));
+        }
+    }
+    let response = request.call().map_err(|error| match error {
+        ureq::Error::Status(code, response) => anyhow::anyhow!(
+            "GitHub releases query for {repository} returned HTTP {code}: {}",
+            response.status_text()
+        ),
+        error => anyhow::anyhow!("GitHub releases query for {repository} failed: {error}"),
+    })?;
+    let releases: Value = response
+        .into_json()
+        .context("GitHub releases response was not valid JSON")?;
+    let commits = published_recipe_commits(&releases)?;
+    if let Some(commit) = requested {
+        if commits.iter().any(|published| published == &commit) {
+            return Ok(commit);
+        }
+        bail!(
+                "recipes-{commit} is not published in {repository}; publish that commit or omit --commit to use the newest published recipes"
+            );
+    }
+    commits.into_iter().next().with_context(|| {
+        format!("No published recipes-<commit> release with recipes.tgz exists in {repository}")
+    })
+}
+
+fn published_recipe_commits(releases: &Value) -> Result<Vec<String>> {
+    let releases = releases
+        .as_array()
+        .context("GitHub releases response must be an array")?;
+    let mut commits = Vec::new();
+    for release in releases {
+        let Some(tag) = release["tag_name"].as_str() else {
+            continue;
+        };
+        let Some(commit) = tag.strip_prefix("recipes-") else {
+            continue;
+        };
+        let Ok(commit) = validate_commit(commit) else {
+            continue;
+        };
+        let has_archive = release["assets"]
+            .as_array()
+            .is_some_and(|assets| assets.iter().any(|asset| asset["name"] == "recipes.tgz"));
+        if has_archive {
+            let published = release["published_at"].as_str().unwrap_or_default();
+            commits.push((published.to_owned(), commit));
+        }
+    }
+    commits.sort_by(|left, right| right.0.cmp(&left.0));
+    Ok(commits.into_iter().map(|(_, commit)| commit).collect())
 }
 
 fn write_config(
@@ -460,6 +519,31 @@ mod tests {
     }
 
     #[test]
+    fn selects_only_recipe_releases_with_archives() {
+        let first = "a".repeat(40);
+        let second = "b".repeat(40);
+        let releases = json!([
+            {
+                "tag_name": format!("recipes-{first}"),
+                "published_at": "2026-10-16T17:00:00Z",
+                "assets": [{"name": "recipes.tgz"}]
+            },
+            {
+                "tag_name": format!("recipes-{second}"),
+                "published_at": "2026-10-16T18:00:00Z",
+                "assets": [{"name": "recipes.tgz"}]
+            },
+            {"tag_name": format!("recipes-{}", "c".repeat(40)), "assets": [{"name": "notes.txt"}]},
+            {"tag_name": "recipes-not-a-commit", "assets": [{"name": "recipes.tgz"}]},
+            {"tag_name": "v1.0.0", "assets": [{"name": "recipes.tgz"}]}
+        ]);
+        assert_eq!(
+            published_recipe_commits(&releases).unwrap(),
+            vec![second, first]
+        );
+    }
+
+    #[test]
     fn selects_tags_and_preserves_explicit_immutable_images() {
         let tagged: agents::Config = serde_json::from_value(json!({
             "recipeArchive": "https://example.test/recipes.tgz",
@@ -500,14 +584,8 @@ mod tests {
         }))
         .unwrap();
         let references = image_references(&incomplete).unwrap();
-        assert_eq!(
-            references[0],
-            format!("image@sha256:{}", "a".repeat(64))
-        );
-        assert_eq!(
-            references[1],
-            "ghcr.io/example/project/editor:release"
-        );
+        assert_eq!(references[0], format!("image@sha256:{}", "a".repeat(64)));
+        assert_eq!(references[1], "ghcr.io/example/project/editor:release");
     }
 
     #[test]

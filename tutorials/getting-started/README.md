@@ -103,10 +103,11 @@ and Radius environment. Pick **one**:
     ada agents-config --output agents.json --import-images
     # Add --without-models when preparing the platform without model
     # infrastructure; models can be declared and refreshed later.
-    # This uses the origin GitHub repository and HEAD commit. The commit must
-    # have been published by .github/workflows/publish-recipes.yml. Use
-    # --repository OWNER/REPOSITORY or --commit FULL_SHA to override either.
-    # Prefer an explicit `images` map containing the six immutable fork image
+    # This uses the origin GitHub repository and its newest published
+    # recipes-<commit> release containing recipes.tgz. An explicit --commit
+    # must already have been published by .github/workflows/publish-recipes.yml.
+    # Use --repository OWNER/REPOSITORY to select another repository.
+    # Prefer an explicit `images` map containing the seven immutable fork image
     # digests over the mutable imageRegistry/imageTag.
 
     ada init \
