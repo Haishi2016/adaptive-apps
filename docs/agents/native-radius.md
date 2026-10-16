@@ -201,15 +201,17 @@ orchestration layer.
 | `agents-env.bicep` | Environment and recipe bindings |
 | `credentials.bicep` | Shared provisioning secret store |
 | `agent-services.bicep` | Explicit models, their AI gateways and separately owned browser login |
-| `agents.bicep` | One composed declaration for the retained identity and mutable agent; `recipes/identity-{local,connected}` plus `recipes/agents/logical.bicep` |
+| `app.bicep` | Integrated trading application, retained native identities and mutable agents |
+| `agents.bicep` | Standalone reusable declaration for one retained identity and mutable agent |
 | `agent-identity.bicep` | Advanced standalone declaration for independently managing the retained identity |
 | `agent-policy.bicep` | Immutable policy; `recipes/agent-guardrails/native-policy.bicep` |
 
-Bicep composes the separately owned identity and agent in one customer-facing
-deployment. The identity recipe derives the same-name agent resource ID and
-stable logical UID, then `agents.bicep` passes its binding into the runtime.
-Do not fold recipe internals into application declarations or make shared
-identity, credentials and platform resources owned by the mutable workload.
+Bicep composes separately owned identity and agent resources in one
+customer-facing application deployment. The identity recipe derives the
+same-name agent resource ID and stable logical UID, then its binding is passed
+into the runtime. `agents.bicep` exposes the same composition for applications
+that do not use the trading sample. Do not make shared identity, credentials
+or platform resources owned by the mutable workload.
 
 1. Register `radius/resource-types/types.yaml` using
    `rad resource-type create --from-file radius/resource-types/types.yaml`.
@@ -265,7 +267,7 @@ identity, credentials and platform resources owned by the mutable workload.
    the store before any identity/login recipe executes. Native `rad env switch`
    has no `--group` flag; explicit deployment IDs avoid workspace-default ambiguity.
    Create the namespace/Secrets before the portfolio install.
-6. Use the [Getting Started native CLI/manual path](../../tutorials/getting-started/README.md#native-agent-application-choice).
+6. Use the [Getting Started native path](../../tutorials/getting-started/README.md#1-choose-your-sample-and-portfolio).
    It installs stock Envoy v1.9.2 with Lua enabled before the parent portfolio
    chart, waits for the shared Keycloak realm, then deploys
    `radius/agent-services.bicep`. The initial Helm install does not wait for
@@ -277,9 +279,11 @@ identity, credentials and platform resources owned by the mutable workload.
    creates or verifies the confidential `adaptive-trading` BFF client with its
    retained secret before Terraform adds its role and audience mappings, while
    the existing public `adaptive-ui` PKCE client remains unchanged.
-7. Deploy `radius/agents.bicep` with the agent kind, definition, immutable image
-   digest and optional delegation/governance settings. The deployment creates
-   the separately owned retained identity before the mutable runtime.
+7. Deploy `radius/app.bicep` using the integrated native parameter template.
+   Each reviewed agent definition contains its immutable image digest and
+   optional delegation/governance settings. The application deployment creates
+   each separately owned retained identity before its mutable runtime. Use
+   `radius/agents.bicep` only for a standalone non-trading application.
 8. Wait for native readiness and verify direct authenticated invocation at the
    stable endpoint. Subsequent deployments update the same current runtime.
    Publish a new immutable chart/recipe archive for recipe implementation
@@ -304,13 +308,14 @@ API, Responses and model traffic retain their separate native ingress boundaries
 Grant approved human users the `adaptive-platform-api` client role `agent.invoke`.
 Audience claims alone do not grant invocation.
 
-The optional trading integration deploys the same UI build in embedded mode as
+The optional trading integration deploys the retained identities, mutable
+agents and the same UI build in one Radius application deployment. The UI is
 an independent `Applications.Core/containers` service. Vite uses base
 `/agents/`; the trading BFF serves it under the trading origin, performs the
 single confidential OIDC flow, keeps tokens server-side, refreshes them once
 under concurrency, and attaches the bearer only to exact read/invoke routes.
 It removes inbound Cookie/Authorization headers before proxying. Embedded mode
-has Agents, releases, prompt/hosted playground and Monitor only, plus **Back to
+has Agents, prompt/hosted playground and Monitor only, plus **Back to
 Trading**; it does not expose independent login, Models, Tools, Guardrails or
 outage controls. Local trading-password users receive an explicit 403.
 
@@ -404,11 +409,12 @@ authenticated streaming fetch at `/v1/agents/{name}/spans`.
 
 ### Mutable update and retention qualification
 
-For a logical `writer`, `agents.bicep` creates separately owned identity and
-agent resources while exposing one stable endpoint. Update the definition or
-image digest by redeploying that declaration. Wait for the singleton
-StatefulSet to reach its current revision and for the route and policies to
-report their current generation before invoking the endpoint.
+For an integrated logical `writer`, `app.bicep` creates separately owned
+identity and agent resources while exposing one stable endpoint. Update the
+definition or image digest by redeploying that application. A standalone
+application can use `agents.bicep` for the same composition. Wait for the
+singleton StatefulSet to reach its current revision and for the route and
+policies to report their current generation before invoking the endpoint.
 
 There is no previous-release fallback. During an unavailable rollout the
 diagnostic record remains explicit and does not synthesize a ready endpoint.

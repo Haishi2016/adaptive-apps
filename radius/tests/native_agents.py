@@ -174,6 +174,10 @@ class NativeAgents(unittest.TestCase):
         self.assertIn("ui-embedded", serialized)
         self.assertIn("NATIVE_AGENT_URL", serialized)
         self.assertIn("NATIVE_UI_URL", serialized)
+        self.assertIn("Radius.Resources/agentIdentities", serialized)
+        self.assertIn("Radius.Resources/agents", serialized)
+        self.assertIn("nativeAgentEnvironment", app["parameters"])
+        self.assertIn("nativeAgents", app["parameters"])
         policies = "\n".join(
             (ROOT / path).read_text()
             for path in [

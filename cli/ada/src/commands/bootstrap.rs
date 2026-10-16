@@ -507,7 +507,7 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
                 local_port: 18080,
             })?;
         }
-        ui::note("Native services ready; deploy retained identities and mutable agents using Radius");
+        ui::note("Native services ready; deploy the trading Radius application to create its retained identities and mutable agents");
     } else {
         maybe_provision_oidc_client(&args)?;
     }

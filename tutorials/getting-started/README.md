@@ -384,38 +384,7 @@ AI_PARAMS=(--parameters aiProvider=openai --parameters aiModelName=gpt-4o --para
 > for the per-portfolio matrix. The guardrails parameter is a no-op on
 > non-AI portfolios.
 
-### 3.2 Publish a native agent (only for `SAMPLE=trading-native`)
-
-Skip this subsection for `SAMPLE=trading`.
-
-Deploy the mutable agent and its independently retained identity together.
-Use the exact imported prompt-agent digest from `agents.json`:
-
-```bash
-export GROUP=adaptive
-export AGENT_ENV=agents
-
-rad deploy radius/agents.bicep \
-  --group "$GROUP" \
-  --environment "$AGENT_ENV" \
-  --parameters agentName=writer \
-  --parameters kind=prompt \
-  --parameters definition='{"kind":"prompt","model":"local-chat","runtimeImage":"<prompt-agent@sha256:...>","instructions":"Write clearly."}'
-```
-
-The declaration creates a separate `agentIdentities` resource first and passes
-its retained binding to the mutable `agents` runtime. Updating `definition`
-rolls the same StatefulSet; it does not create or promote a release.
-
-Verify the current runtime:
-
-```bash
-kubectl -n "$NAMESPACE" get statefulset,pvc,httproute,securitypolicy
-```
-
-Invoke `/agents/writer/responses` from the agent playground.
-
-### 3.3 Deploy the selected sample
+### 3.2 Deploy the selected sample
 
 For `SAMPLE=trading`, deploy with the parameters prepared above:
 
@@ -453,8 +422,14 @@ In the private copy:
    `.adaptive/private/adaptive-trading-client-secret`.
 3. If you changed the default namespace, update the Keycloak and
    `agent-ingress.<namespace>.svc.cluster.local` values.
+4. Replace `REPLACE_WITH_PROMPT_AGENT_DIGEST` and
+   `REPLACE_WITH_EDITOR_DIGEST` with the exact immutable references from the
+   `images` map in `agents.json`.
+5. If you are not using the example `local-chat` model, update each native
+   agent definition to the model name exposed by the model gateway.
 
-Deploy the same trading application with native pages enabled:
+Deploy the trading application, embedded native pages, retained agent
+identities and mutable agent runtimes together:
 
 ```bash
 rad deploy radius/app.bicep \
@@ -464,13 +439,22 @@ rad deploy radius/app.bicep \
   "${AI_PARAMS[@]}"
 ```
 
+The single Radius deployment creates each `agentIdentities` resource before
+its corresponding `agents` resource. Updating a definition rolls the same
+StatefulSet; it does not create or promote a release. Verify the current
+runtimes with:
+
+```bash
+kubectl -n "$NAMESPACE" get statefulset,pvc,httproute,securitypolicy
+```
+
 **Istio portfolios only** (`core`, `ent`, `core-ai`, `ent-ai`) — the app
 namespace isn't enrolled in the mesh yet, so pods come up without sidecars.
 That's fine for getting the app running; enroll the namespace when you're
 ready to exercise mTLS, `AuthorizationPolicy`, and traffic shaping by
 following the [service mesh tutorial](../service-mesh/README.md).
 
-### 3.4 Open and test the application
+### 3.3 Open and test the application
 
 Expose the frontend and open it:
 
@@ -495,7 +479,7 @@ kubectl -n envoy-gateway-system port-forward --address 127.0.0.1 \
 ```
 
 Sign in with OIDC, select **Agents** in the trading header, open `writer`,
-invoke it, select a release and open Monitor. Local password users can use the
+invoke it and open Monitor. Local password users can use the
 trading pages but cannot access native-agent routes.
 
 > **`aiProvider=local`:** The Kaito-managed model pod may take several

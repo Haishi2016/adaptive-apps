@@ -51,8 +51,14 @@ param nativeAgentGatewayUrl string = ''
 @description('Embedded native UI image. Defaults to the ui-embedded image using the trading registry and tag.')
 param nativeUiImage string = ''
 
-@description('Namespace owning the separately deployed native agent environment. Informational; this template never takes ownership of it.')
+@description('Namespace owned by the native agent environment.')
 param nativeAgentNamespace string = 'adaptive'
+
+@description('Native agent Radius Environment ID. Required when enableNativeAgents is true.')
+param nativeAgentEnvironment string = ''
+
+@description('Native agents deployed with the trading application. Each entry supplies name, kind, definition and optional identity/runtime settings.')
+param nativeAgents array = []
 
 @description('Username for the local (password-based) frontend login.')
 param authUsername string = 'admin'
@@ -354,6 +360,40 @@ resource frontendIdentity 'Radius.Resources/workloadIdentities@2025-08-01-previe
     serviceAccountName: workloadIdentityServiceAccountName
   }
 }
+
+// ---------------------------------------------------------------------------
+// Native agents — opt-in. Identity and runtime remain separate Radius resource
+// owners, but are composed into the trading application deployment.
+// ---------------------------------------------------------------------------
+resource nativeAgentIdentity 'Radius.Resources/agentIdentities@2025-08-01-preview' = [for entry in nativeAgents: if (enableNativeAgents) {
+  name: entry.name
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    agentName: entry.name
+    delegation: entry.?delegation ?? { enabled: false }
+  }
+}]
+
+resource nativeAgent 'Radius.Resources/agents@2025-08-01-preview' = [for (entry, index) in nativeAgents: if (enableNativeAgents) {
+  name: entry.name
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    kind: entry.kind
+    identityRef: nativeAgentIdentity[index].properties.identityRef
+    binding: {
+      identity: nativeAgentIdentity[index].properties.identity
+      identityRef: nativeAgentIdentity[index].properties.identityRef
+      secretRef: nativeAgentIdentity[index].properties.secretRef
+      serviceAccountName: nativeAgentIdentity[index].properties.serviceAccountName
+    }
+    definition: entry.definition
+    governance: entry.?governance ?? {}
+    resources: entry.?resources ?? {}
+    stateSize: entry.?stateSize ?? '1Gi'
+  }
+}]
 
 // ---------------------------------------------------------------------------
 // Governance (policy decision point) — opt-in.

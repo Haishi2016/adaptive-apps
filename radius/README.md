@@ -5,10 +5,11 @@ and native prompt/hosted agents. Shared infrastructure is the portfolio Helm
 chart; applications do not deploy another Keycloak.
 
 The optional [native agent capability](../docs/agents/native-radius.md) uses
-`agents-env.bicep`, `agent-services.bicep`, `agents.bicep`,
-and the advanced standalone `agent-identity.bicep`. A normal `agents.bicep`
-deployment creates the separately owned retained identity and one mutable
-runtime together. These deploy native resources,
+`agents-env.bicep`, `agent-services.bicep`, and opt-in declarations in
+`app.bicep`. The reusable `agents.bicep` and advanced `agent-identity.bicep`
+remain available for non-trading applications. The trading application
+deployment creates separately owned retained identities and mutable runtimes
+together. These deploy native resources,
 not an agent operator or lifecycle CRDs. The trading application remains unchanged.
 `agent-models.bicep` provides separately owned KAITO/vLLM and Foundry model
 backends plus a priority-based `aiGateways` declaration using their actual outputs.
