@@ -279,10 +279,11 @@ or platform resources owned by the mutable workload.
    creates or verifies the confidential `adaptive-trading` BFF client with its
    retained secret before Terraform adds its role and audience mappings, while
    the existing public `adaptive-ui` PKCE client remains unchanged.
-7. Deploy `radius/app.bicep` using the integrated native parameter template.
-   Each reviewed agent definition contains its immutable image digest and
-   optional delegation/governance settings. The application deployment creates
-   each separately owned retained identity before its mutable runtime. Use
+7. Deploy `radius/app.bicep` using the exported native settings and
+   shell-generated `nativeAgents` JSON from Getting Started. Each reviewed
+   agent definition contains its immutable image digest and optional
+   delegation/governance settings. The application deployment creates each
+   separately owned retained identity before its mutable runtime. Use
    `radius/agents.bicep` only for a standalone non-trading application.
 8. Wait for native readiness and verify direct authenticated invocation at the
    stable endpoint. Subsequent deployments update the same current runtime.

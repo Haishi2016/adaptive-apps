@@ -148,6 +148,7 @@ and Radius environment. Pick **one**:
       --with-radius \
       --with agents \
       --agents-config agents.json \
+      --keep-port-forward \
       --demo-users
     ```
 
@@ -408,25 +409,75 @@ rad deploy radius/app.bicep \
   "${AI_PARAMS[@]}"
 ```
 
-For `SAMPLE=trading-native`, start from the checked-in parameter template:
+For `SAMPLE=trading-native`, export the additional native settings. The image
+lookups fail explicitly unless `ada agents-config --import-images` persisted
+the complete immutable image map:
 
 ```bash
-cp radius/trading-native.parameters.example.json \
-  .adaptive/private/trading-native.parameters.json
+export AUTH_USERNAME=admin
+export AUTH_PASSWORD=admin
+export OIDC_CLIENT_ID=adaptive-trading
+export OIDC_CLIENT_SECRET=$(<.adaptive/private/adaptive-trading-client-secret)
+export OIDC_ISSUER=https://localhost:8444/realms/adaptive
+export OIDC_AUTH_ENDPOINT=http://$RELEASE-keycloak.$NAMESPACE.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/auth
+export OIDC_BROWSER_AUTH_ENDPOINT=https://localhost:8444/realms/adaptive/protocol/openid-connect/auth
+export OIDC_TOKEN_ENDPOINT=http://$RELEASE-keycloak.$NAMESPACE.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/token
+export OIDC_USERINFO_ENDPOINT=http://$RELEASE-keycloak.$NAMESPACE.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/userinfo
+export AGENT_ENVIRONMENT=/planes/radius/local/resourceGroups/adaptive/providers/Applications.Core/environments/agents
+export AGENT_GATEWAY_URL=http://agent-ingress.$NAMESPACE.svc.cluster.local:8080
+export NATIVE_MODEL=local-chat
+
+export PROMPT_AGENT_IMAGE=$(jq -er '.images["prompt-agent"]' agents.json)
+export EDITOR_IMAGE=$(jq -er '.images.editor' agents.json)
+export NATIVE_UI_IMAGE=$(jq -er '.images["ui-embedded"]' agents.json)
+
+export NATIVE_AGENTS=$(jq -cn \
+  --arg promptImage "$PROMPT_AGENT_IMAGE" \
+  --arg editorImage "$EDITOR_IMAGE" \
+  --arg model "$NATIVE_MODEL" \
+  --arg gateway "$AGENT_GATEWAY_URL" \
+  '[
+    {
+      name: "writer",
+      kind: "prompt",
+      definition: {
+        kind: "prompt",
+        model: $model,
+        runtimeImage: $promptImage,
+        instructions: "Draft a clear response to the user request."
+      }
+    },
+    {
+      name: "auditor",
+      kind: "prompt",
+      definition: {
+        kind: "prompt",
+        model: $model,
+        runtimeImage: $promptImage,
+        instructions: "Audit the draft against the original request and return a corrected final response."
+      }
+    },
+    {
+      name: "editor",
+      kind: "hosted",
+      definition: {
+        kind: "hosted",
+        model: $model,
+        image: $editorImage,
+        environment: {
+          WRITER_NAME: "writer",
+          WRITER_RESPONSES_BASE_URL: ($gateway + "/agents/writer/"),
+          AUDITOR_NAME: "auditor",
+          AUDITOR_RESPONSES_BASE_URL: ($gateway + "/agents/auditor/")
+        }
+      }
+    }
+  ]')
 ```
 
-In the private copy:
-
-1. Set `authPassword`.
-2. Set `oidcClientSecret` to the contents of
-   `.adaptive/private/adaptive-trading-client-secret`.
-3. If you changed the default namespace, update the Keycloak and
-   `agent-ingress.<namespace>.svc.cluster.local` values.
-4. Replace `REPLACE_WITH_PROMPT_AGENT_DIGEST` and
-   `REPLACE_WITH_EDITOR_DIGEST` with the exact immutable references from the
-   `images` map in `agents.json`.
-5. If you are not using the example `local-chat` model, update each native
-   agent definition to the model name exposed by the model gateway.
+Set `NATIVE_MODEL` to the exact model-gateway name you configured. The example
+uses `local-chat`; `--without-models` requires a separately declared model
+before agent invocation.
 
 Deploy the trading application, embedded native pages, retained agent
 identities and mutable agent runtimes together:
@@ -435,7 +486,24 @@ identities and mutable agent runtimes together:
 rad deploy radius/app.bicep \
   --group adaptive \
   --environment trading \
-  --parameters @.adaptive/private/trading-native.parameters.json \
+  --parameters imageRegistry=ghcr.io/microsoft/adaptive-apps \
+  --parameters imageTag=latest \
+  --parameters authUsername="$AUTH_USERNAME" \
+  --parameters authPassword="$AUTH_PASSWORD" \
+  --parameters otelCollectorEndpoint="http://otel-collector.$NAMESPACE:4318" \
+  --parameters oidcIssuer="$OIDC_ISSUER" \
+  --parameters oidcAuthEndpoint="$OIDC_AUTH_ENDPOINT" \
+  --parameters oidcBrowserAuthEndpoint="$OIDC_BROWSER_AUTH_ENDPOINT" \
+  --parameters oidcTokenEndpoint="$OIDC_TOKEN_ENDPOINT" \
+  --parameters oidcUserInfoEndpoint="$OIDC_USERINFO_ENDPOINT" \
+  --parameters oidcClientId="$OIDC_CLIENT_ID" \
+  --parameters oidcClientSecret="$OIDC_CLIENT_SECRET" \
+  --parameters enableNativeAgents=true \
+  --parameters nativeAgentNamespace="$NAMESPACE" \
+  --parameters nativeAgentEnvironment="$AGENT_ENVIRONMENT" \
+  --parameters nativeAgentGatewayUrl="$AGENT_GATEWAY_URL" \
+  --parameters nativeUiImage="$NATIVE_UI_IMAGE" \
+  --parameters nativeAgents="$NATIVE_AGENTS" \
   "${AI_PARAMS[@]}"
 ```
 

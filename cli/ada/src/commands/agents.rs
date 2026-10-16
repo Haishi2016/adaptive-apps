@@ -12,13 +12,14 @@ use serde_json::{json, Value};
 use crate::ui;
 
 const SIDECAR: &str = "mcr.microsoft.com/entra-sdk/auth-sidecar:1.1.0-azurelinux3.0-distroless@sha256:ebd2f7478db04f42f9b89a880ba104480b5b8b97b395dcd4aeb37cb79a5d08e3";
-pub(crate) const COMPONENTS: [&str; 6] = [
+pub(crate) const COMPONENTS: [&str; 7] = [
     "prompt-agent",
     "editor",
     "agent-gateway",
     "governance-sidecar",
     "platform-api",
     "ui",
+    "ui-embedded",
 ];
 
 #[derive(Debug, Deserialize)]

@@ -249,13 +249,15 @@ fn resolved_image_map(
     config: &agents::Config,
     inventory: &str,
 ) -> Result<std::collections::BTreeMap<String, String>> {
-    if !config.images.is_empty() {
-        return Ok(config.images.clone());
-    }
-
     agents::COMPONENTS
         .into_iter()
         .map(|component| {
+            if let Some(image) = config.images.get(component) {
+                if !agents::pinned(image) {
+                    bail!("config.images must use immutable sha256 references: {image}");
+                }
+                return Ok((component.to_owned(), image.clone()));
+            }
             let tag = format!(
                 "{}/{}:{}",
                 config.image_registry, component, config.image_tag
@@ -305,31 +307,21 @@ fn missing_image_references(images: Vec<String>, inventory: &str) -> Vec<String>
 }
 
 fn image_references(config: &agents::Config) -> Result<Vec<String>> {
-    if config.images.is_empty() {
-        return Ok(agents::COMPONENTS
-            .into_iter()
-            .map(|component| {
-                format!(
-                    "{}/{}:{}",
-                    config.image_registry, component, config.image_tag
-                )
-            })
-            .collect());
-    }
-
     let images: Vec<_> = agents::COMPONENTS
         .into_iter()
         .map(|component| {
-            config
-                .images
-                .get(component)
-                .cloned()
-                .with_context(|| format!("config.images is missing {component}"))
+            Ok(match config.images.get(component) {
+                Some(image) if agents::pinned(image) => image.clone(),
+                Some(image) => {
+                    bail!("config.images must use immutable sha256 references: {image}")
+                }
+                None => format!(
+                    "{}/{}:{}",
+                    config.image_registry, component, config.image_tag
+                ),
+            })
         })
         .collect::<Result<_>>()?;
-    if let Some(image) = images.iter().find(|image| !agents::pinned(image)) {
-        bail!("config.images must use immutable sha256 references: {image}");
-    }
     Ok(images)
 }
 
@@ -468,7 +460,7 @@ mod tests {
     }
 
     #[test]
-    fn selects_tags_or_complete_immutable_image_map() {
+    fn selects_tags_and_preserves_explicit_immutable_images() {
         let tagged: agents::Config = serde_json::from_value(json!({
             "recipeArchive": "https://example.test/recipes.tgz",
             "imageRegistry": "ghcr.io/example/project",
@@ -498,17 +490,24 @@ mod tests {
             "images": images
         }))
         .unwrap();
-        assert_eq!(image_references(&pinned).unwrap().len(), 6);
+        assert_eq!(image_references(&pinned).unwrap().len(), 7);
 
         let incomplete: agents::Config = serde_json::from_value(json!({
             "recipeArchive": "https://example.test/recipes.tgz",
+            "imageRegistry": "ghcr.io/example/project",
+            "imageTag": "release",
             "images": {"prompt-agent": format!("image@sha256:{}", "a".repeat(64))}
         }))
         .unwrap();
-        assert!(image_references(&incomplete)
-            .unwrap_err()
-            .to_string()
-            .contains("editor"));
+        let references = image_references(&incomplete).unwrap();
+        assert_eq!(
+            references[0],
+            format!("image@sha256:{}", "a".repeat(64))
+        );
+        assert_eq!(
+            references[1],
+            "ghcr.io/example/project/editor:release"
+        );
     }
 
     #[test]
