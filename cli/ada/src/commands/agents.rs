@@ -591,9 +591,11 @@ pub fn prepare(
     let login_environment = format!("{base}/environments/agents-login");
     let store = format!("{base}/secretStores/agent-provisioning");
     let keycloak = format!("http://{release}-keycloak.{namespace}.svc.cluster.local:8080");
+    let keycloak_provisioning =
+        format!("http://{release}-keycloak-provisioning.{namespace}.svc.cluster.local:8080");
     let issuer = "https://localhost:8444/realms/adaptive";
     let mut executor = json!({
-        "env": {"KEYCLOAK_URL": keycloak, "KEYCLOAK_REALM": "master", "KEYCLOAK_CLIENT_ID": "admin-cli", "KEYCLOAK_USER": "admin"},
+        "env": {"KEYCLOAK_URL": keycloak_provisioning, "KEYCLOAK_REALM": "master", "KEYCLOAK_CLIENT_ID": "admin-cli", "KEYCLOAK_USER": "admin"},
         "envSecrets": {"KEYCLOAK_PASSWORD": {"source": store, "key": "keycloak-admin-password"}}
     });
     let mut identity = json!({});
@@ -637,7 +639,7 @@ pub fn prepare(
             "connected": config.connected.is_some(), "identityParameters": identity,
             "recipeConfig": executor,
             "loginRecipeConfig": {
-                "env": {"KEYCLOAK_URL": keycloak, "KEYCLOAK_REALM": "adaptive", "KEYCLOAK_CLIENT_ID": "adaptive-login-config"},
+                "env": {"KEYCLOAK_URL": keycloak_provisioning, "KEYCLOAK_REALM": "adaptive", "KEYCLOAK_CLIENT_ID": "adaptive-login-config"},
                 "envSecrets": {
                     "KEYCLOAK_CLIENT_SECRET": {"source": store, "key": "keycloak-config-client-secret"}
                 }
@@ -832,6 +834,14 @@ mod tests {
         assert_eq!(
             environment["parameters"]["platform"]["value"]["keycloakUrl"],
             "http://demo-keycloak.demo-test.svc.cluster.local:8080"
+        );
+        assert_eq!(
+            environment["parameters"]["recipeConfig"]["value"]["env"]["KEYCLOAK_URL"],
+            "http://demo-keycloak-provisioning.demo-test.svc.cluster.local:8080"
+        );
+        assert_eq!(
+            environment["parameters"]["loginRecipeConfig"]["value"]["env"]["KEYCLOAK_URL"],
+            "http://demo-keycloak-provisioning.demo-test.svc.cluster.local:8080"
         );
         assert_eq!(environment["parameters"]["connected"]["value"], false);
         let login_secrets = &environment["parameters"]["loginRecipeConfig"]["value"]["envSecrets"];

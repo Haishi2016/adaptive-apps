@@ -16,4 +16,23 @@ spec:
   selector:
     {{- include "min.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: keycloak
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "min.keycloak.provisioningServiceName" . }}
+  labels:
+    {{- include "min.labels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
+spec:
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  ports:
+    - name: http
+      port: {{ .Values.keycloak.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "min.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: keycloak
 {{- end }}

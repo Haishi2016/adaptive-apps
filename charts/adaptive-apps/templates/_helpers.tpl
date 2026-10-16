@@ -48,6 +48,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ include "adaptive.fullname" . }}-keycloak
 {{- end -}}
 
+{{/* Keycloak provisioning service name */}}
+{{- define "adaptive.keycloak.provisioningServiceName" -}}
+{{ printf "%s-provisioning" (include "adaptive.keycloak.serviceName" .) | trunc 63 | trimSuffix "-" }}
+{{- end -}}
+
 {{/* Keycloak discovery service name */}}
 {{- define "adaptive.keycloak.discoveryServiceName" -}}
 {{ printf "%s-discovery" (include "adaptive.keycloak.serviceName" .) }}
@@ -99,6 +104,7 @@ true
 {{- define "min.labels" -}}{{ include "adaptive.labels" . }}{{- end -}}
 {{- define "min.selectorLabels" -}}{{ include "adaptive.selectorLabels" . }}{{- end -}}
 {{- define "min.keycloak.serviceName" -}}{{ include "adaptive.keycloak.serviceName" . }}{{- end -}}
+{{- define "min.keycloak.provisioningServiceName" -}}{{ include "adaptive.keycloak.provisioningServiceName" . }}{{- end -}}
 {{- define "min.keycloak.discoveryServiceName" -}}{{ include "adaptive.keycloak.discoveryServiceName" . }}{{- end -}}
 {{- define "min.keycloak.postgresqlName" -}}{{ include "adaptive.keycloak.postgresqlName" . }}{{- end -}}
 {{- define "min.oidc" -}}{{ include "adaptive.oidc" . }}{{- end -}}
