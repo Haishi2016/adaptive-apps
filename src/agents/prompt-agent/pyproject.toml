@@ -13,8 +13,6 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.2",
     "httpx",
-    "azure-identity>=1.25",
-    "azure-core>=1.30",
     "openai>=1.30",
 ]
 

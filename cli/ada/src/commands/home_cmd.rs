@@ -15,6 +15,9 @@ pub struct InitArgs {
     agents_config: Option<std::path::PathBuf>,
     #[arg(long, default_value = ".adaptive")]
     state_dir: std::path::PathBuf,
+    /// Replace derived JSON state after reviewing changed config inputs.
+    #[arg(long, requires = "agents_config")]
+    refresh_derived_state: bool,
     #[arg(long, default_value = "min-ai")]
     namespace: String,
     #[arg(long, default_value = "min-ai")]
@@ -47,6 +50,7 @@ pub fn run_init(args: InitArgs) -> Result<()> {
             &args.namespace,
             &args.release,
             &args.group,
+            args.refresh_derived_state,
         )?;
     }
     Ok(())

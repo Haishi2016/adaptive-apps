@@ -128,8 +128,8 @@ authentication remains off by default. Before enabling it, complete the
 [API/gateway authorization](../../../src/services/ui/README.md#authorization):
 validate Keycloak issuer/signature/audience, scoped roles and the intended
 local-to-Entra identity mapping. Do not reinterpret Keycloak `oid` as an Entra
-object ID. The native release recipe launches the Go DAC adapter and validates
+object ID. The native release recipe uses the shared Agent Gateway and validates
 native Keycloak user tokens with `azp=adaptive-ui` and the explicit `agent.invoke`
 role; include that exact role in `platformRoles` for the bounded agent path.
-Azure application tokens continue through the separate DAC adapter/Entra SDK
+Delegated Graph tokens continue through the per-release broker/Entra SDK
 sidecar path; current native identity flows need no platform broker service.

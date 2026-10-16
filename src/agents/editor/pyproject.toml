@@ -9,12 +9,12 @@ dependencies = [
     "agent-framework-foundry-hosting==1.0.0b260918",
     "azure-ai-agentserver-core==2.2.0",
     "azure-ai-agentserver-responses==2.2.0",
-    "azure-identity==1.25.3",
+    "httpx",
     "openai>=1.30",
 ]
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio", "ruff", "mypy", "httpx2>=2.12,<3"]
+dev = ["pytest", "pytest-asyncio", "respx", "ruff", "mypy", "httpx2>=2.12,<3"]
 
 [tool.uv]
 prerelease = "allow"

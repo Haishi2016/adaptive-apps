@@ -40,6 +40,7 @@ func TestStatelessAdmission(t *testing.T) {
 		{"compressed", "POST", path, `{"input":"hello","store":false}`, "gzip", false},
 		{"oversized", "POST", path, strings.Repeat(" ", (1<<20)+1), "", false},
 	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
@@ -49,6 +50,67 @@ func TestStatelessAdmission(t *testing.T) {
 			responseAdmission(path).ServeHTTP(result, request)
 			if (result.Code == http.StatusOK) != tc.allowed {
 				t.Fatalf("status=%d allowed=%v", result.Code, tc.allowed)
+			}
+		})
+	}
+}
+
+func TestSharedGatewayAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, mode string
+		status           int
+	}{
+		{"release", "/agents/writer/versions/v1/responses", "", http.StatusOK},
+		{"another release", "/agents/auditor/versions/v2/responses", "app", http.StatusOK},
+		{"active alias", "/agents/writer/versions/active/responses", "", http.StatusOK},
+		{"invalid agent", "/agents/WRITER/versions/v1/responses", "", http.StatusForbidden},
+		{"delegation", "/agents/writer/versions/v1/responses", "endUserOBO", http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(
+				http.MethodPost,
+				tc.path,
+				strings.NewReader(`{"input":"hello","store":false}`),
+			)
+			request.Header.Set("Content-Type", "application/json")
+			if tc.mode != "" {
+				request.Header.Set("X-Impersonation-Mode", tc.mode)
+			}
+			result := httptest.NewRecorder()
+			gatewayAdmission().ServeHTTP(result, request)
+			if result.Code != tc.status {
+				t.Fatalf("status=%d, wanted=%d", result.Code, tc.status)
+			}
+			if tc.status == http.StatusOK && result.Header().Get(admissionMode) != "app" {
+				t.Fatal("shared gateway did not emit bounded application identity mode")
+			}
+		})
+	}
+}
+
+func TestDelegationBrokerFailsClosedThroughSharedAdmission(t *testing.T) {
+	gateway := httptest.NewServer(gatewayAdmission())
+	defer gateway.Close()
+	broker := &adapter{
+		admissionURL: gateway.URL,
+		client:       gateway.Client(),
+	}
+	path := "/agents/writer/versions/v1/responses"
+	for _, tc := range []struct {
+		name, body string
+		status     int
+	}{
+		{"valid", `{"input":"hello","store":false}`, http.StatusOK},
+		{"stored", `{"input":"hello","store":true}`, http.StatusForbidden},
+		{"reference", `{"input":"hello","store":false,"previous_response_id":"other"}`, http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(tc.body))
+			request.Header.Set("Content-Type", "application/json")
+			result := httptest.NewRecorder()
+			broker.responseAdmission("").ServeHTTP(result, request)
+			if result.Code != tc.status {
+				t.Fatalf("status=%d, wanted=%d", result.Code, tc.status)
 			}
 		})
 	}

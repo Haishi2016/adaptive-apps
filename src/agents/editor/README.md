@@ -12,8 +12,9 @@ Required bindings are `WRITER_NAME`, `WRITER_VERSION`, `WRITER_RESPONSES_BASE_UR
 `AUDITOR_NAME`, `AUDITOR_VERSION` and `AUDITOR_RESPONSES_BASE_URL`.
 Each base URL ends in `/agents/{name}/versions/{version}/`; the SDK appends
 `responses`. Credentials, query strings and unpinned paths are rejected.
-Authentication uses ordinary
-`DefaultAzureCredential`. Both calls explicitly disable server-side storage.
+Authentication uses direct Keycloak OAuth client credentials configured by
+`KEYCLOAK_TOKEN_URL`, `KEYCLOAK_CLIENT_ID` and `KEYCLOAK_CLIENT_SECRET`.
+Both calls explicitly disable server-side storage.
 Edge supplies identity sidecars and bindings. The Responses host SDK is retained;
 no Foundry project or agent client is used. Cloud-specific routing/user delegation
 and same-image Foundry hosting remain unqualified.

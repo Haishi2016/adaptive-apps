@@ -12,10 +12,10 @@ use serde_json::{json, Value};
 use crate::ui;
 
 const SIDECAR: &str = "mcr.microsoft.com/entra-sdk/auth-sidecar:1.1.0-azurelinux3.0-distroless@sha256:ebd2f7478db04f42f9b89a880ba104480b5b8b97b395dcd4aeb37cb79a5d08e3";
-const COMPONENTS: [&str; 6] = [
+pub(crate) const COMPONENTS: [&str; 6] = [
     "prompt-agent",
     "editor",
-    "dac-adapter",
+    "agent-gateway",
     "governance-sidecar",
     "platform-api",
     "ui",
@@ -183,6 +183,40 @@ pub fn save(path: &Path, value: &Value) -> Result<()> {
     private_write(path, &bytes)
 }
 
+pub fn save_derived(path: &Path, value: &Value, refresh: bool) -> Result<()> {
+    if path.is_symlink() {
+        bail!("Refusing a symlink input: {}", path.display());
+    }
+    let bytes = serde_json::to_vec_pretty(value)?;
+    if !path.exists() {
+        return private_write(path, &bytes);
+    }
+    let previous: Value = serde_json::from_slice(&fs::read(path)?)?;
+    if previous == *value {
+        return Ok(());
+    }
+    if !refresh {
+        bail!(
+            "{} differs from the requested inputs; review the change, then rerun with --refresh-derived-state",
+            path.display()
+        );
+    }
+
+    let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    if temporary.exists() {
+        bail!(
+            "Refusing to replace existing temporary file {}",
+            temporary.display()
+        );
+    }
+    private_write(&temporary, &bytes)?;
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error).with_context(|| format!("Unable to replace {}", path.display()));
+    }
+    Ok(())
+}
+
 pub fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     let mut options = fs::OpenOptions::new();
@@ -248,14 +282,18 @@ fn retained_secret(directory: &Path, name: &str, source: &Path) -> Result<String
     Ok(value)
 }
 
-fn parameters(directory: &Path, name: &str, values: Value) -> Result<()> {
+fn parameters(directory: &Path, name: &str, values: Value, refresh: bool) -> Result<()> {
     let parameters: BTreeMap<_, _> = values
         .as_object()
         .context("Expected parameter object")?
         .iter()
         .map(|(key, value)| (key.clone(), json!({"value": value})))
         .collect();
-    save(&directory.join(name), &json!({"parameters": parameters}))
+    save_derived(
+        &directory.join(name),
+        &json!({"parameters": parameters}),
+        refresh,
+    )
 }
 
 fn local_images(config: &Config) -> Result<BTreeMap<String, String>> {
@@ -267,7 +305,7 @@ fn local_images(config: &Config) -> Result<BTreeMap<String, String>> {
         .output()
         .context("Use pinned images in the config, or import the selected tags into local K3s")?;
     if !inventory.status.success() {
-        bail!("Cannot read local K3s images; import them or supply config.images");
+        bail!("Cannot read local K3s images; run `ada agents-config --import-images` or supply config.images");
     }
     let inventory = String::from_utf8(inventory.stdout)?;
     let mut images = BTreeMap::new();
@@ -282,7 +320,9 @@ fn local_images(config: &Config) -> Result<BTreeMap<String, String>> {
                 let parts: Vec<_> = line.split_whitespace().collect();
                 (parts.first() == Some(&tag.as_str())).then_some(parts)
             })
-            .with_context(|| format!("Missing imported image {tag}"))?;
+            .with_context(|| {
+                format!("Missing imported image {tag}; run `ada agents-config --import-images`")
+            })?;
         let digest = columns
             .get(2)
             .context("Invalid containerd image inventory")?;
@@ -300,6 +340,7 @@ pub fn prepare(
     namespace: &str,
     release: &str,
     group: &str,
+    refresh_derived_state: bool,
 ) -> Result<Prepared> {
     let config: Config = serde_json::from_slice(&fs::read(config_file)?)?;
     if config.recipe_archive.contains("REPLACE_WITH")
@@ -576,6 +617,7 @@ pub fn prepare(
             "adaptiveTradingClientSecret": trading,
             "graphClientCertificate": graph_certificate, "graphClientCertificatePassword": graph_password
         }),
+        refresh_derived_state,
     )?;
     parameters(
         &private,
@@ -593,13 +635,14 @@ pub fn prepare(
                 }
             },
             "platform": {
-                "adapterImage": images["dac-adapter"], "sidecarImage": SIDECAR,
+                "agentGatewayImage": images["agent-gateway"], "sidecarImage": SIDECAR,
                 "governanceImage": images["governance-sidecar"], "keycloakUrl": keycloak,
                 "issuer": issuer, "ingressUrl": "https://localhost:8443",
                 "otelEndpoint": format!("http://otel-collector.{namespace}.svc.cluster.local:4318"),
                 "peers": config.peers
             }
         }),
+        refresh_derived_state,
     )?;
     parameters(
         &private,
@@ -615,8 +658,9 @@ pub fn prepare(
             },
             "models": config.models
         }),
+        refresh_derived_state,
     )?;
-    save(
+    save_derived(
         &private.join("portfolio.values.json"),
         &json!({
             "features": {"agents": {"enabled": true}},
@@ -626,7 +670,8 @@ pub fn prepare(
                 "keycloakService": format!("{release}-keycloak"),
                 "telemetry": {"enabled": true},
                 "runtime": {
-                    "uiImage": images["ui"], "apiImage": images["platform-api"], "issuer": issuer,
+                    "uiImage": images["ui"], "apiImage": images["platform-api"],
+                    "agentGatewayImage": images["agent-gateway"], "issuer": issuer,
                     "certificateSecret": "adaptive-ui-tls",
                     "environmentJson": json!({"name": namespace, "cloud": {"enabled": config.connected.is_some() || cloud_models || openai_models}}).to_string()
                 },
@@ -642,6 +687,7 @@ pub fn prepare(
                 }
             }
         }),
+        refresh_derived_state,
     )?;
     let mut secrets = json!({
         "apiVersion": "v1", "kind": "List", "items": [
@@ -654,7 +700,11 @@ pub fn prepare(
     if let Some(openai_api_key) = openai_api_key {
         secrets["items"][2]["stringData"]["openai-api-key"] = json!(openai_api_key);
     }
-    save(&private.join("secrets.json"), &secrets)?;
+    save_derived(
+        &private.join("secrets.json"),
+        &secrets,
+        refresh_derived_state,
+    )?;
     ui::ok(&format!(
         "Native inputs ready in {}; existing credentials preserved",
         private.display()
@@ -749,11 +799,11 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        let prepared = prepare(&config, &root, "demo-test", "demo", "adaptive").unwrap();
+        let prepared = prepare(&config, &root, "demo-test", "demo", "adaptive", false).unwrap();
         let before = fs::read(prepared.private.join("secrets.json")).unwrap();
         let trading_secret =
             fs::read(prepared.private.join("adaptive-trading-client-secret")).unwrap();
-        prepare(&config, &root, "demo-test", "demo", "adaptive").unwrap();
+        prepare(&config, &root, "demo-test", "demo", "adaptive", false).unwrap();
         assert_eq!(
             before,
             fs::read(prepared.private.join("secrets.json")).unwrap()
@@ -779,7 +829,18 @@ mod tests {
         assert!(login_secrets
             .get("TF_VAR_adaptive_trading_client_secret")
             .is_none());
-        assert!(prepare(&config, &root, "other", "demo", "adaptive").is_err());
+        assert!(prepare(&config, &root, "other", "demo", "adaptive", false).is_err());
+        prepare(&config, &root, "other", "demo", "adaptive", true).unwrap();
+        assert_eq!(
+            trading_secret,
+            fs::read(prepared.private.join("adaptive-trading-client-secret")).unwrap()
+        );
+        let refreshed: Value = serde_json::from_slice(
+            &fs::read(prepared.private.join("environment.parameters.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(refreshed["parameters"]["namespace"]["value"], "other");
+        prepare(&config, &root, "demo-test", "demo", "adaptive", true).unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -811,22 +872,26 @@ mod tests {
         let mut invalid: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
         invalid["agentNames"] = json!(["a".repeat(33)]);
         fs::write(&config, serde_json::to_vec(&invalid).unwrap()).unwrap();
-        assert!(prepare(&config, &root, "demo-test", "demo", "adaptive").is_err());
+        assert!(prepare(&config, &root, "demo-test", "demo", "adaptive", false).is_err());
         invalid["agentNames"] = json!(["writer"]);
         invalid["models"][0]["properties"]["localService"]["cpuInference"] = json!(true);
         fs::write(&config, serde_json::to_vec(&invalid).unwrap()).unwrap();
-        assert!(prepare(&config, &root, "demo-test", "demo", "adaptive")
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("CPU inference"));
+        assert!(
+            prepare(&config, &root, "demo-test", "demo", "adaptive", false)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("CPU inference")
+        );
         invalid["models"] = json!([{"name":"cloud","properties":{"model":"cloud","azure":{"endpoint":"https://example.test","deployment":"chat"}}}]);
         fs::write(&config, serde_json::to_vec(&invalid).unwrap()).unwrap();
-        assert!(prepare(&config, &root, "demo-test", "demo", "adaptive")
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("modelGatewayIdentity"));
+        assert!(
+            prepare(&config, &root, "demo-test", "demo", "adaptive", false)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("modelGatewayIdentity")
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -874,7 +939,7 @@ mod tests {
         )
         .unwrap();
 
-        let prepared = prepare(&config, &root, "openai-test", "demo", "adaptive").unwrap();
+        let prepared = prepare(&config, &root, "openai-test", "demo", "adaptive", false).unwrap();
         let secrets: Value =
             serde_json::from_slice(&fs::read(prepared.private.join("secrets.json")).unwrap())
                 .unwrap();
@@ -889,11 +954,13 @@ mod tests {
         assert_eq!(retained, "test-openai-secret");
 
         fs::write(&key, "changed-secret").unwrap();
-        assert!(prepare(&config, &root, "openai-test", "demo", "adaptive")
-            .err()
-            .unwrap()
-            .to_string()
-            .contains("rotate the retained credential explicitly"));
+        assert!(
+            prepare(&config, &root, "openai-test", "demo", "adaptive", false)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("rotate the retained credential explicitly")
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

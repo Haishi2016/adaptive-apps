@@ -1,0 +1,87 @@
+{{- with .Values.runtime.agentGatewayImage }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-gateway-policy
+  namespace: {{ $.Release.Namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: agent-gateway-policy
+  ports:
+    - name: authorization
+      port: 8083
+      targetPort: authorization
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-gateway-policy
+  namespace: {{ $.Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-gateway-policy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-gateway-policy
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: policy
+          image: {{ . | quote }}
+          env:
+            - name: AGENT_GATEWAY_MODE
+              value: admission
+          ports:
+            - name: authorization
+              containerPort: 8083
+          readinessProbe:
+            exec:
+              command: ["/agent-gateway", "--healthcheck"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: authorization
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-gateway-policy
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-gateway-policy
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+          podSelector:
+            matchLabels:
+              gateway.envoyproxy.io/owning-gateway-namespace: {{ $.Release.Namespace }}
+              gateway.envoyproxy.io/owning-gateway-name: agent-ingress
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: agent-release
+      ports:
+        - protocol: TCP
+          port: 8083
+{{- end }}

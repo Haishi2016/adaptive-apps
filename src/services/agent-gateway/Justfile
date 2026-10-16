@@ -3,7 +3,7 @@ default:
 
 build:
     mkdir -p ../../build
-    CGO_ENABLED=0 go build -o ../../build/dac-adapter .
+    CGO_ENABLED=0 go build -o ../../build/agent-gateway .
 
 test:
     go test ./...
@@ -13,4 +13,4 @@ lint:
     test -z "$(gofmt -l *.go)"
 
 image:
-    cd ../.. && just image dac-adapter
+    cd ../.. && just image agent-gateway

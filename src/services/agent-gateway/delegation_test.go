@@ -168,7 +168,8 @@ func TestGraphProviderFailureAndHeaderAmbiguity(t *testing.T) {
 }
 
 func TestDelegationConfiguration(t *testing.T) {
-	configure(t, "http://identity.local/realms/adaptive/protocol/openid-connect/token")
+	t.Setenv("KEYCLOAK_TOKEN_URL", "http://identity.local/realms/adaptive/protocol/openid-connect/token")
+	t.Setenv("AGENT_GATEWAY_ADMISSION_URL", "http://agent-gateway-policy:8083")
 	t.Setenv("GRAPH_DELEGATION_ENABLED", "true")
 	t.Setenv("ENTRA_TENANT_ID", demoTenant)
 	t.Setenv("AGENT_BLUEPRINT_ID", demoBlueprint)
@@ -176,7 +177,7 @@ func TestDelegationConfiguration(t *testing.T) {
 	t.Setenv("AGENT_USER_ID", demoWorker)
 	t.Setenv("AGENT_IDENTITY_CLIENT_ID", "bound-agent")
 	t.Setenv("IDENTITY_SIDECAR_URL", "http://127.0.0.1:5000")
-	a, err := loadAdapter()
+	a, err := loadBroker()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +195,7 @@ func TestDelegationConfiguration(t *testing.T) {
 	} {
 		t.Run(setting.name, func(t *testing.T) {
 			t.Setenv(setting.name, setting.value)
-			if _, err := loadAdapter(); err == nil {
+			if _, err := loadBroker(); err == nil {
 				t.Fatal("incomplete/invalid delegation configuration accepted")
 			}
 		})

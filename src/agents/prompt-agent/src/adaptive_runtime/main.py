@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from functools import partial
 
@@ -11,25 +10,18 @@ from agent_framework_foundry_hosting import ResponsesHostServer
 from agent_framework_openai import OpenAIChatCompletionClient
 from azure.ai.agentserver.core import configure_observability
 from azure.ai.agentserver.responses import ResponsesServerOptions
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import AsyncOpenAI
 
 from adaptive_runtime.config import Settings
 from adaptive_runtime.logging_setup import configure_logging
+from adaptive_runtime.oauth import KeycloakTokenProvider
 from adaptive_runtime.skills import build_skills_provider
 from adaptive_runtime.tools import ToolHeadersMiddleware, build_agent_tools
 
 configure_logging()
 settings = Settings()
 
-_credential = DefaultAzureCredential()
-_token_provider = get_bearer_token_provider(
-    _credential, "https://cognitiveservices.azure.com/.default"
-)
-
-
-async def _gateway_token() -> str:
-    return await asyncio.to_thread(_token_provider)
+_gateway_token = KeycloakTokenProvider.from_env()
 
 
 _async_openai = AsyncOpenAI(

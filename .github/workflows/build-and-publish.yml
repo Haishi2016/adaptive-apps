@@ -35,8 +35,8 @@ jobs:
           - directory: src/
             dockerfile: src/services/governance-sidecar/Dockerfile
             image: adaptive-apps/governance-sidecar
-          - directory: src/services/dac-adapter/
-            image: adaptive-apps/dac-adapter
+          - directory: src/services/agent-gateway/
+            image: adaptive-apps/agent-gateway
           - directory: src/services/platform-api/
             image: adaptive-apps/platform-api
           - directory: src/services/ui/

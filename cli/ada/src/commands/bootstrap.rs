@@ -206,6 +206,10 @@ pub struct BootstrapArgs {
     #[arg(long, default_value = ".adaptive")]
     state_dir: PathBuf,
 
+    /// Replace derived native-agent JSON state after reviewing changed inputs.
+    #[arg(long, requires = "agents_config")]
+    refresh_derived_state: bool,
+
     /// Seed alice/bob with the native API client invocation role.
     #[arg(long, requires = "with")]
     demo_users: bool,
@@ -432,12 +436,14 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
             &args.namespace,
             &args.release,
             &args.radius_group,
+            args.refresh_derived_state,
         )?;
-        agents::save(
+        agents::save_derived(
             &prepared.private.join("trading.parameters.json"),
             &serde_json::json!({
                 "parameters": {"enableIstioInjection": {"value": !matches!(args.portfolio, Portfolio::Min | Portfolio::MinAi)}}
             }),
+            args.refresh_derived_state,
         )?;
         install_native_envoy()?;
         install_radius(&args)?;

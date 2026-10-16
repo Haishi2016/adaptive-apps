@@ -7,6 +7,19 @@ This capability contains native ingress, model gateway, optional diagnostics,
 retained Jaeger/Loki stores and native admission policies,
 not an agent lifecycle operator or lifecycle CRDs.
 
+Invocation follows two explicit gateway boundaries:
+
+```text
+application -> Agent Gateway -> agent -> Model Gateway -> model
+```
+
+Envoy plus the shared `agent-gateway-policy` service authenticate callers,
+authorize exact agent releases and restrict the native Responses request shape.
+Agents use their paired Keycloak OAuth clients for Model Gateway and peer-agent
+calls. LiteLLM separately owns provider routing and cloud provider identity.
+Connected prompt releases add a per-release Graph delegation broker only when
+their retained identity declares that capability.
+
 Start with [Getting Started](../../tutorials/getting-started/README.md). See
 [native Radius agents](../../docs/agents/native-radius.md) for provisioning
 inputs, retained ownership, outage behavior and unqualified live gates.

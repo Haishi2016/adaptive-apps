@@ -41,7 +41,7 @@ with `radius/recipes/keycloak-login`.
 
 Browser federation is distinct from Kubernetes OIDC workload federation and
 the Agent ID blueprint. Connected agents use the official sidecar with the
-blueprint assertion; application DAC uses the paired local Keycloak identity
+blueprint assertion; agents use their paired local Keycloak identity directly
 for reachable in-cluster targets. Cloud-only targets require Entra/connectivity.
 See [native delivery](../agents/native-radius.md) for those bindings and gates.
 

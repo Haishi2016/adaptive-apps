@@ -38,9 +38,9 @@ def _runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENT_INSTRUCTIONS", "You are a concise travel assistant.")
     monkeypatch.setenv("OPENAI_BASE_URL", "http://model-gateway.adaptive.svc.cluster.local:8080")
     monkeypatch.setenv("OPENAI_MODEL", "qwen2.5-7b-instruct")
-    monkeypatch.setenv("IDENTITY_ENDPOINT", "http://127.0.0.1:8081/identity/token")
-    monkeypatch.setenv("IDENTITY_HEADER", "test-header")
-    monkeypatch.setenv("AZURE_TOKEN_CREDENTIALS", "ManagedIdentityCredential")
+    monkeypatch.setenv("KEYCLOAK_TOKEN_URL", "http://keycloak.test/realms/adaptive/token")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "prompt-agent")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "test-secret")
     monkeypatch.setenv("CLUSTER_MODE", "redButton")
     # The native host reads telemetry configuration directly from the environment.
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
@@ -87,7 +87,11 @@ async def test_gateway_uses_fresh_native_oauth_token_callback(
 ) -> None:
     runtime = _import()
     tokens = iter(["first-token", "refreshed-token"])
-    monkeypatch.setattr(runtime, "_token_provider", lambda: next(tokens))
+
+    async def token() -> str:
+        return next(tokens)
+
+    monkeypatch.setattr(runtime, "_gateway_token", token)
     assert await runtime._gateway_token() == "first-token"
     assert await runtime._gateway_token() == "refreshed-token"
 

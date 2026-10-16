@@ -1,6 +1,4 @@
 import json
-from contextlib import nullcontext
-from types import SimpleNamespace
 
 import httpx2 as httpx
 import pytest
@@ -25,13 +23,11 @@ def pipeline(monkeypatch):
     faults = {}
     tokens = []
 
-    async def get_token(scope):
-        tokens.append(scope)
-        return SimpleNamespace(token="application-token")
+    async def get_token():
+        tokens.append("requested")
+        return "application-token"
 
-    monkeypatch.setattr(
-        agent, "DefaultAzureCredential", lambda: nullcontext(SimpleNamespace(get_token=get_token))
-    )
+    monkeypatch.setattr(agent, "_token_provider", get_token)
 
     def transport(request):
         name = request.url.path.split("/")[2]
@@ -100,7 +96,7 @@ async def test_sequence_and_request_local_context(pipeline):
         writer_input,
         auditor_input,
     ]
-    assert tokens == ["https://ai.azure.com/.default"] * 4
+    assert tokens == ["requested"] * 4
     assert all(set(json.loads(request.content)) == {"input", "store"} for request in requests)
 
 

@@ -24,6 +24,20 @@ logical agents, retained identities and explicit releases, not either Helm
 release. Superseded native H2/Keycloak, collector and platform Terraform
 implementations have been removed.
 
+Invocation uses two independent gateway boundaries:
+
+```text
+application -> Agent Gateway -> agent -> Model Gateway -> model
+```
+
+The Agent Gateway is Envoy plus one namespace-level Responses policy service.
+It authenticates callers, authorizes exact immutable releases and rejects
+unqualified stored, referenced or background Responses operations. Agents use
+their paired Keycloak OAuth clients directly for in-cluster Model Gateway and
+peer-agent calls. LiteLLM owns model routing and provider identity. Connected
+Graph delegation remains an explicit per-release broker backed by the official
+Entra sidecar; it is not part of model invocation.
+
 Native ValidatingAdmissionPolicies keep logical kind/ownership and the published
 release set append-only, require promotion in a later update,
 prevent a second runtime replica (including the scale subresource), reject
@@ -43,15 +57,17 @@ Guardrail policy declarations retain their separate application/platform scopes.
 
 Agents retain their existing native Responses-host implementations and OCI
 build inputs in `src/agents/{prompt-agent,editor}`. Build these Dockerfiles with
-`src` as context; no source/image changes are required for the migration.
-The environment supplies identity, model, telemetry and optional governance
-sidecars. Prompt MCP/skills, stored/child/background Responses, hosted delegation,
-evaluation Jobs and same-image cloud hosting are not qualified by this capability.
+`src` as context. They use standard Keycloak client credentials for in-cluster
+gateway calls. The environment supplies model, telemetry, optional governance
+and connected Graph delegation bindings. Prompt MCP/skills,
+stored/child/background Responses, hosted delegation, evaluation Jobs and
+same-image cloud hosting are not qualified by this capability.
 
 Ordinary calls go directly through authorized Envoy ingress to
-`POST /agents/{agent}/versions/{version}/responses`. The adapter admits only
-foreground plain-text requests with explicit `store=false`, removes browser
-assertions before SDK handling and never forwards Responses. Native child,
+`POST /agents/{agent}/versions/{version}/responses`. The shared Agent Gateway
+policy service admits only foreground plain-text requests with explicit
+`store=false`, removes browser assertions before SDK handling and never
+forwards Responses. Native child,
 reference and background operations are denied. All edge model calls and
 `GET /v1/models` use authenticated `model-ingress`/LiteLLM, never the diagnostics
 API or an inference Pod directly.
@@ -214,13 +230,21 @@ credentials and platform resources owned by a disposable release.
    `identity-local`, `identity-connected` and `keycloak-login`
    at their existing relative paths, including lockfiles. Keep private provider
    state, `.terraform`, credentials and test artifacts out of that archive.
-4. Copy `radius/agents.example.json` to a public reviewed configuration, replace
-   its archive placeholder and select imported immutable images. Run
+4. Run `ada agents-config --output agents.json --import-images` to create a
+   public reviewed configuration from the origin GitHub repository and current
+   commit and pull its six selected images into local K3s. The import uses
+   immutable `images` references when configured, otherwise
+   `imageRegistry`/`imageTag`. Use
+   `--repository OWNER/REPOSITORY`, `--commit FULL_SHA` or `--template PATH`
+   when those defaults do not apply. Re-running the command updates only the
+   archive and registry locations and preserves reviewed inputs. Then run
    `ada init --agents-config agents.json --namespace <namespace> --release <release>`.
    This creates missing durable private inputs without AI: administrator,
    database and service credentials, validated localhost TLS, secure Radius
    parameters, portfolio values and native Secret declarations. Existing
    credentials are reused; mismatching generated inputs fail for explicit review.
+   After reviewing an intentional change, add `--refresh-derived-state` to replace
+   only derived JSON while retaining credentials and the TLS key pair.
    Secrets are `adaptive-keycloak-admin` (`username`, `password`), `adaptive-keycloak-login-config`
    (`client-secret`, `adaptive-trading-client-secret`), `model-gateway-auth` (`master-key` and matching Envoy
    `credential`) and the UI TLS Secret. Do not regenerate existing credentials.
@@ -265,7 +289,7 @@ credentials and platform resources owned by a disposable release.
    Publish a new immutable chart/recipe version for changes rather than
    replacing an already published archive.
 
-Platform recipe bindings are `adapterImage`, `sidecarImage`, `governanceImage`,
+Platform recipe bindings are `agentGatewayImage`, `sidecarImage`, `governanceImage`,
 `keycloakUrl`, `issuer`, `ingressUrl`, `otelEndpoint` and optional explicit
 `peers` (`keycloakClientId`, `agentId`, `targets`). Sidecar images must be pinned
 digests. `ingressUrl` is the public client origin, not an internal DNS name.
@@ -522,9 +546,10 @@ transport-only policy.
 
 ## Connectivity and the demo button
 
-Connectivity is not deployment mode. In-cluster DAC bindings always obtain
-paired Keycloak application tokens, including while Azure is reachable.
-Cloud-only and delegated Graph calls use Entra and fail explicitly on outage;
+Connectivity is not deployment mode. Agents always obtain paired Keycloak
+application tokens directly for the in-cluster Agent and Model Gateways,
+including while Azure is reachable. Delegated Graph calls use the connected
+per-release broker and Entra sidecar and fail explicitly on outage;
 denials/timeouts never substitute a local or application actor.
 
 The UI button calls strict `GET/PATCH /v1/connectivity-fault`. The only write
@@ -793,7 +818,7 @@ and [endpoint/version management](https://learn.microsoft.com/azure/foundry/agen
    an **identical manifest digest**, without rebuilding; verify registry pull
    and inference permissions. The prompt runtime image remains edge-only.
 3. Qualify the initial cloud recipe and required target bindings. Supply
-   native cloud DAC/configuration rather than edge Keycloak/adapter endpoints,
+   native cloud identity/configuration rather than edge Keycloak/gateway endpoints,
    sidecars or PVC paths. Replaying identical desired state must not allocate
    another version or replace a logical identity. Additional release ownership,
    promotion and retirement are separate from this initial-deployment proof.

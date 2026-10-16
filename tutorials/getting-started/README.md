@@ -98,13 +98,14 @@ and Radius environment. Pick **one**:
     ```bash
     helm dependency build charts/adaptive-apps --skip-refresh
 
-    # Build/import images and publish recipes first:
+    # Publish recipes and application images first:
     # docs/agents/native-radius.md#local-artifact-and-executor-preparation
-    cp radius/agents.example.json agents.json
-    # Replace the owner, repository and commit placeholders with your fork and
-    # a commit published by .github/workflows/publish-recipes.yml. GHCR owner
-    # paths must be lowercase. Prefer an explicit `images` map containing the
-    # six immutable fork image digests over the mutable imageRegistry/imageTag.
+    ada agents-config --output agents.json --import-images
+    # This uses the origin GitHub repository and HEAD commit. The commit must
+    # have been published by .github/workflows/publish-recipes.yml. Use
+    # --repository OWNER/REPOSITORY or --commit FULL_SHA to override either.
+    # Prefer an explicit `images` map containing the six immutable fork image
+    # digests over the mutable imageRegistry/imageTag.
 
     ada init \
       --agents-config agents.json \

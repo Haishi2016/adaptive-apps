@@ -148,7 +148,7 @@ async def test_graph_denies_without_app_fallback(
     message: str,
 ) -> None:
     def forbidden(**kwargs: Any) -> Any:
-        raise AssertionError("Denied invocation must not construct HTTP or DAC clients")
+        raise AssertionError("Denied invocation must not construct HTTP or delegation clients")
 
     monkeypatch.setattr(httpx, "AsyncClient", forbidden)
     monkeypatch.setattr("azure.identity.DefaultAzureCredential", forbidden)

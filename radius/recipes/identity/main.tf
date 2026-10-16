@@ -3,7 +3,6 @@ terraform {
   required_providers {
     kubernetes = { source = "hashicorp/kubernetes", version = "= 2.38.0" }
     keycloak   = { source = "keycloak/keycloak", version = "= 5.10.0" }
-    random     = { source = "hashicorp/random", version = "= 3.7.2" }
   }
 }
 
@@ -102,12 +101,6 @@ resource "keycloak_openid_audience_protocol_mapper" "model" {
   add_to_id_token          = false
 }
 
-resource "random_password" "identity_header" {
-  length  = 48
-  special = false
-  lifecycle { prevent_destroy = true }
-}
-
 resource "keycloak_openid_user_property_protocol_mapper" "oid" {
   realm_id            = var.keycloak_realm
   client_id           = keycloak_openid_client.agent.id
@@ -166,7 +159,6 @@ resource "kubernetes_secret_v1" "identity" {
   }
 
   data = {
-    IDENTITY_HEADER        = random_password.identity_header.result
     KEYCLOAK_CLIENT_SECRET = keycloak_openid_client.agent.client_secret
   }
   lifecycle { prevent_destroy = true }

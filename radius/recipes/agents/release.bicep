@@ -13,7 +13,6 @@ var captureName = 'release-${uniqueString(namespace, p.agentUid, p.version)}'
 var claimName = 'state-${uniqueString(p.agentUid, p.version)}'
 var path = '/agents/${p.agentName}/versions/${p.version}'
 var image = def.kind == 'prompt' ? def.runtimeImage : def.image
-var connected = !empty(id.?blueprintId ?? '')
 var graph = def.kind == 'prompt' && !empty(def.?tools ?? []) && (id.?graphDelegation ?? false)
 var governed = !empty(p.?governance ?? {})
 var modelUrl = 'http://model-ingress.${namespace}.svc.cluster.local:8080/v1'
@@ -48,10 +47,6 @@ async def main():
 asyncio.run(main())
 '''
 var responsePath = '${path}/responses'
-var localBindings = {
-  'model-gateway': { scope: 'https://cognitiveservices.azure.com/.default', local_audience: 'api://adaptive-model-gateway' }
-  'agent-ingress': { scope: 'https://ai.azure.com/.default', local_audience: 'api://adaptive-model-gateway' }
-}
 var agentEnv = concat([
   { name: 'AGENT_NAME', value: p.agentName }
   { name: 'AGENT_NAMESPACE', value: namespace }
@@ -60,9 +55,9 @@ var agentEnv = concat([
   { name: 'FOUNDRY_HOSTING_ENVIRONMENT', value: '' }
   { name: 'OPENAI_BASE_URL', value: governed ? 'http://127.0.0.1:8082/v1' : modelUrl }
   { name: 'OPENAI_MODEL', value: def.model }
-  { name: 'IDENTITY_ENDPOINT', value: 'http://127.0.0.1:8081/identity/token' }
-  { name: 'IDENTITY_HEADER', valueFrom: { secretKeyRef: { name: binding.secretRef, key: 'IDENTITY_HEADER' } } }
-  { name: 'AZURE_TOKEN_CREDENTIALS', value: 'ManagedIdentityCredential' }
+  { name: 'KEYCLOAK_TOKEN_URL', value: '${platform.keycloakUrl}/realms/adaptive/protocol/openid-connect/token' }
+  { name: 'KEYCLOAK_CLIENT_ID', value: id.keycloakClientId }
+  { name: 'KEYCLOAK_CLIENT_SECRET', valueFrom: { secretKeyRef: { name: binding.secretRef, key: 'KEYCLOAK_CLIENT_SECRET' } } }
   { name: 'OTEL_EXPORTER_OTLP_ENDPOINT', value: platform.otelEndpoint }
   { name: 'OTEL_EXPORTER_OTLP_PROTOCOL', value: 'http/protobuf' }
   { name: 'OTEL_SERVICE_NAME', value: name }
@@ -73,15 +68,12 @@ var agentEnv = concat([
 ] : [], contains(def, 'temperature') ? [{ name: 'TEMPERATURE', value: string(def.temperature) }] : [],
   contains(def, 'top_p') ? [{ name: 'TOP_P', value: string(def.top_p) }] : [],
   map(items(def.?environment ?? {}), item => { name: item.key, value: item.value }))
-var adapterEnv = [
-  { name: 'AGENT_RESPONSE_PATH', value: responsePath }
-  { name: 'IDENTITY_HEADER', valueFrom: { secretKeyRef: { name: binding.secretRef, key: 'IDENTITY_HEADER' } } }
-  { name: 'IDENTITY_SIDECAR_URL', value: connected ? 'http://127.0.0.1:5000' : '' }
+var brokerEnv = [
+  { name: 'AGENT_GATEWAY_MODE', value: 'delegation-broker' }
+  { name: 'AGENT_GATEWAY_ADMISSION_URL', value: 'http://agent-gateway-policy.${namespace}.svc.cluster.local:8083' }
+  { name: 'IDENTITY_SIDECAR_URL', value: 'http://127.0.0.1:5000' }
   { name: 'AGENT_IDENTITY_CLIENT_ID', value: id.?entraClientId ?? '' }
   { name: 'KEYCLOAK_TOKEN_URL', value: '${platform.keycloakUrl}/realms/adaptive/protocol/openid-connect/token' }
-  { name: 'KEYCLOAK_CLIENT_ID', value: id.keycloakClientId }
-  { name: 'KEYCLOAK_CLIENT_SECRET', valueFrom: { secretKeyRef: { name: binding.secretRef, key: 'KEYCLOAK_CLIENT_SECRET' } } }
-  { name: 'IDENTITY_DOWNSTREAM', value: string(localBindings) }
   { name: 'GRAPH_DELEGATION_ENABLED', value: graph ? 'true' : 'false' }
   { name: 'ENTRA_TENANT_ID', value: id.?entraTenantId ?? '' }
   { name: 'AGENT_BLUEPRINT_ID', value: id.?blueprintId ?? '' }
@@ -170,7 +162,7 @@ resource workload 'apps/StatefulSet@v1' = {
       metadata: {
         labels: labels
         annotations: {
-          'azure.workload.identity/skip-containers': 'agent;identity-adapter;governance-sidecar;native-state;identity-sidecar'
+          'azure.workload.identity/skip-containers': 'agent;delegation-broker;governance-sidecar;native-state'
           'sidecar.istio.io/inject': 'false'
           'kubectl.kubernetes.io/default-container': 'agent'
         }
@@ -208,15 +200,14 @@ resource workload 'apps/StatefulSet@v1' = {
             readinessProbe: { httpGet: { path: '/readiness', port: 'http' } }
             livenessProbe: { httpGet: { path: '/readiness', port: 'http' } }
           }
-          {
-            name: 'identity-adapter'
-            image: platform.adapterImage
-            env: adapterEnv
-            ports: [{ name: 'authorization', containerPort: 8083 }]
-            securityContext: union(security, { readOnlyRootFilesystem: true })
-            readinessProbe: { exec: { command: ['/dac-adapter', '--healthcheck'] } }
-          }
-        ], connected ? [{
+        ], graph ? [{
+          name: 'delegation-broker'
+          image: platform.agentGatewayImage
+          env: brokerEnv
+          ports: [{ name: 'authorization', containerPort: 8083 }]
+          securityContext: union(security, { readOnlyRootFilesystem: true })
+          readinessProbe: { exec: { command: ['/agent-gateway', '--healthcheck'] } }
+        }, {
           name: 'identity-sidecar'
           image: platform.sidecarImage
           env: sidecarEnv
@@ -244,7 +235,7 @@ resource workload 'apps/StatefulSet@v1' = {
         }] : [])
         volumes: concat([
           { name: 'native-state', persistentVolumeClaim: { claimName: state.metadata.name } }
-        ], connected ? [
+        ], graph ? [
           { name: 'blueprint-assertion', projected: { sources: [{ serviceAccountToken: {
             audience: 'api://AzureADTokenExchange'
             expirationSeconds: 3600
@@ -262,10 +253,11 @@ resource service 'core/Service@v1' = {
   spec: {
     clusterIP: 'None'
     selector: labels
-    ports: [
+    ports: concat([
       { name: 'http', port: 8080, targetPort: 'http' }
+    ], graph ? [
       { name: 'authorization', port: 8083, targetPort: 'authorization' }
-    ]
+    ] : [])
   }
 }
 resource route 'gateway.networking.k8s.io/HTTPRoute@v1' = {
@@ -343,7 +335,9 @@ resource authorization 'gateway.envoyproxy.io/SecurityPolicy@v1alpha1' = {
     }
     extAuth: {
       http: {
-        backendRefs: [{ name: service.metadata.name, port: 8083 }]
+        backendRefs: [graph
+          ? { name: service.metadata.name, port: 8083 }
+          : { name: 'agent-gateway-policy', port: 8083 }]
         headersToBackend: ['X-Admission-Identity-Mode', 'X-Admission-Graph-Token', 'X-Admission-Graph-User']
       }
       headersToExtAuth: ['Content-Type', 'Content-Encoding', 'X-Envoy-Auth-Partial-Body', 'Authorization', 'X-Impersonation-Mode', 'X-Entra-User-Token']
@@ -374,7 +368,7 @@ resource isolation 'networking.k8s.io/NetworkPolicy@v1' = {
           'gateway.envoyproxy.io/owning-gateway-name': 'agent-ingress'
         } }
       }]
-      ports: [{ protocol: 'TCP', port: 8080 }, { protocol: 'TCP', port: 8083 }]
+      ports: concat([{ protocol: 'TCP', port: 8080 }], graph ? [{ protocol: 'TCP', port: 8083 }] : [])
     }]
     egress: [
       {
@@ -391,6 +385,10 @@ resource isolation 'networking.k8s.io/NetworkPolicy@v1' = {
       {
         to: [{ podSelector: { matchLabels: { 'app.kubernetes.io/name': 'otel-collector' } } }]
         ports: [{ protocol: 'TCP', port: 4318 }]
+      }
+      {
+        to: [{ podSelector: { matchLabels: { 'app.kubernetes.io/name': 'agent-gateway-policy' } } }]
+        ports: [{ protocol: 'TCP', port: 8083 }]
       }
       {
         to: [{

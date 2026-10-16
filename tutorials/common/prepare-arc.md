@@ -103,7 +103,7 @@ Workload credentials must then use an exact federated subject
 service, not just the presence of a webhook, annotation or projected file.
 
 For native agents, only the official Entra sidecar receives the blueprint
-assertion. The unchanged agent receives the platform DAC endpoint, not blueprint
+assertion. The agent uses Keycloak for platform calls, not the blueprint
 credentials. See [native agent delivery](../../docs/agents/native-radius.md).
 Cloud-only tokens/services remain unavailable during an outage; local paired
 identity is a separate mechanism, not a substitute cloud actor.

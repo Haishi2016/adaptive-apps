@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator, Awaitable
 from functools import partial
@@ -20,10 +21,25 @@ from agent_framework import (
 from agent_framework_foundry_hosting import ResponsesHostServer
 from azure.ai.agentserver.core import configure_observability
 from azure.ai.agentserver.responses import ResponsesServerOptions
-from azure.identity.aio import DefaultAzureCredential
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 from openai.types.responses import ResponseInputItemParam
 from opentelemetry.propagate import inject
+
+from editor.oauth import KeycloakTokenProvider
+
+_token_provider: KeycloakTokenProvider | None = None
+_token_provider_lock = asyncio.Lock()
+
+
+async def _keycloak_token() -> str:
+    global _token_provider
+    provider = _token_provider
+    if provider is None:
+        async with _token_provider_lock:
+            if _token_provider is None:
+                _token_provider = KeycloakTokenProvider.from_env()
+            provider = _token_provider
+    return await provider()
 
 
 async def edit(messages: list[Message]) -> AgentResponse:
@@ -60,44 +76,39 @@ async def edit(messages: list[Message]) -> AgentResponse:
         role: Literal["user", "assistant"] = "user" if message.role == "user" else "assistant"
         context.append({"role": role, "content": message.text})
     outputs: list[str] = []
-    async with DefaultAzureCredential() as credential:
-
-        async def token() -> str:
-            return (await credential.get_token("https://ai.azure.com/.default")).token
-
-        for index, (name, version, endpoint) in enumerate(specialists):
-            if index == 1:
-                context.append(
-                    {
-                        "role": "user",
-                        "content": (
-                            "Audit the preceding draft against the original brief. Return both "
-                            "Audit and Final sections with your verdict and corrected draft."
-                        ),
-                    }
-                )
-            async with AsyncOpenAI(
-                base_url=endpoint,
-                api_key=token,
-                max_retries=0,
-                timeout=600.0,
-                http_client=DefaultAsyncHttpxClient(trust_env=False),
-            ) as specialist:
-                headers: dict[str, str] = {}
-                inject(headers)
-                result = await specialist.responses.create(
-                    input=context, store=False, extra_headers=headers
-                )
-            if result.status != "completed" or any(
-                item.type
-                in ("function_call", "custom_tool_call", "computer_call", "mcp_approval_request")
-                for item in result.output
-            ):
-                raise ValueError(f"{name} did not complete foreground execution")
-            if not result.output_text.strip():
-                raise ValueError(f"{name} returned no editing result")
-            outputs.append(f"## {name} ({version})\n\n{result.output_text}")
-            context.append({"role": "assistant", "content": result.output_text})
+    for index, (name, version, endpoint) in enumerate(specialists):
+        if index == 1:
+            context.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "Audit the preceding draft against the original brief. Return both "
+                        "Audit and Final sections with your verdict and corrected draft."
+                    ),
+                }
+            )
+        async with AsyncOpenAI(
+            base_url=endpoint,
+            api_key=_keycloak_token,
+            max_retries=0,
+            timeout=600.0,
+            http_client=DefaultAsyncHttpxClient(trust_env=False),
+        ) as specialist:
+            headers: dict[str, str] = {}
+            inject(headers)
+            result = await specialist.responses.create(
+                input=context, store=False, extra_headers=headers
+            )
+        if result.status != "completed" or any(
+            item.type
+            in ("function_call", "custom_tool_call", "computer_call", "mcp_approval_request")
+            for item in result.output
+        ):
+            raise ValueError(f"{name} did not complete foreground execution")
+        if not result.output_text.strip():
+            raise ValueError(f"{name} returned no editing result")
+        outputs.append(f"## {name} ({version})\n\n{result.output_text}")
+        context.append({"role": "assistant", "content": result.output_text})
     return AgentResponse(messages=[Message("assistant", ["\n\n".join(outputs)])])
 
 

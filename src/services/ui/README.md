@@ -51,7 +51,7 @@ replay or release fallback occurs. Hosted delegation remains unavailable.
 Prompt releases with the captured native `graph-me` tool can select app,
 signed-in-user OBO or the provisioned agent worker user when their actual
 identity prerequisites are reported. Graph `/me` rejects app identity explicitly;
-model calls always retain application DAC.
+model calls always retain application identity.
 Agent info shows actual Keycloak client IDs separately from retained Entra
 Agent ID/blueprint IDs; a local client has no Entra blueprint.
 
@@ -128,7 +128,7 @@ Concurrent requests share one renewal; failed renewal or HTTP 401 ends the
 local session without replaying application requests. Existing broker sessions
 require sign-in again. The old broker token fields, Entra refresh grants and
 `/oidc` proxy are removed. A Keycloak login token is not an Entra delegated token.
-Application DAC is independent.
+Agent application identity is independent.
 
 ### Delegated Graph tool
 
@@ -175,8 +175,8 @@ The deployed UI uses separate human and application authorization boundaries:
 | Caller | Required trust |
 | --- | --- |
 | Browser, in either mode | Exact Keycloak realm issuer, its JWKS, and the configured `platformAudience` (default `api://adaptive-broker`); explicit user roles/route permissions |
-| Local agent DAC | Existing Keycloak issuer, model audience `api://adaptive-model-gateway`, and authorized application identity |
-| Connected agent DAC | Existing tenant-pinned Entra issuer/JWKS and exact resource audience; authorized agent application identity |
+| Local agent | Existing Keycloak issuer, model audience `api://adaptive-model-gateway`, and authorized application identity |
+| Connected Graph broker | Existing tenant-pinned Entra issuer/JWKS and exact Graph delegation bindings |
 
 Keycloak discovery is `<authority>/.well-known/openid-configuration`; its JWKS
 is `<authority>/protocol/openid-connect/certs`. Use HTTPS and trusted
@@ -191,14 +191,15 @@ It cannot be exposed directly as an alternative authorization path. Preserve
 principal separation: local Keycloak IDs are not Entra object IDs.
 
 Browser `/models/v1/*` calls use an explicitly authorized platform-audience
-policy alongside the separate DAC application policy. Audience acceptance alone
+policy alongside the separate agent application policy. Audience acceptance alone
 does not authorize a caller.
 Preserve the gateway's existing Azure backend credentials; browser Keycloak
 tokens must not be forwarded as Azure service credentials.
 
 Agent ingress source now validates native Keycloak JWTs and requires the
 `adaptive-ui` user client plus `agent.invoke` in the mapped `roles` array.
-The Go adapter supplies fail-closed HTTP admission on port 8083, not gRPC.
+The shared Agent Gateway policy service supplies fail-closed HTTP admission on
+port 8083, not gRPC.
 Only exact version POST `/responses` with plain-text input and `store=false`
 is qualified in source; stored children, references and background remain denied.
 Graph delegation requires the separately implemented native admission contract

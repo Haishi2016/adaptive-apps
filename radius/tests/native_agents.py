@@ -51,6 +51,7 @@ class NativeAgents(unittest.TestCase):
             "keycloakService": "agents-keycloak",
             "telemetry": {"enabled": True},
             "runtime": {
+                "agentGatewayImage": "agent-gateway@sha256:" + "c" * 64,
                 "uiImage": "ui@sha256:" + "a" * 64,
                 "apiImage": "api@sha256:" + "b" * 64,
                 "issuer": "https://id.example/realms/adaptive",
@@ -129,8 +130,15 @@ class NativeAgents(unittest.TestCase):
         deployments = [obj for obj in self.resources if obj["kind"] == "Deployment"]
         keycloak = [obj for obj in deployments if obj["metadata"]["name"].endswith("-keycloak")]
         collector = [obj for obj in deployments if obj["metadata"]["name"] == "otel-collector"]
+        gateway = [obj for obj in deployments
+                   if obj["metadata"]["name"] == "agent-gateway-policy"]
         self.assertEqual(len(keycloak), 1)
         self.assertEqual(len(collector), 1)
+        self.assertEqual(len(gateway), 1)
+        self.assertEqual(
+            gateway[0]["spec"]["template"]["spec"]["containers"][0]["image"],
+            "agent-gateway@sha256:" + "c" * 64,
+        )
         container = keycloak[0]["spec"]["template"]["spec"]["containers"][0]
         self.assertIn("--import-realm", container["command"])
         env = {entry["name"]: entry for entry in container["env"]}
