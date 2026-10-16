@@ -32,6 +32,10 @@ pub struct AgentsConfigArgs {
     /// Pull the selected agent images into local K3s containerd.
     #[arg(long)]
     import_images: bool,
+
+    /// Configure the platform without deploying a model yet.
+    #[arg(long)]
+    without_models: bool,
 }
 
 pub fn run(args: AgentsConfigArgs) -> Result<()> {
@@ -51,7 +55,13 @@ pub fn run(args: AgentsConfigArgs) -> Result<()> {
         None => default_template()?,
     };
 
-    write_config(&args.output, &template, &repository, &commit)?;
+    write_config(
+        &args.output,
+        &template,
+        &repository,
+        &commit,
+        args.without_models,
+    )?;
     ui::heading("ada agents-config");
     ui::detail("repository", &repository);
     ui::detail("commit", &commit);
@@ -130,7 +140,13 @@ fn validate_commit(commit: &str) -> Result<String> {
     Ok(commit.to_ascii_lowercase())
 }
 
-fn write_config(output: &Path, template: &Path, repository: &str, commit: &str) -> Result<()> {
+fn write_config(
+    output: &Path,
+    template: &Path,
+    repository: &str,
+    commit: &str,
+    without_models: bool,
+) -> Result<()> {
     if output.is_symlink() {
         bail!("refusing a symlink output: {}", output.display());
     }
@@ -165,6 +181,9 @@ fn write_config(output: &Path, template: &Path, repository: &str, commit: &str) 
         "imageRegistry".into(),
         Value::String(format!("ghcr.io/{registry_path}")),
     );
+    if without_models {
+        object.insert("models".into(), Value::Array(Vec::new()));
+    }
     serde_json::from_value::<agents::Config>(config.clone())
         .context("generated agents configuration is invalid")?;
 
@@ -299,14 +318,28 @@ mod tests {
         )
         .unwrap();
 
-        write_config(&output, &template, "Example/Adaptive-Apps", &"a".repeat(40)).unwrap();
+        write_config(
+            &output,
+            &template,
+            "Example/Adaptive-Apps",
+            &"a".repeat(40),
+            false,
+        )
+        .unwrap();
         let mut existing: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
         existing["agentNames"] = json!(["reviewed-agent"]);
         existing["images"] =
             json!({"prompt-agent": format!("example/prompt@sha256:{}", "b".repeat(64))});
         fs::write(&output, serde_json::to_vec(&existing).unwrap()).unwrap();
 
-        write_config(&output, &template, "NewOwner/NewRepo", &"c".repeat(40)).unwrap();
+        write_config(
+            &output,
+            &template,
+            "NewOwner/NewRepo",
+            &"c".repeat(40),
+            false,
+        )
+        .unwrap();
         let updated: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
         assert_eq!(updated["agentNames"], json!(["reviewed-agent"]));
         assert_eq!(updated["images"], existing["images"]);
@@ -322,6 +355,41 @@ mod tests {
             "ghcr.io/newowner/newrepo/recipes"
         );
         assert_eq!(updated["imageRegistry"], "ghcr.io/newowner/newrepo");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn can_explicitly_prepare_a_model_free_configuration() {
+        let root = temp_dir("without-models");
+        fs::create_dir(&root).unwrap();
+        let template = root.join("template.json");
+        let output = root.join("agents.json");
+        fs::write(
+            &template,
+            serde_json::to_vec(&json!({
+                "recipeArchive": "placeholder",
+                "models": [{
+                    "name": "local-chat",
+                    "properties": {
+                        "model": "local-chat",
+                        "localService": {"name": "vllm"}
+                    }
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        write_config(
+            &output,
+            &template,
+            "Example/Adaptive-Apps",
+            &"a".repeat(40),
+            true,
+        )
+        .unwrap();
+        let config: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        assert_eq!(config["models"], json!([]));
         fs::remove_dir_all(root).unwrap();
     }
 

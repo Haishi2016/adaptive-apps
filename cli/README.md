@@ -185,8 +185,11 @@ Supply reviewed credentials; the CLI never invents tenant/issuer IDs or uses
 an Azure CLI Graph bearer. Human Entra federation is a separate reviewed login
 declaration.
 
-`models` is required and contains explicit `{name, properties}` Radius model
-declarations (`localWorkspace`, `localService`, `azure` or captured `members`).
+`models` contains explicit `{name, properties}` Radius model declarations
+(`localWorkspace`, `localService`, `azure` or captured `members`). Pass
+`ada agents-config --without-models` to prepare identity, gateways, and services
+without deploying a model; add reviewed model declarations and refresh derived
+state later.
 The example selects pinned KAITO/vLLM Qwen3-0.6B; no CPU server is generated.
 Foundry models require a separate `modelGatewayIdentity` with reviewed
 `clientId` and `tenantId`. Configure its exact cluster issuer, namespace

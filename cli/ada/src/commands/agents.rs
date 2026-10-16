@@ -373,9 +373,6 @@ pub fn prepare(
     if config.agent_names.iter().any(|name| name.len() > 32) {
         bail!("Agent names must be lowercase DNS labels of at most 32 characters");
     }
-    if config.models.is_empty() {
-        bail!("Supply explicit KAITO/vLLM, Foundry or hybrid model declarations in config.models");
-    }
     let mut model_names = std::collections::BTreeSet::new();
     for model in &config.models {
         if !model_names.insert(&model.name) {

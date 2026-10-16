@@ -101,6 +101,8 @@ and Radius environment. Pick **one**:
     # Publish recipes and application images first:
     # docs/agents/native-radius.md#local-artifact-and-executor-preparation
     ada agents-config --output agents.json --import-images
+    # Add --without-models when preparing the platform without model
+    # infrastructure; models can be declared and refreshed later.
     # This uses the origin GitHub repository and HEAD commit. The commit must
     # have been published by .github/workflows/publish-recipes.yml. Use
     # --repository OWNER/REPOSITORY or --commit FULL_SHA to override either.
