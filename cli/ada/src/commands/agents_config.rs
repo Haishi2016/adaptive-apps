@@ -33,9 +33,13 @@ pub struct AgentsConfigArgs {
     #[arg(long)]
     import_images: bool,
 
-    /// Configure the platform without deploying a model yet.
-    #[arg(long)]
+    /// Clear model declarations, including from an existing configuration.
+    #[arg(long, conflicts_with = "with_kaito_model")]
     without_models: bool,
+
+    /// Install the example KAITO/vLLM local model declaration.
+    #[arg(long, conflicts_with = "without_models")]
+    with_kaito_model: bool,
 }
 
 pub fn run(args: AgentsConfigArgs) -> Result<()> {
@@ -58,6 +62,7 @@ pub fn run(args: AgentsConfigArgs) -> Result<()> {
         &repository,
         &commit,
         args.without_models,
+        args.with_kaito_model,
     )?;
     ui::heading("ada agents-config");
     ui::detail("repository", &repository);
@@ -205,11 +210,13 @@ fn write_config(
     repository: &str,
     commit: &str,
     without_models: bool,
+    with_kaito_model: bool,
 ) -> Result<()> {
     if output.is_symlink() {
         bail!("refusing a symlink output: {}", output.display());
     }
-    let source = if output.exists() { output } else { template };
+    let output_exists = output.exists();
+    let source = if output_exists { output } else { template };
     let bytes = fs::read(source)
         .with_context(|| format!("failed to read agents config source {}", source.display()))?;
     let mut config: Value = serde_json::from_slice(&bytes)
@@ -240,7 +247,25 @@ fn write_config(
         "imageRegistry".into(),
         Value::String(format!("ghcr.io/{registry_path}")),
     );
-    if without_models {
+    if with_kaito_model && output_exists {
+        let template_config: Value = serde_json::from_slice(
+            &fs::read(template)
+                .with_context(|| format!("failed to read {}", template.display()))?,
+        )
+        .with_context(|| format!("invalid JSON in {}", template.display()))?;
+        let models = template_config
+            .get("models")
+            .and_then(Value::as_array)
+            .filter(|models| !models.is_empty())
+            .cloned()
+            .with_context(|| {
+                format!(
+                    "{} does not contain an example KAITO model",
+                    template.display()
+                )
+            })?;
+        object.insert("models".into(), Value::Array(models));
+    } else if without_models || (!output_exists && !with_kaito_model) {
         object.insert("models".into(), Value::Array(Vec::new()));
     }
     serde_json::from_value::<agents::Config>(config.clone())
@@ -443,12 +468,20 @@ mod tests {
             "Example/Adaptive-Apps",
             &"a".repeat(40),
             false,
+            false,
         )
         .unwrap();
         let mut existing: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
         existing["agentNames"] = json!(["reviewed-agent"]);
         existing["images"] =
             json!({"prompt-agent": format!("example/prompt@sha256:{}", "b".repeat(64))});
+        existing["models"] = json!([{
+            "name": "reviewed-model",
+            "properties": {
+                "model": "reviewed-model",
+                "localService": {"name": "reviewed-service"}
+            }
+        }]);
         fs::write(&output, serde_json::to_vec(&existing).unwrap()).unwrap();
 
         write_config(
@@ -457,11 +490,13 @@ mod tests {
             "NewOwner/NewRepo",
             &"c".repeat(40),
             false,
+            false,
         )
         .unwrap();
         let updated: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
         assert_eq!(updated["agentNames"], json!(["reviewed-agent"]));
         assert_eq!(updated["images"], existing["images"]);
+        assert_eq!(updated["models"], existing["models"]);
         assert_eq!(
             updated["recipeArchive"],
             format!(
@@ -505,10 +540,77 @@ mod tests {
             "Example/Adaptive-Apps",
             &"a".repeat(40),
             true,
+            false,
         )
         .unwrap();
         let config: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
         assert_eq!(config["models"], json!([]));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn new_configuration_requires_explicit_kaito_opt_in() {
+        let root = temp_dir("kaito-opt-in");
+        fs::create_dir(&root).unwrap();
+        let template = root.join("template.json");
+        fs::write(
+            &template,
+            serde_json::to_vec(&json!({
+                "recipeArchive": "placeholder",
+                "models": [{
+                    "name": "local-chat",
+                    "recipe": "kaito",
+                    "properties": {
+                        "model": "local-chat",
+                        "localWorkspace": {
+                            "source": "Qwen/Qwen3-0.6B",
+                            "revision": "c1899de289a04d12100db370d81485cdf75e47ca",
+                            "image": format!("vllm/vllm-openai@sha256:{}", "a".repeat(64))
+                        }
+                    }
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let model_free = root.join("model-free.json");
+        write_config(
+            &model_free,
+            &template,
+            "Example/Adaptive-Apps",
+            &"a".repeat(40),
+            false,
+            false,
+        )
+        .unwrap();
+        let config: Value = serde_json::from_slice(&fs::read(&model_free).unwrap()).unwrap();
+        assert_eq!(config["models"], json!([]));
+
+        write_config(
+            &model_free,
+            &template,
+            "Example/Adaptive-Apps",
+            &"a".repeat(40),
+            false,
+            true,
+        )
+        .unwrap();
+        let config: Value = serde_json::from_slice(&fs::read(&model_free).unwrap()).unwrap();
+        assert_eq!(config["models"][0]["recipe"], "kaito");
+
+        let kaito = root.join("kaito.json");
+        write_config(
+            &kaito,
+            &template,
+            "Example/Adaptive-Apps",
+            &"a".repeat(40),
+            false,
+            true,
+        )
+        .unwrap();
+        let config: Value = serde_json::from_slice(&fs::read(&kaito).unwrap()).unwrap();
+        assert_eq!(config["models"][0]["recipe"], "kaito");
         fs::remove_dir_all(root).unwrap();
     }
 

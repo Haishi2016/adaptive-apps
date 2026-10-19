@@ -429,7 +429,9 @@ owner requires a separate explicit authorized operation.
 ## Models
 
 Native setup requires explicit model and gateway declarations, not an implicit
-CPU server. Reuse [GPU preparation](../../tutorials/common/prepare-gpu-kaito.md),
+CPU server. New generated configurations contain no models. KAITO is an
+explicit `ada agents-config --with-kaito-model` opt-in and is not enabled by an
+`*-ai` portfolio. Reuse [GPU preparation](../../tutorials/common/prepare-gpu-kaito.md),
 `Radius.Resources/aiModels` for individual inference backends and
 `Radius.Resources/aiGateways` for the pinned LiteLLM endpoint:
 

@@ -173,6 +173,9 @@ to override those inputs. An explicit commit must already have that release;
 the command fails before writing configuration otherwise. Running it again
 updates only the archive and registry locations, preserving reviewed models,
 explicit image digests and identity settings.
+New configurations contain no model declarations by default. Pass
+`--with-kaito-model` only after installing and validating KAITO/GPU support;
+it opts a new configuration into the pinned Qwen3-0.6B example.
 
 `--import-images` runs `sudo k3s ctr -n k8s.io images pull` for required images
 that are not already present. It preserves configured immutable `images`
@@ -192,10 +195,10 @@ declaration.
 
 `models` contains explicit `{name, properties}` Radius model declarations
 (`localWorkspace`, `localService`, `azure` or captured `members`). Pass
-`ada agents-config --without-models` to prepare identity, gateways, and services
-without deploying a model; add reviewed model declarations and refresh derived
-state later.
-The example selects pinned KAITO/vLLM Qwen3-0.6B; no CPU server is generated.
+`ada agents-config --without-models` to clear model declarations from an
+existing configuration. Add reviewed model declarations and refresh derived
+state later. KAITO is never implied by selecting an `*-ai` portfolio, and no
+CPU server is generated.
 Foundry models require a separate `modelGatewayIdentity` with reviewed
 `clientId` and `tenantId`. Configure its exact cluster issuer, namespace
 ServiceAccount federation and scoped inference role before use; this identity

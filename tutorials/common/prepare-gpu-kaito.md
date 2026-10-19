@@ -74,8 +74,9 @@ and that preset needs the mutation.
 
 ## 5. Declare the small GPU model through Radius
 
-`radius/agents.example.json` selects **Qwen/Qwen3-0.6B**, an exact model revision
-and pinned vLLM image through the explicit `kaito` model recipe. Native `ada init` consumes explicit `models`, then the
+`ada agents-config --with-kaito-model` selects **Qwen/Qwen3-0.6B**, an exact
+model revision and pinned vLLM image through the explicit `kaito` model recipe.
+KAITO is off by default for every portfolio. Native `ada init` consumes explicit `models`, then the
 normal bootstrap deploys them through `radius/agent-services.bicep`.
 Alternatively, `radius/agent-models.bicep` declares independently owned local
 and Foundry `aiModels` resources plus an `aiGateways` hybrid route built from

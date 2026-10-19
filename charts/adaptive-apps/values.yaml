@@ -20,7 +20,7 @@ features:
     opa: false           # Deploy OPA (with Envoy ext_authz plugin)
     istioExtAuthz: false # Patch Istio extensionProvider to use OPA
   ai:
-    enabled: false       # Marker only; AI workloads are deployed via Radius
+    enabled: false       # Provider-neutral marker only; KAITO is a separate opt-in
   agentGuardrails:
     enabled: false       # Marker only; AGT in-pod sidecar is deployed via Radius
                          # (Radius.Resources/agentGuardrails). The chart adds no

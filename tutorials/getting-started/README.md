@@ -101,8 +101,9 @@ and Radius environment. Pick **one**:
     # Publish recipes and application images first:
     # docs/agents/native-radius.md#local-artifact-and-executor-preparation
     ada agents-config --output agents.json --import-images
-    # Add --without-models when preparing the platform without model
-    # infrastructure; models can be declared and refreshed later.
+    # New configurations deploy no model by default. Add
+    # --with-kaito-model only after completing GPU + KAITO preparation.
+    # Use --without-models to clear models from an existing configuration.
     # This uses the origin GitHub repository and its newest published
     # recipes-<commit> release containing recipes.tgz. An explicit --commit
     # must already have been published by .github/workflows/publish-recipes.yml.
@@ -117,7 +118,7 @@ and Radius environment. Pick **one**:
       --refresh-derived-state
     ```
 
-    The example local model requires a GPU. Complete
+    The opt-in KAITO example requires a GPU. Complete
     [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md), or configure
     a reviewed remote model. Public OpenAI uses an `openai` binding and
     `openaiApiKeyFile`; `ada init` retains that file's value only in the private
@@ -429,10 +430,11 @@ run it without editing a parameter file. If `agents.json` predates the embedded
 UI image, rerun `ada agents-config --import-images`; existing immutable pins are
 preserved and the missing image is added.
 
-The default `agentModel` is `local-chat`. Set it in `agents.json` before
-bootstrap when the agents should use a different Model Gateway name.
-`--without-models` requires that named model to be declared separately before
-agent invocation.
+The default `agentModel` name is `local-chat`, but new configurations do not
+declare a model. Set it and add a reviewed model declaration before invocation,
+or regenerate a new configuration with `--with-kaito-model` only after KAITO
+and GPU preparation. Selecting an `*-ai` portfolio does not install or select
+KAITO automatically.
 
 The writer, auditor and editor are ordinary components declared directly in
 `radius/app.bicep`. Each `agents` resource references its corresponding

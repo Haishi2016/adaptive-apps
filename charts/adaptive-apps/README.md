@@ -16,7 +16,7 @@ portfolios.
 | `features.observability.enabled` | OTel Collector + Prometheus + Zipkin Deployments |
 | `features.governance.opa` | OPA Deployment with Envoy ext_authz plugin |
 | `features.governance.istioExtAuthz` | Post-install Job that patches the Istio ConfigMap to register OPA as an `extensionProvider` (requires `governance.opa=true`) |
-| `features.ai.enabled` | Marker only; AI workloads are deployed via Radius `aiModel` resource types — the chart adds no manifests for this |
+| `features.ai.enabled` | Provider-neutral marker only; models are deployed via Radius `aiModel` resource types. The chart installs no provider, and KAITO remains a separate opt-in. |
 | `features.agentGuardrails.enabled` | Marker only; the in-pod Agent Governance Toolkit sidecar is deployed via Radius (`Radius.Resources/agentGuardrails`) per-app at deploy time — the chart adds no manifests for this. Set to `true` in `*-ai` profiles where the portfolio recommends turning the sidecar on. |
 
 Per-capability config (image tags, replica counts, OIDC endpoints, etc.)
