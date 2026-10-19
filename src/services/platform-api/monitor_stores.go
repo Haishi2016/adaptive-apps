@@ -192,6 +192,15 @@ func (m *monitorReader) traceRecords(ctx context.Context, services map[string]st
 	return records, nil
 }
 
+func ownsDeployment(services map[string]string, deployment string) bool {
+	for _, owned := range services {
+		if owned == deployment {
+			return true
+		}
+	}
+	return false
+}
+
 type monitorLog struct {
 	Type       string     `json:"type"`
 	ID         string     `json:"log_id"`
@@ -263,8 +272,8 @@ func (m *monitorReader) logRecords(ctx context.Context, services map[string]stri
 					metadata[k] = v
 				}
 			}
-			_, owned := services[metadata["adaptive_agent_deployment"]]
-			if !owned || metadata["adaptive_agent_name"] != agent || metadata["service_namespace"] != namespace ||
+			if !ownsDeployment(services, metadata["adaptive_agent_deployment"]) ||
+				metadata["adaptive_agent_name"] != agent || metadata["service_namespace"] != namespace ||
 				metadata["service_name"] != "governance-sidecar" {
 				continue
 			}

@@ -18,6 +18,7 @@ const (
 	monitorBodyLimit   = 4 << 20
 	monitorRecordLimit = 4096
 	monitorSeenLimit   = 16384
+	nativeTraceService = "azure.ai.agentserver"
 )
 
 type monitorReader struct {
@@ -107,7 +108,7 @@ func (a *API) monitorServices(r *http.Request) (string, map[string]string, error
 	if runtime.deployment == nil || text(agent, "data", "agentUid") == "" || agent.GetDeletionTimestamp() != nil {
 		return "", nil, failure{http.StatusConflict, "Agent has no verified runtime service to monitor"}
 	}
-	return name, map[string]string{runtime.deployment.GetName(): ""}, nil
+	return name, map[string]string{nativeTraceService: runtime.deployment.GetName()}, nil
 }
 
 func (a *API) monitorRecords(r *http.Request, m *monitorReader) ([]monitorRecord, error) {

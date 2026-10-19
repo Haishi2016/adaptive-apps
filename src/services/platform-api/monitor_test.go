@@ -24,7 +24,7 @@ import (
 // They are test records, not evidence of a deployed SDK pipeline.
 const jaegerFixture = `{"data":[{
  "traceID":"11111111111111111111111111111111",
- "processes":{"p1":{"serviceName":"demo-v1","tags":[
+ "processes":{"p1":{"serviceName":"azure.ai.agentserver","tags":[
  {"key":"service.namespace","value":"adaptive"},{"key":"adaptive.agent.name","value":"demo"}]}},
  "spans":[
  {"traceID":"11111111111111111111111111111111","spanID":"2222222222222222","processID":"p1","operationName":"invoke_agent demo","startTime":1791547200000000,"duration":1500,"tags":[{"key":"span.kind","value":"server"}],"references":[],"logs":[]},
@@ -76,7 +76,7 @@ func TestNativeStoreFixtureProjection(t *testing.T) {
 	m := nativeStores(t, func(w http.ResponseWriter, r *http.Request) {
 		traceCalls.Add(1)
 		q := r.URL.Query()
-		if q.Get("service") != "demo-v1" || q.Get("limit") != "100" || q.Get("lookback") != "1h" {
+		if q.Get("service") != nativeTraceService || q.Get("limit") != "100" || q.Get("lookback") != "1h" {
 			t.Error("Jaeger query was not bounded or actual release")
 		}
 		fixtureHandler(t, "/api/traces", jaegerFixture)(w, r)
@@ -101,7 +101,7 @@ func TestNativeStoreFixtureProjection(t *testing.T) {
 	}
 	for i, name := range []string{"invoke_agent demo", "agent_run demo", "chat local-chat"} {
 		span := records[i].value.(monitorSpan)
-		if span.Name != name || span.TraceID != "11111111111111111111111111111111" || span.Service != "demo-v1" {
+		if span.Name != name || span.TraceID != "11111111111111111111111111111111" || span.Service != nativeTraceService {
 			t.Fatal("native span identity/name was altered")
 		}
 		if i > 0 && (span.Parent == nil || *span.Parent != records[i-1].value.(monitorSpan).SpanID) {
@@ -346,7 +346,7 @@ func TestMonitorUsesCurrentRuntime(t *testing.T) {
 	r := httptest.NewRequest("GET", "/v1/agents/demo/spans", nil)
 	r.SetPathValue("name", "demo")
 	_, services, err := f.api.monitorServices(r)
-	if err != nil || len(services) != 1 || services["demo-v1"] != "" {
+	if err != nil || len(services) != 1 || services[nativeTraceService] != "demo-v1" {
 		t.Fatal("monitor did not resolve current native runtime")
 	}
 	for i := 0; i < cap(f.api.monitor.slots); i++ {
