@@ -113,7 +113,8 @@ and Radius environment. Pick **one**:
     ada init \
       --agents-config agents.json \
       --namespace "$NAMESPACE" \
-      --release "$RELEASE"
+      --release "$RELEASE" \
+      --refresh-derived-state
     ```
 
     The example local model requires a GPU. Complete
