@@ -24,7 +24,7 @@ rules:
     verbs: ["get", "list"]
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
-    verbs: ["get"]
+    verbs: ["get", "list"]
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["httproutes", "gateways"]
     verbs: ["get"]
