@@ -52,7 +52,7 @@ export AKS_OIDC_ISSUER=$(az aks show \
       -o tsv)
 ```
 
-| Portfolio | Identity | Service mesh (Istio) | Observability | Governance (OPA) | On-cluster AI (Kaito) |
+| Portfolio | Identity | Service mesh (Istio) | Observability | Governance (OPA) | AI capability marker |
 | --- | :-: | :-: | :-: | :-: | :-: |
 | `min` | ✓ | ✗ | ✗ | ✗ | ✗ |
 | `core` | ✓ | ✓ | ✓ | ✗ | ✗ |
@@ -61,10 +61,11 @@ export AKS_OIDC_ISSUER=$(az aks show \
 | `core-ai` | ✓ | ✓ | ✓ | ✗ | ✓ |
 | `ent-ai` | ✓ | ✓ | ✓ | ✓ (off by default) | ✓ |
 
-> **What "On-cluster AI" means here.** The `*-ai` suffix selects the AI capability
-> portfolio; model infrastructure is application-owned through Radius. The
-> trading and native local-model variants use KAITO/vLLM with real GPUs.
-> Cloud/local selection remains an application binding, not a portfolio switch.
+> **What the AI marker means here.** The `*-ai` suffix selects the AI capability
+> portfolio; it does not install KAITO. Model infrastructure is
+> application-owned through Radius. Local-model variants use KAITO/vLLM only
+> after the explicit GPU/KAITO preparation. Cloud/local selection remains an
+> application binding, not a portfolio switch.
 
 ## 2. Bring up the platform
 
@@ -101,6 +102,16 @@ and Radius environment. Pick **one**:
     # Publish recipes and application images first:
     # docs/agents/native-radius.md#local-artifact-and-executor-preparation
     # Public OpenAI:
+    export OPENAI_API_KEY_FILE="${OPENAI_API_KEY_FILE:-$HOME/.config/adaptive/openai.key}"
+    install -d -m 700 "$(dirname "$OPENAI_API_KEY_FILE")"
+    if [ ! -s "$OPENAI_API_KEY_FILE" ]; then
+      read -rsp "OpenAI API key: " OPENAI_API_KEY
+      echo
+      printf '%s' "$OPENAI_API_KEY" > "$OPENAI_API_KEY_FILE"
+      unset OPENAI_API_KEY
+    fi
+    chmod 600 "$OPENAI_API_KEY_FILE"
+
     ada agents-config \
       --output agents.json \
       --import-images \
@@ -128,10 +139,10 @@ and Radius environment. Pick **one**:
       --refresh-derived-state
     ```
 
-    Set `OPENAI_API_KEY_FILE` to a mode-0600 file outside the repository.
-    The generated OpenAI declaration drives both the trading application and
-    native Model Gateway; do not set a separate `AI_PARAMS` array for
-    `trading-native`. The opt-in KAITO example requires a GPU. Complete
+    The command block creates or reuses a mode-0600 key file outside the
+    repository. The generated OpenAI declaration drives both the trading
+    application and native Model Gateway; do not set a separate `AI_PARAMS`
+    array for `trading-native`. The opt-in KAITO example requires a GPU. Complete
     [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md), or configure
     a reviewed remote model. Public OpenAI uses an `openai` binding and
     `openaiApiKeyFile`; `ada init` retains that file's value only in private
