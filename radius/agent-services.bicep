@@ -25,7 +25,7 @@ resource gateway 'Radius.Resources/aiGateways@2025-08-01-preview' = [for (entry,
   properties: {
     application: app.id
     environment: environment
-    model: model[index].properties.model
+    model: entry.name
     members: [{
       deployment: model[index].properties.deployment
       endpoint: model[index].properties.endpoint

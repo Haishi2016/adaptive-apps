@@ -492,6 +492,18 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
                 "-n",
                 &args.namespace,
                 "rollout",
+                "restart",
+                "deployment/model-gateway",
+            ])
+            .status()?;
+        if !status.success() {
+            bail!("Model Gateway restart failed after model configuration deployment");
+        }
+        let status = Command::new("kubectl")
+            .args([
+                "-n",
+                &args.namespace,
+                "rollout",
                 "status",
                 "deployment",
                 "--timeout=15m",
