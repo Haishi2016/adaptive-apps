@@ -465,10 +465,14 @@ Public OpenAI uses an `openai` model binding and a separate private key file:
 }
 ```
 
-`ada init` retains the key in its mode-0600 private state and writes it only to
-the `model-gateway-auth` Secret. Radius model properties and generated LiteLLM
-ConfigMaps contain `os.environ/OPENAI_API_KEY`, never the credential. A changed
-source key fails instead of silently rotating the retained credential.
+`ada agents-config --with-openai-model --openai-api-key-file PATH` generates
+this declaration and selects `openai-chat`. `ada init` retains the key in its
+mode-0600 private state, writes it to the `model-gateway-auth` Secret, and
+derives the private Radius application parameters used by the trading sample.
+The emitted shell command never contains the key. Radius model properties and
+generated LiteLLM ConfigMaps contain `os.environ/OPENAI_API_KEY`, never the
+credential. A changed source key fails instead of silently rotating the
+retained credential.
 
 `radius/agents.example.json` selects Qwen3-0.6B on a real GPU. The small serving
 profile is not evidence of production quality or delegated-tool support.

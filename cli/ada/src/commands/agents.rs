@@ -108,6 +108,44 @@ fn default_tag() -> String {
     "dev".into()
 }
 
+fn application_parameters(config: &Config, openai_api_key: Option<&str>) -> Result<Value> {
+    let mut values = json!({"enableNativeAgents": true});
+    let Some(model) = config
+        .models
+        .iter()
+        .find(|model| model.name == config.agent_model)
+    else {
+        return Ok(values);
+    };
+    let Some(openai) = model.properties.get("openai") else {
+        return Ok(values);
+    };
+    let object = values
+        .as_object_mut()
+        .context("application parameters must be an object")?;
+    object.insert("aiProvider".into(), json!("openai"));
+    object.insert(
+        "aiEndpoint".into(),
+        openai
+            .get("endpoint")
+            .cloned()
+            .context("OpenAI model requires an endpoint")?,
+    );
+    object.insert(
+        "aiModelName".into(),
+        model
+            .properties
+            .get("model")
+            .cloned()
+            .context("OpenAI model requires a model name")?,
+    );
+    object.insert(
+        "aiApiKey".into(),
+        json!(openai_api_key.context("OpenAI model requires a retained API key")?),
+    );
+    Ok(values)
+}
+
 pub fn check_ownership(namespace: &str, release: &str) -> Result<()> {
     for (kind, name, owner, scope) in [
         ("crd", "gateways.gateway.networking.k8s.io", "", ""),
@@ -675,7 +713,7 @@ pub fn prepare(
     parameters(
         &private,
         "application.parameters.json",
-        json!({"enableNativeAgents": true}),
+        application_parameters(&config, openai_api_key.as_deref())?,
         refresh_derived_state,
     )?;
     save_derived(
@@ -943,7 +981,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_key_is_retained_only_in_private_gateway_secret() {
+    fn openai_configuration_drives_private_gateway_and_application_inputs() {
         let root = std::env::temp_dir().join(format!(
             "ada-openai-{}-{}",
             std::process::id(),
@@ -970,6 +1008,7 @@ mod tests {
             serde_json::to_vec(&json!({
                 "recipeArchive": "https://example.test/immutable/recipes.tgz",
                 "images": images,
+                "agentModel": "openai-chat",
                 "openaiApiKeyFile": key,
                 "models": [{
                     "name": "openai-chat",
@@ -997,6 +1036,23 @@ mod tests {
         let services =
             fs::read_to_string(prepared.private.join("services.parameters.json")).unwrap();
         assert!(!services.contains("test-openai-secret"));
+        let application: Value = serde_json::from_slice(
+            &fs::read(prepared.private.join("application.parameters.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(application["parameters"]["aiProvider"]["value"], "openai");
+        assert_eq!(
+            application["parameters"]["aiEndpoint"]["value"],
+            "https://api.openai.com/v1"
+        );
+        assert_eq!(
+            application["parameters"]["aiModelName"]["value"],
+            "gpt-4o-mini"
+        );
+        assert_eq!(
+            application["parameters"]["aiApiKey"]["value"],
+            "test-openai-secret"
+        );
         let retained = fs::read_to_string(prepared.private.join("openai-api-key")).unwrap();
         assert_eq!(retained, "test-openai-secret");
 

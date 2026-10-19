@@ -34,12 +34,43 @@ pub struct AgentsConfigArgs {
     import_images: bool,
 
     /// Clear model declarations, including from an existing configuration.
-    #[arg(long, conflicts_with = "with_kaito_model")]
+    #[arg(
+        long,
+        conflicts_with_all = ["with_kaito_model", "with_openai_model"]
+    )]
     without_models: bool,
 
     /// Install the example KAITO/vLLM local model declaration.
-    #[arg(long, conflicts_with = "without_models")]
+    #[arg(
+        long,
+        conflicts_with_all = ["without_models", "with_openai_model"]
+    )]
     with_kaito_model: bool,
+
+    /// Configure public OpenAI for both native agents and the trading application.
+    #[arg(
+        long,
+        conflicts_with_all = ["without_models", "with_kaito_model"]
+    )]
+    with_openai_model: bool,
+
+    /// Private file containing the OpenAI API key.
+    #[arg(long)]
+    openai_api_key_file: Option<PathBuf>,
+
+    /// OpenAI model name. Defaults to gpt-4o.
+    #[arg(long)]
+    openai_model: Option<String>,
+
+    /// OpenAI-compatible API endpoint. Defaults to the public OpenAI endpoint.
+    #[arg(long)]
+    openai_endpoint: Option<String>,
+}
+
+struct OpenAiModelInput {
+    api_key_file: PathBuf,
+    endpoint: String,
+    model: String,
 }
 
 pub fn run(args: AgentsConfigArgs) -> Result<()> {
@@ -55,6 +86,26 @@ pub fn run(args: AgentsConfigArgs) -> Result<()> {
         Some(template) => template,
         None => default_template()?,
     };
+    let has_openai_options = args.openai_api_key_file.is_some()
+        || args.openai_model.is_some()
+        || args.openai_endpoint.is_some();
+    if !args.with_openai_model && has_openai_options {
+        bail!("OpenAI options require --with-openai-model");
+    }
+    let openai = args
+        .with_openai_model
+        .then(|| -> Result<OpenAiModelInput> {
+            Ok(OpenAiModelInput {
+                api_key_file: args
+                    .openai_api_key_file
+                    .context("--with-openai-model requires --openai-api-key-file")?,
+                endpoint: args
+                    .openai_endpoint
+                    .unwrap_or_else(|| "https://api.openai.com/v1".into()),
+                model: args.openai_model.unwrap_or_else(|| "gpt-4o".into()),
+            })
+        })
+        .transpose()?;
 
     write_config(
         &args.output,
@@ -63,6 +114,7 @@ pub fn run(args: AgentsConfigArgs) -> Result<()> {
         &commit,
         args.without_models,
         args.with_kaito_model,
+        openai.as_ref(),
     )?;
     ui::heading("ada agents-config");
     ui::detail("repository", &repository);
@@ -211,6 +263,7 @@ fn write_config(
     commit: &str,
     without_models: bool,
     with_kaito_model: bool,
+    openai: Option<&OpenAiModelInput>,
 ) -> Result<()> {
     if output.is_symlink() {
         bail!("refusing a symlink output: {}", output.display());
@@ -247,7 +300,26 @@ fn write_config(
         "imageRegistry".into(),
         Value::String(format!("ghcr.io/{registry_path}")),
     );
-    if with_kaito_model && output_exists {
+    if let Some(openai) = openai {
+        object.insert("agentModel".into(), Value::String("openai-chat".into()));
+        object.insert(
+            "openaiApiKeyFile".into(),
+            Value::String(openai.api_key_file.to_string_lossy().into_owned()),
+        );
+        object.insert(
+            "models".into(),
+            serde_json::json!([{
+                "name": "openai-chat",
+                "properties": {
+                    "model": openai.model,
+                    "openai": {
+                        "endpoint": openai.endpoint,
+                        "model": openai.model
+                    }
+                }
+            }]),
+        );
+    } else if with_kaito_model && output_exists {
         let template_config: Value = serde_json::from_slice(
             &fs::read(template)
                 .with_context(|| format!("failed to read {}", template.display()))?,
@@ -264,8 +336,15 @@ fn write_config(
                     template.display()
                 )
             })?;
+        let selected = models[0]["name"]
+            .as_str()
+            .context("example KAITO model requires a name")?
+            .to_owned();
+        object.insert("agentModel".into(), Value::String(selected));
+        object.remove("openaiApiKeyFile");
         object.insert("models".into(), Value::Array(models));
     } else if without_models || (!output_exists && !with_kaito_model) {
+        object.remove("openaiApiKeyFile");
         object.insert("models".into(), Value::Array(Vec::new()));
     }
     serde_json::from_value::<agents::Config>(config.clone())
@@ -469,6 +548,7 @@ mod tests {
             &"a".repeat(40),
             false,
             false,
+            None,
         )
         .unwrap();
         let mut existing: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
@@ -491,6 +571,7 @@ mod tests {
             &"c".repeat(40),
             false,
             false,
+            None,
         )
         .unwrap();
         let updated: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
@@ -541,6 +622,7 @@ mod tests {
             &"a".repeat(40),
             true,
             false,
+            None,
         )
         .unwrap();
         let config: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
@@ -582,6 +664,7 @@ mod tests {
             &"a".repeat(40),
             false,
             false,
+            None,
         )
         .unwrap();
         let config: Value = serde_json::from_slice(&fs::read(&model_free).unwrap()).unwrap();
@@ -594,6 +677,7 @@ mod tests {
             &"a".repeat(40),
             false,
             true,
+            None,
         )
         .unwrap();
         let config: Value = serde_json::from_slice(&fs::read(&model_free).unwrap()).unwrap();
@@ -607,10 +691,58 @@ mod tests {
             &"a".repeat(40),
             false,
             true,
+            None,
         )
         .unwrap();
         let config: Value = serde_json::from_slice(&fs::read(&kaito).unwrap()).unwrap();
         assert_eq!(config["models"][0]["recipe"], "kaito");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn explicitly_configures_openai_as_the_selected_model() {
+        let root = temp_dir("openai");
+        fs::create_dir(&root).unwrap();
+        let template = root.join("template.json");
+        let output = root.join("agents.json");
+        let key = root.join("openai.key");
+        fs::write(
+            &template,
+            serde_json::to_vec(&json!({
+                "recipeArchive": "placeholder",
+                "agentModel": "local-chat",
+                "models": []
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(&key, "not-read-by-agents-config").unwrap();
+        let openai = OpenAiModelInput {
+            api_key_file: key.clone(),
+            endpoint: "https://api.openai.com/v1".into(),
+            model: "gpt-4o".into(),
+        };
+
+        write_config(
+            &output,
+            &template,
+            "Example/Adaptive-Apps",
+            &"a".repeat(40),
+            false,
+            false,
+            Some(&openai),
+        )
+        .unwrap();
+
+        let config: Value = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+        assert_eq!(config["agentModel"], "openai-chat");
+        assert_eq!(config["openaiApiKeyFile"], key.to_string_lossy().as_ref());
+        assert_eq!(config["models"][0]["name"], "openai-chat");
+        assert_eq!(config["models"][0]["properties"]["model"], "gpt-4o");
+        assert_eq!(
+            config["models"][0]["properties"]["openai"]["endpoint"],
+            "https://api.openai.com/v1"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

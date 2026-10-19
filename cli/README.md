@@ -176,6 +176,13 @@ explicit image digests and identity settings.
 New configurations contain no model declarations by default. Pass
 `--with-kaito-model` only after installing and validating KAITO/GPU support;
 it opts a new configuration into the pinned Qwen3-0.6B example.
+To use public OpenAI consistently for the trading application and native
+agents, pass `--with-openai-model --openai-api-key-file PATH`, plus optional
+`--openai-model` and `--openai-endpoint` overrides. The generated configuration
+selects `openai-chat`; `ada init` retains the key and derives both the Model
+Gateway Secret and the private Radius application parameter file. The emitted
+deployment command contains no API key and accepts no separate native
+`AI_PARAMS` override.
 
 `--import-images` runs `sudo k3s ctr -n k8s.io images pull` for required images
 that are not already present. It preserves configured immutable `images`

@@ -100,9 +100,19 @@ and Radius environment. Pick **one**:
 
     # Publish recipes and application images first:
     # docs/agents/native-radius.md#local-artifact-and-executor-preparation
-    ada agents-config --output agents.json --import-images
+    # Public OpenAI:
+    ada agents-config \
+      --output agents.json \
+      --import-images \
+      --with-openai-model \
+      --openai-model gpt-4o \
+      --openai-api-key-file "$OPENAI_API_KEY_FILE"
+
+    # Or prepare without a model:
+    # ada agents-config --output agents.json --import-images
     # New configurations deploy no model by default. Add
     # --with-kaito-model only after completing GPU + KAITO preparation.
+    # Omit both --with-* flags to prepare identity and agents without a model.
     # Use --without-models to clear models from an existing configuration.
     # This uses the origin GitHub repository and its newest published
     # recipes-<commit> release containing recipes.tgz. An explicit --commit
@@ -118,11 +128,15 @@ and Radius environment. Pick **one**:
       --refresh-derived-state
     ```
 
-    The opt-in KAITO example requires a GPU. Complete
+    Set `OPENAI_API_KEY_FILE` to a mode-0600 file outside the repository.
+    The generated OpenAI declaration drives both the trading application and
+    native Model Gateway; do not set a separate `AI_PARAMS` array for
+    `trading-native`. The opt-in KAITO example requires a GPU. Complete
     [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md), or configure
     a reviewed remote model. Public OpenAI uses an `openai` binding and
-    `openaiApiKeyFile`; `ada init` retains that file's value only in the private
-    model-gateway Secret. There is no automatic CPU fallback.
+    `openaiApiKeyFile`; `ada init` retains that file's value only in private
+    state used for the Model Gateway Secret and Radius application parameters.
+    There is no automatic CPU fallback.
 
 4. Bootstrap the selected sample.
 
@@ -365,13 +379,19 @@ cd -
 Pick how the sample app's AI agent reaches a model. The choice is
 **independent of the portfolio** — any portfolio can use either provider:
 
-* **`local`** — talk to a Kaito-served model running in the cluster. Only
-  works on `*-ai` portfolios (they're the ones that provision Kaito).
+For `SAMPLE=trading-native`, skip this section. The model selected by
+`ada agents-config` is authoritative, and `ada init` writes the corresponding
+private Radius application parameters.
+
+For `SAMPLE=trading`, use `AI_PARAMS`:
+
+* **`local`** — talk to a separately installed Kaito-served model running in
+  the cluster. KAITO remains an explicit prerequisite for every portfolio.
 * **`openai`** — call an OpenAI or Azure OpenAI endpoint with the API key
   from §0. Works on every portfolio.
 
 ```bash
-# Local on-cluster model (requires a *-ai portfolio):
+# Local on-cluster model (requires a separately installed KAITO provider):
 AI_PARAMS=(--parameters aiProvider=local --parameters aiModel=Qwen/Qwen3-0.6B)
 
 # OR — OpenAI / Azure OpenAI (works with any portfolio):
