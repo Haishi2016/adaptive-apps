@@ -171,13 +171,9 @@ spec:
   policyTypes: ["Ingress"]
   ingress:
     - from:
-        - namespaceSelector:
+        - podSelector:
             matchLabels:
-              kubernetes.io/metadata.name: envoy-gateway-system
-          podSelector:
-            matchLabels:
-              gateway.envoyproxy.io/owning-gateway-namespace: {{ .Release.Namespace }}
-              gateway.envoyproxy.io/owning-gateway-name: agent-ingress
+              gateway.networking.k8s.io/gateway-name: agent-ingress
       ports:
         - protocol: TCP
           port: 8080
@@ -230,8 +226,8 @@ spec:
         - name: platform-api
           port: 8080
 ---
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: SecurityPolicy
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
 metadata:
   name: platform-api
   namespace: {{ .Release.Namespace }}
@@ -240,33 +236,28 @@ spec:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
       name: platform-api
-  jwt:
-    providers:
-      - name: keycloak
-        issuer: {{ required "runtime.issuer is required" .Values.runtime.issuer | quote }}
-        audiences: ["api://adaptive-broker"]
-        remoteJWKS:
-          uri: http://{{ .Values.keycloakService | default (printf "%s-keycloak" .Release.Name) }}.{{ .Release.Namespace }}.svc.cluster.local:8080/realms/adaptive/protocol/openid-connect/certs
-        extractFrom:
-          headers:
-            - name: Authorization
-              valuePrefix: "Bearer "
-  authorization:
-    defaultAction: Deny
-    rules:
-      - name: human-inventory
-        action: Allow
-        operation:
-          methods: ["GET", "PATCH"]
-        principal:
-          jwt:
-            provider: keycloak
-            claims:
-              - name: roles
-                valueType: StringArray
-                values: ["agent.invoke"]
-              - name: azp
-                values: ["adaptive-ui", "adaptive-trading"]
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: {{ required "runtime.issuer is required" .Values.runtime.issuer | quote }}
+          audiences: ["api://adaptive-broker"]
+          jwks:
+            remote:
+              backendRef:
+                group: ""
+                kind: Service
+                name: {{ .Values.keycloakService | default (printf "%s-keycloak" .Release.Name) }}
+                namespace: {{ .Release.Namespace }}
+                port: 8080
+              jwksPath: /realms/adaptive/protocol/openid-connect/certs
+              cacheDuration: 5m
+    authorization:
+      action: Allow
+      policy:
+        matchExpressions:
+          - 'jwt.azp in ["adaptive-ui", "adaptive-trading"]'
+          - 'jwt.roles.exists(role, role == "agent.invoke")'
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway

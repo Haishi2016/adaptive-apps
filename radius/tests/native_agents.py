@@ -333,6 +333,23 @@ class NativeAgents(unittest.TestCase):
         ingress = next(obj for obj in self.resources if obj["kind"] == "Gateway"
                        and obj["metadata"]["name"] == "agent-ingress")
         self.assertEqual(ingress["spec"]["gatewayClassName"], "agentgateway")
+        api_policy = next(obj for obj in self.resources
+                          if obj["kind"] == "AgentgatewayPolicy"
+                          and obj["metadata"]["name"] == "platform-api")
+        self.assertEqual(api_policy["spec"]["targetRefs"][0]["name"], "platform-api")
+        self.assertEqual(
+            api_policy["spec"]["traffic"]["jwtAuthentication"]["mode"],
+            "Strict",
+        )
+        api_network = next(obj for obj in self.resources
+                           if obj["kind"] == "NetworkPolicy"
+                           and obj["metadata"]["name"] == "platform-api")
+        source = api_network["spec"]["ingress"][0]["from"][0]
+        self.assertEqual(
+            source["podSelector"]["matchLabels"],
+            {"gateway.networking.k8s.io/gateway-name": "agent-ingress"},
+        )
+        self.assertNotIn("namespaceSelector", source)
         self.assertFalse(any(obj["kind"] == "CustomResourceDefinition" for obj in self.resources))
 
     def test_fault_is_only_public_egress(self):
