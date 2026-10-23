@@ -3,7 +3,7 @@ default:
 
 build:
     mkdir -p ../../build
-    CGO_ENABLED=0 go build -o ../../build/agent-gateway .
+    CGO_ENABLED=0 go build -o ../../build/agent-policy .
 
 test:
     go test ./...
@@ -13,4 +13,4 @@ lint:
     test -z "$(gofmt -l *.go)"
 
 image:
-    cd ../.. && just image agent-gateway
+    cd ../.. && just image agent-policy

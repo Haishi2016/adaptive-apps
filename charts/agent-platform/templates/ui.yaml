@@ -274,7 +274,7 @@ metadata:
   name: ui-ingress
   namespace: {{ .Release.Namespace }}
 spec:
-  gatewayClassName: adaptive
+  gatewayClassName: adaptive-envoy
   listeners:
     {{- range $listener := list (dict "name" "ui" "port" 8443) (dict "name" "identity" "port" 8444) }}
     - name: {{ $listener.name }}

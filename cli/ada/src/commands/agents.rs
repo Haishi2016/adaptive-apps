@@ -15,7 +15,7 @@ const SIDECAR: &str = "mcr.microsoft.com/entra-sdk/auth-sidecar:1.1.0-azurelinux
 pub(crate) const COMPONENTS: [&str; 7] = [
     "prompt-agent",
     "editor",
-    "agent-gateway",
+    "agent-policy",
     "governance-sidecar",
     "platform-api",
     "ui",
@@ -48,6 +48,8 @@ pub struct Config {
     pub model_gateway_identity: Option<GatewayIdentity>,
     #[serde(default)]
     pub openai_api_key_file: Option<PathBuf>,
+    #[serde(default)]
+    pub strict_responses: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -150,11 +152,24 @@ pub fn check_ownership(namespace: &str, release: &str) -> Result<()> {
     for (kind, name, owner, scope) in [
         ("crd", "gateways.gateway.networking.k8s.io", "", ""),
         ("gatewayclass", "adaptive", release, ""),
+        ("gatewayclass", "adaptive-envoy", release, ""),
         (
             "deployment",
             "envoy-gateway",
             "adaptive-envoy",
             "envoy-gateway-system",
+        ),
+        (
+            "deployment",
+            "agentgateway",
+            "agentgateway",
+            "agentgateway-system",
+        ),
+        (
+            "crd",
+            "agentgatewaypolicies.agentgateway.dev",
+            "agentgateway-crds",
+            "agentgateway-system",
         ),
     ] {
         let mut command = Command::new("kubectl");
@@ -174,7 +189,7 @@ pub fn check_ownership(namespace: &str, release: &str) -> Result<()> {
         }
         let resource: Value = serde_json::from_slice(&result.stdout)?;
         let annotations = &resource["metadata"]["annotations"];
-        if kind == "crd" {
+        if kind == "crd" && name == "gateways.gateway.networking.k8s.io" {
             if annotations["gateway.networking.k8s.io/bundle-version"] != "v1.6.1"
                 || annotations["gateway.networking.k8s.io/channel"] != "experimental"
             {
@@ -685,8 +700,10 @@ pub fn prepare(
                 }
             },
             "platform": {
-                "agentGatewayImage": images["agent-gateway"], "sidecarImage": SIDECAR,
+                "policyServiceImage": images["agent-policy"], "sidecarImage": SIDECAR,
+                "strictResponses": config.strict_responses,
                 "governanceImage": images["governance-sidecar"], "keycloakUrl": keycloak,
+                "keycloakService": format!("{release}-keycloak"),
                 "issuer": issuer, "ingressUrl": "https://localhost:8443",
                 "otelEndpoint": format!("http://otel-collector.{namespace}.svc.cluster.local:4318"),
                 "peers": config.peers
@@ -727,7 +744,8 @@ pub fn prepare(
                 "telemetry": {"enabled": true},
                 "runtime": {
                     "uiImage": images["ui"], "apiImage": images["platform-api"],
-                    "agentGatewayImage": images["agent-gateway"], "issuer": issuer,
+                    "policyServiceImage": images["agent-policy"], "issuer": issuer,
+                    "strictResponses": config.strict_responses,
                     "certificateSecret": "adaptive-ui-tls",
                     "environmentJson": json!({"name": namespace, "cloud": {"enabled": config.connected.is_some() || cloud_models || openai_models}}).to_string()
                 },

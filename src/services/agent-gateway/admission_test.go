@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	authv3 "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
+	"google.golang.org/grpc/codes"
 )
 
 func TestStatelessAdmission(t *testing.T) {
@@ -88,29 +92,36 @@ func TestSharedGatewayAdmission(t *testing.T) {
 	}
 }
 
-func TestDelegationBrokerFailsClosedThroughSharedAdmission(t *testing.T) {
-	gateway := httptest.NewServer(gatewayAdmission())
-	defer gateway.Close()
-	broker := &adapter{
-		admissionURL: gateway.URL,
-		client:       gateway.Client(),
-	}
-	path := "/agents/writer/responses"
+func TestGRPCExternalAuthorization(t *testing.T) {
+	server := &authorizationServer{handler: gatewayAdmission()}
 	for _, tc := range []struct {
 		name, body string
-		status     int
+		code       codes.Code
 	}{
-		{"valid", `{"input":"hello","store":false}`, http.StatusOK},
-		{"stored", `{"input":"hello","store":true}`, http.StatusForbidden},
-		{"reference", `{"input":"hello","store":false,"previous_response_id":"other"}`, http.StatusForbidden},
+		{"stateless", `{"input":"hello","store":false}`, codes.OK},
+		{"stored", `{"input":"hello","store":true}`, codes.PermissionDenied},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(tc.body))
-			request.Header.Set("Content-Type", "application/json")
-			result := httptest.NewRecorder()
-			broker.responseAdmission("").ServeHTTP(result, request)
-			if result.Code != tc.status {
-				t.Fatalf("status=%d, wanted=%d", result.Code, tc.status)
+			response, err := server.Check(context.Background(), &authv3.CheckRequest{
+				Attributes: &authv3.AttributeContext{
+					Request: &authv3.AttributeContext_Request{
+						Http: &authv3.AttributeContext_HttpRequest{
+							Method:  http.MethodPost,
+							Path:    "/agents/writer/responses",
+							Headers: map[string]string{"content-type": "application/json"},
+							RawBody: []byte(tc.body),
+						},
+					},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if codes.Code(response.GetStatus().GetCode()) != tc.code {
+				t.Fatalf("status=%s, wanted=%s", codes.Code(response.GetStatus().GetCode()), tc.code)
+			}
+			if tc.code == codes.OK && len(response.GetOkResponse().GetHeaders()) != 3 {
+				t.Fatal("verified request-local identity headers were not returned")
 			}
 		})
 	}

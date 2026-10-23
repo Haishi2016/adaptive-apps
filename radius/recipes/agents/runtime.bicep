@@ -19,6 +19,10 @@ var governanceMode = p.?governance.?mode ?? ''
 var governed = !empty(governanceConfig)
 var modelUrl = 'http://model-ingress.${namespace}.svc.cluster.local:8080/v1'
 var peers = filter(platform.?peers ?? [], peer => contains(peer.targets, p.agentName))
+var strictResponses = platform.?strictResponses ?? false
+var peerAuthorization = join(map(peers, peer => '(jwt.azp == "${peer.keycloakClientId}" && jwt.agent_id == "${peer.agentId}")'), ' || ')
+var callerAuthorization = '(jwt.azp in ["adaptive-ui", "adaptive-trading"] && jwt.roles.exists(role, role == "agent.invoke"))${empty(peerAuthorization) ? '' : ' || ${peerAuthorization}'}'
+var trustedHeaderAuthorization = '! ("x-client-identity-mode" in request.headers) && ! ("x-client-microsoft-graph-access-token" in request.headers) && ! ("x-client-graph-user-id" in request.headers)'
 var labels = {
   'app.kubernetes.io/managed-by': 'radius'
   'app.kubernetes.io/component': 'agent-runtime'
@@ -69,8 +73,8 @@ var agentEnv = concat([
   contains(def, 'top_p') ? [{ name: 'TOP_P', value: string(def.top_p) }] : [],
   map(items(def.?environment ?? {}), item => { name: item.key, value: item.value }))
 var brokerEnv = [
-  { name: 'AGENT_GATEWAY_MODE', value: 'delegation-broker' }
-  { name: 'AGENT_GATEWAY_ADMISSION_URL', value: 'http://agent-gateway-policy.${namespace}.svc.cluster.local:8083' }
+  { name: 'AGENT_POLICY_MODE', value: 'delegation-broker' }
+  { name: 'RESPONSES_ADMISSION_ENABLED', value: strictResponses ? 'true' : 'false' }
   { name: 'IDENTITY_SIDECAR_URL', value: 'http://127.0.0.1:5000' }
   { name: 'AGENT_IDENTITY_CLIENT_ID', value: id.?entraClientId ?? '' }
   { name: 'KEYCLOAK_TOKEN_URL', value: '${platform.keycloakUrl}/realms/adaptive/protocol/openid-connect/token' }
@@ -184,11 +188,11 @@ resource workload 'apps/StatefulSet@v1' = {
           }
         ], graph ? [{
           name: 'delegation-broker'
-          image: platform.agentGatewayImage
+          image: platform.policyServiceImage
           env: brokerEnv
           ports: [{ name: 'authorization', containerPort: 8083 }]
           securityContext: union(security, { readOnlyRootFilesystem: true })
-          readinessProbe: { exec: { command: ['/agent-gateway', '--healthcheck'] } }
+          readinessProbe: { exec: { command: ['/agent-policy', '--healthcheck'] } }
         }, {
           name: 'identity-sidecar'
           image: platform.sidecarImage
@@ -237,7 +241,7 @@ resource service 'core/Service@v1' = {
     ports: concat([
       { name: 'http', port: 8080, targetPort: 'http' }
     ], graph ? [
-      { name: 'authorization', port: 8083, targetPort: 'authorization' }
+      { name: 'authorization', port: 8083, targetPort: 'authorization', appProtocol: 'kubernetes.io/h2c' }
     ] : [])
   }
 }
@@ -258,82 +262,91 @@ resource route 'gateway.networking.k8s.io/HTTPRoute@v1' = {
     }]
   }
 }
-resource authorization 'gateway.envoyproxy.io/SecurityPolicy@v1alpha1' = {
+resource authorization 'agentgateway.dev/AgentgatewayPolicy@v1alpha1' = {
   metadata: metadata
   spec: {
     targetRefs: [{ group: 'gateway.networking.k8s.io', kind: 'HTTPRoute', name: route.metadata.name }]
-    cors: {
-      allowOrigins: [
-        'http://localhost:3000'
-        'https://localhost:8443'
-      ]
-      allowMethods: ['POST', 'OPTIONS']
-      allowHeaders: [
-        'Authorization'
-        'Content-Type'
-        'Accept'
-        'X-Impersonation-Mode'
-        'X-Entra-User-Token'
-      ]
-      exposeHeaders: ['Content-Type']
-      allowCredentials: true
-      maxAge: '10m'
-    }
-    jwt: {
-      providers: concat([{
-        name: 'keycloak'
-        issuer: platform.issuer
-        audiences: ['api://adaptive-broker']
-        remoteJWKS: { uri: '${platform.keycloakUrl}/realms/adaptive/protocol/openid-connect/certs' }
-        extractFrom: { headers: [{ name: 'Authorization', valuePrefix: 'Bearer ' }] }
-      }], empty(peers) ? [] : [{
-        name: 'keycloak-agent'
-        issuer: platform.issuer
-        audiences: ['api://adaptive-model-gateway']
-        remoteJWKS: { uri: '${platform.keycloakUrl}/realms/adaptive/protocol/openid-connect/certs' }
-        extractFrom: { headers: [{ name: 'Authorization', valuePrefix: 'Bearer ' }] }
-      }])
-    }
-    authorization: {
-      defaultAction: 'Deny'
-      rules: concat([{
-        name: 'human-invoke'
-        action: 'Allow'
-        operation: { methods: ['POST'] }
-        principal: { jwt: { provider: 'keycloak', claims: [
-          { name: 'roles', valueType: 'StringArray', values: ['agent.invoke'] }
-          { name: 'azp', values: ['adaptive-ui', 'adaptive-trading'] }
-        ] } }
-      }], empty(peers) ? [] : [{
-        name: 'local-peer-invoke'
-        action: 'Allow'
-        operation: { methods: ['POST'] }
-        principal: { jwt: { provider: 'keycloak-agent', claims: [
-          { name: 'azp', values: map(peers, peer => peer.keycloakClientId) }
-          { name: 'agent_id', values: map(peers, peer => peer.agentId) }
-        ] } }
-      }])
-    }
-    extAuth: {
-      http: {
-        backendRefs: [graph
-          ? { name: service.metadata.name, port: 8083 }
-          : { name: 'agent-gateway-policy', port: 8083 }]
-        headersToBackend: ['X-Admission-Identity-Mode', 'X-Admission-Graph-Token', 'X-Admission-Graph-User']
+    traffic: union({
+      cors: {
+        allowOrigins: [
+          'http://localhost:3000'
+          'https://localhost:8443'
+        ]
+        allowMethods: ['POST', 'OPTIONS']
+        allowHeaders: [
+          'Authorization'
+          'Content-Type'
+          'Accept'
+          'X-Impersonation-Mode'
+          'X-Entra-User-Token'
+        ]
+        exposeHeaders: ['Content-Type']
+        allowCredentials: true
+        maxAge: 600
       }
-      headersToExtAuth: ['Content-Type', 'Content-Encoding', 'X-Envoy-Auth-Partial-Body', 'Authorization', 'X-Impersonation-Mode', 'X-Entra-User-Token']
-      bodyToExtAuth: { maxRequestBytes: 1048576 }
-      failOpen: false
-      recomputeRoute: false
-      timeout: '30s'
-    }
-  }
-}
-resource headers 'gateway.envoyproxy.io/EnvoyExtensionPolicy@v1alpha1' = {
-  metadata: metadata
-  spec: {
-    targetRefs: [{ group: 'gateway.networking.k8s.io', kind: 'HTTPRoute', name: route.metadata.name }]
-    lua: [{ type: 'Inline', inline: loadTextContent('headers.lua') }]
+      jwtAuthentication: {
+        mode: 'Strict'
+        preserveToken: graph
+        providers: concat([{
+          issuer: platform.issuer
+          audiences: ['api://adaptive-broker']
+          jwks: { remote: {
+            backendRef: {
+              group: ''
+              kind: 'Service'
+              name: platform.keycloakService
+              namespace: namespace
+              port: 80
+            }
+            jwksPath: '/realms/adaptive/protocol/openid-connect/certs'
+            cacheDuration: '5m'
+          } }
+        }], empty(peers) ? [] : [{
+          issuer: platform.issuer
+          audiences: ['api://adaptive-model-gateway']
+          jwks: { remote: {
+            backendRef: {
+              group: ''
+              kind: 'Service'
+              name: platform.keycloakService
+              namespace: namespace
+              port: 80
+            }
+            jwksPath: '/realms/adaptive/protocol/openid-connect/certs'
+            cacheDuration: '5m'
+          } }
+        }])
+      }
+      authorization: {
+        action: 'Allow'
+        policy: {
+          matchExpressions: ['${trustedHeaderAuthorization} && (${callerAuthorization})']
+        }
+      }
+      headerModifiers: {
+        request: {
+          remove: concat([
+            'Authorization'
+            'Cookie'
+            'X-Impersonation-Mode'
+            'X-Entra-User-Token'
+          ], graph ? [] : [
+            'X-Client-Identity-Mode'
+            'X-Client-Microsoft-Graph-Access-Token'
+            'X-Client-Graph-User-Id'
+          ])
+        }
+      }
+    }, graph || strictResponses ? {
+      extAuth: {
+        backendRef: graph
+          ? { name: service.metadata.name, port: 8083 }
+          : { name: 'responses-admission', port: 8083 }
+        failureMode: 'FailClosed'
+        forwardBody: { maxSize: 1048576 }
+        grpc: {}
+      }
+    } : {})
   }
 }
 resource isolation 'networking.k8s.io/NetworkPolicy@v1' = {
@@ -343,10 +356,9 @@ resource isolation 'networking.k8s.io/NetworkPolicy@v1' = {
     policyTypes: ['Ingress', 'Egress']
     ingress: [{
       from: [{
-        namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'envoy-gateway-system' } }
+        namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': namespace } }
         podSelector: { matchLabels: {
-          'gateway.envoyproxy.io/owning-gateway-namespace': namespace
-          'gateway.envoyproxy.io/owning-gateway-name': 'agent-ingress'
+          'gateway.networking.k8s.io/gateway-name': 'agent-ingress'
         } }
       }]
       ports: concat([{ protocol: 'TCP', port: 8080 }], graph ? [{ protocol: 'TCP', port: 8083 }] : [])
@@ -368,14 +380,14 @@ resource isolation 'networking.k8s.io/NetworkPolicy@v1' = {
         ports: [{ protocol: 'TCP', port: 4318 }]
       }
       {
-        to: [{ podSelector: { matchLabels: { 'app.kubernetes.io/name': 'agent-gateway-policy' } } }]
-        ports: [{ protocol: 'TCP', port: 8083 }]
-      }
-      {
         to: [{
           namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'envoy-gateway-system' } }
           podSelector: { matchLabels: { 'gateway.envoyproxy.io/owning-gateway-namespace': namespace } }
         }]
+        ports: [{ protocol: 'TCP', port: 8080 }]
+      }
+      {
+        to: [{ podSelector: { matchLabels: { 'gateway.networking.k8s.io/gateway-name': 'agent-ingress' } } }]
         ports: [{ protocol: 'TCP', port: 8080 }]
       }
     ]
@@ -388,8 +400,7 @@ output result object = {
     '/planes/kubernetes/local/namespaces/${namespace}/providers/apps/StatefulSet/${name}'
     '/planes/kubernetes/local/namespaces/${namespace}/providers/core/Service/${name}'
     '/planes/kubernetes/local/namespaces/${namespace}/providers/gateway.networking.k8s.io/HTTPRoute/${name}'
-    '/planes/kubernetes/local/namespaces/${namespace}/providers/gateway.envoyproxy.io/SecurityPolicy/${name}'
-    '/planes/kubernetes/local/namespaces/${namespace}/providers/gateway.envoyproxy.io/EnvoyExtensionPolicy/${name}'
+    '/planes/kubernetes/local/namespaces/${namespace}/providers/agentgateway.dev/AgentgatewayPolicy/${name}'
     '/planes/kubernetes/local/namespaces/${namespace}/providers/networking.k8s.io/NetworkPolicy/${name}'
   ], governed ? [
     '/planes/kubernetes/local/namespaces/${namespace}/providers/core/ConfigMap/${governance!.metadata.name}'

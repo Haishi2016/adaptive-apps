@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	admissionMode  = "X-Admission-Identity-Mode"
-	admissionToken = "X-Admission-Graph-Token"
-	admissionUser  = "X-Admission-Graph-User"
+	admissionMode  = "X-Client-Identity-Mode"
+	admissionToken = "X-Client-Microsoft-Graph-Access-Token"
+	admissionUser  = "X-Client-Graph-User-Id"
 )
 
 var identityID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
@@ -101,9 +101,7 @@ func (a *adapter) identityJSON(r *http.Request, endpoint, bearer string, result 
 }
 
 func (a *adapter) admitIdentity(w http.ResponseWriter, r *http.Request) *admissionError {
-	// Always overwrite these upstream headers, including app-mode empty values.
-	// Envoy's subsequent Lua filter rejects caller x-client-* headers before
-	// converting these admission outputs into the runtime's request-local context.
+	// Always overwrite the request-local headers, including app-mode empty values.
 	w.Header().Set(admissionMode, "app")
 	w.Header().Set(admissionToken, "")
 	w.Header().Set(admissionUser, "")

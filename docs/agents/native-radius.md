@@ -11,17 +11,18 @@ trading recipes remain independent of the native-agent environment.
 
 | Declaration | Native implementation | Retention |
 | --- | --- | --- |
-| `agents` | Logical ConfigMap plus one mutable singleton StatefulSet, Service, HTTPRoute, SecurityPolicy, Lua header boundary and NetworkPolicy | Logical metadata and state PVC retained; current runtime updated in place |
+| `agents` | Logical ConfigMap plus one mutable singleton StatefulSet, Service, HTTPRoute, AgentgatewayPolicy and NetworkPolicy | Logical metadata and state PVC retained; current runtime updated in place |
 | `agentIdentities` | Keycloak client, optional Entra blueprint/principal/Agent ID, Secret, binding ConfigMap and ServiceAccount | Independent protected Terraform state |
 | `aiModels` | Gateway configuration; KAITO/vLLM inference, existing inference Service, remote Foundry binding or virtual priority group | Weights/cache retained |
 | `agentGuardrails` | Native policy ConfigMap | Retained; the current agent records exact attached content |
 | `keycloakLogins` | Existing-realm PKCE client and optional reviewed Entra federation | Separate administrator environment |
 
 The portfolio Helm release owns the additive native capability, shared
-PostgreSQL-backed Keycloak and one OTel Collector. A stock Helm release owns
-the upstream Envoy controller. Radius owns application models, login clients,
-logical agents and retained identities, not either Helm
-release. Superseded native H2/Keycloak, collector and platform Terraform
+PostgreSQL-backed Keycloak and one OTel Collector. Stock Helm releases own
+upstream Envoy for UI/model ingress and upstream agentgateway for agent
+ingress. Radius owns application models, login clients, logical agents and
+retained identities, not either gateway release. Superseded native
+H2/Keycloak, collector and platform Terraform
 implementations have been removed.
 
 Invocation uses two independent gateway boundaries:
@@ -30,13 +31,15 @@ Invocation uses two independent gateway boundaries:
 application -> Agent Gateway -> agent -> Model Gateway -> model
 ```
 
-The Agent Gateway is Envoy plus one namespace-level Responses policy service.
-It authenticates callers, authorizes exact stable agent routes and rejects
-unqualified stored, referenced or background Responses operations. Agents use
-their paired Keycloak OAuth clients directly for in-cluster Model Gateway and
-peer-agent calls. LiteLLM owns model routing and provider identity. Connected
-Graph delegation remains an explicit colocated broker backed by the official
-Entra sidecar; it is not part of model invocation.
+Upstream agentgateway authenticates callers, authorizes exact stable agent
+routes, strips caller credentials, routes requests, and emits gateway
+telemetry. Strict body-aware Responses admission is optional and disabled by
+default; set `strictResponses` in `agents.json` to reject stored, referenced,
+or background operations at the gateway. Agents use their paired Keycloak
+OAuth clients directly for in-cluster Model Gateway and peer-agent calls.
+LiteLLM owns model routing and provider identity. Connected Graph delegation
+remains an explicit colocated broker backed by the official Entra sidecar; it
+is not part of model invocation.
 
 Native ValidatingAdmissionPolicies keep logical kind/ownership,
 prevent a second runtime replica (including the scale subresource), reject
@@ -62,12 +65,12 @@ and connected Graph delegation bindings. Prompt MCP/skills,
 stored/child/background Responses, hosted delegation, evaluation Jobs and
 same-image cloud hosting are not qualified by this capability.
 
-Ordinary calls go directly through authorized Envoy ingress to
-`POST /agents/{agent}/responses`. The shared Agent Gateway
-policy service admits only foreground plain-text requests with explicit
-`store=false`, removes browser assertions before SDK handling and never
-forwards Responses. Native child,
-reference and background operations are denied. All edge model calls and
+Ordinary calls go directly through authorized agentgateway ingress to
+`POST /agents/{agent}/responses`. Agentgateway removes browser credentials and
+delegation inputs before SDK handling. When strict Responses admission is
+enabled, the separate policy service admits only foreground plain-text
+requests with explicit `store=false`; native child, reference, and background
+operations are denied. All edge model calls and
 `GET /v1/models` use authenticated `model-ingress`/LiteLLM, never the diagnostics
 API or an inference Pod directly.
 
@@ -92,13 +95,14 @@ This follows Adaptive Apps' existing split between
 and application-owned Radius declarations. Connected clusters first complete
 the existing [Arc preparation guide](../../tutorials/common/prepare-arc.md),
 including the actual Kubernetes signer configuration. Do not install two
-Keycloak/Envoy owners over the same resources. The native capability is
+Keycloak or gateway owners over the same resources. The native capability is
 `min-ai` plus an additive application feature, not a seventh portfolio or a
 claim to qualify every `core`/`ent` gate.
 
 ### Local artifact and executor preparation
 
-Install stock Envoy **before Radius** on a fresh cluster. Envoy v1.9.2 ships
+Install stock Envoy and agentgateway **before Radius** on a fresh cluster.
+Envoy v1.9.2 ships
 Gateway API v1.6.1; Radius 0.61 otherwise installs v1.4.0 CRDs first.
 Do not force conflicting CRD ownership or run another CRD installation over
 provider-managed incompatible resources. The CLI fails that preflight.
@@ -109,7 +113,15 @@ and [compatibility matrix](https://gateway.envoyproxy.io/news/releases/matrix/).
 ```bash
 helm upgrade --install adaptive-envoy oci://docker.io/envoyproxy/gateway-helm \
   --version v1.9.2 -n envoy-gateway-system --create-namespace \
-  --set config.envoyGateway.extensionApis.enableLua=true --wait --timeout 10m
+  --wait --timeout 10m
+helm upgrade --install agentgateway-crds \
+  oci://cr.agentgateway.dev/charts/agentgateway-crds \
+  --version v1.6.0 -n agentgateway-system --create-namespace --wait
+kubectl create namespace YOUR_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+helm upgrade --install agentgateway \
+  oci://cr.agentgateway.dev/charts/agentgateway \
+  --version v1.6.0 -n agentgateway-system --create-namespace \
+  --set 'rbac.gatewayNamespaces[0]=YOUR_NAMESPACE' --wait --timeout 10m
 ```
 
 Then install stock Radius using the existing manual bootstrap pattern, without
@@ -293,8 +305,9 @@ or platform resources owned by the mutable workload.
    Publish a new immutable chart/recipe archive for recipe implementation
    changes rather than replacing an already published archive.
 
-Platform recipe bindings are `agentGatewayImage`, `sidecarImage`, `governanceImage`,
-`keycloakUrl`, `issuer`, `ingressUrl`, `otelEndpoint` and optional explicit
+Platform recipe bindings are `policyServiceImage`, `strictResponses`,
+`sidecarImage`, `governanceImage`, `keycloakUrl`, `keycloakService`, `issuer`,
+`ingressUrl`, `otelEndpoint` and optional explicit
 `peers` (`keycloakClientId`, `agentId`, `targets`). Sidecar images must be pinned
 digests. `ingressUrl` is the public client origin, not an internal DNS name.
 Model-gateway chart values require an exact issuer/JWKS URL and explicit

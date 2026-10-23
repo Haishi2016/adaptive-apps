@@ -826,10 +826,10 @@ mod tests {
     fn image_import_skips_exact_references_already_in_k3s() {
         let images = vec![
             "registry/prompt-agent:latest".to_owned(),
-            "registry/agent-gateway:latest".to_owned(),
+            "registry/agent-policy:latest".to_owned(),
         ];
         let missing =
-            missing_image_references(images, "registry/agent-gateway:latest\nsha256:abc\n");
+            missing_image_references(images, "registry/agent-policy:latest\nsha256:abc\n");
         assert_eq!(missing, vec!["registry/prompt-agent:latest"]);
     }
 

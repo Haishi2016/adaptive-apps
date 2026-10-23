@@ -22,7 +22,7 @@ use crate::ui;
 const DEFAULT_CHART_REGISTRY: &str = "oci://ghcr.io/microsoft/adaptive-apps/charts";
 
 /// Default chart version pulled when `--version` is not supplied.
-const DEFAULT_CHART_VERSION: &str = "0.2.0";
+const DEFAULT_CHART_VERSION: &str = "0.3.0";
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
@@ -416,7 +416,7 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
     if args.dry_run {
         ui::dry_run("not executing helm");
         if native {
-            ui::dry_run("would prepare private inputs, install Envoy v1.9.2, wait for shared Keycloak, deploy native services and optionally seed demo users");
+            ui::dry_run("would prepare private inputs, install Envoy v1.9.2 and agentgateway v1.6.0, wait for shared Keycloak, deploy native services and optionally seed demo users");
         }
         if args.with_radius {
             install_radius(&args)?;
@@ -445,7 +445,7 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
             }),
             args.refresh_derived_state,
         )?;
-        install_native_envoy()?;
+        install_native_gateways(&args.namespace)?;
         install_radius(&args)?;
         native_prerequisites(&args, &prepared)?;
         Some(prepared)
@@ -1189,7 +1189,18 @@ fn wants_azure_credential_automation(args: &BootstrapArgs) -> bool {
         && args.aks_cluster.is_some()
 }
 
-fn install_native_envoy() -> Result<()> {
+fn install_native_gateways(namespace: &str) -> Result<()> {
+    if !Command::new("kubectl")
+        .args(["get", "namespace", namespace])
+        .status()?
+        .success()
+        && !Command::new("kubectl")
+            .args(["create", "namespace", namespace])
+            .status()?
+            .success()
+    {
+        bail!("Failed to prepare native namespace {namespace}");
+    }
     let status = Command::new("helm")
         .args([
             "upgrade",
@@ -1210,6 +1221,39 @@ fn install_native_envoy() -> Result<()> {
         .status()?;
     if !status.success() {
         bail!("Native Envoy prerequisite failed");
+    }
+
+    for (release, chart) in [
+        (
+            "agentgateway-crds",
+            "oci://cr.agentgateway.dev/charts/agentgateway-crds",
+        ),
+        (
+            "agentgateway",
+            "oci://cr.agentgateway.dev/charts/agentgateway",
+        ),
+    ] {
+        let mut command = Command::new("helm");
+        command.args([
+            "upgrade",
+            "--install",
+            release,
+            chart,
+            "--version",
+            "v1.6.0",
+            "--namespace",
+            "agentgateway-system",
+            "--create-namespace",
+        ]);
+        if release == "agentgateway" {
+            command
+                .arg("--set")
+                .arg(format!("rbac.gatewayNamespaces[0]={namespace}"));
+        }
+        command.args(["--wait", "--timeout", "10m"]);
+        if !command.status()?.success() {
+            bail!("{release} installation failed");
+        }
     }
     Ok(())
 }

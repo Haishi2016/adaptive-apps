@@ -13,8 +13,9 @@ Invocation follows two explicit gateway boundaries:
 application -> Agent Gateway -> agent -> Model Gateway -> model
 ```
 
-Envoy plus the shared `agent-gateway-policy` service authenticate callers,
-authorize exact agent routes and restrict the native Responses request shape.
+Upstream agentgateway authenticates callers, authorizes exact agent routes,
+strips caller credentials, and routes requests. Set `strictResponses: true` to
+add the optional shared `responses-admission` request-shape validator.
 Agents use their paired Keycloak OAuth clients for Model Gateway and peer-agent
 calls. LiteLLM separately owns provider routing and cloud provider identity.
 Connected prompt agents add a Graph delegation broker only when

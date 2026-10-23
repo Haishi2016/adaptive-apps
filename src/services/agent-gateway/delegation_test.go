@@ -169,7 +169,7 @@ func TestGraphProviderFailureAndHeaderAmbiguity(t *testing.T) {
 
 func TestDelegationConfiguration(t *testing.T) {
 	t.Setenv("KEYCLOAK_TOKEN_URL", "http://identity.local/realms/adaptive/protocol/openid-connect/token")
-	t.Setenv("AGENT_GATEWAY_ADMISSION_URL", "http://agent-gateway-policy:8083")
+	t.Setenv("RESPONSES_ADMISSION_ENABLED", "true")
 	t.Setenv("GRAPH_DELEGATION_ENABLED", "true")
 	t.Setenv("ENTRA_TENANT_ID", demoTenant)
 	t.Setenv("AGENT_BLUEPRINT_ID", demoBlueprint)
@@ -182,7 +182,8 @@ func TestDelegationConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.client.CloseIdleConnections()
-	if !a.graph.enabled || a.graph.userinfo != "http://identity.local/realms/adaptive/protocol/openid-connect/userinfo" {
+	if !a.graph.enabled || !a.strictResponses ||
+		a.graph.userinfo != "http://identity.local/realms/adaptive/protocol/openid-connect/userinfo" {
 		t.Fatal("userinfo did not remain bound to the configured realm")
 	}
 	for _, setting := range []struct{ name, value string }{
@@ -192,6 +193,7 @@ func TestDelegationConfiguration(t *testing.T) {
 		{"OBO_CLIENT_ID", ""},
 		{"AGENT_USER_ID", "caller-supplied-user"},
 		{"KEYCLOAK_TOKEN_URL", "http://identity.local/arbitrary"},
+		{"RESPONSES_ADMISSION_ENABLED", "sometimes"},
 	} {
 		t.Run(setting.name, func(t *testing.T) {
 			t.Setenv(setting.name, setting.value)

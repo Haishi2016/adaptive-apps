@@ -147,7 +147,10 @@ and Radius environment. Pick **one**:
     a reviewed remote model. Public OpenAI uses an `openai` binding and
     `openaiApiKeyFile`; `ada init` retains that file's value only in private
     state used for the Model Gateway Secret and Radius application parameters.
-    There is no automatic CPU fallback.
+    There is no automatic CPU fallback. Ordinary calls route directly through
+    upstream agentgateway. Set `"strictResponses": true` in `agents.json` only
+    when the demo must enforce the narrower stateless, foreground, text-only
+    Responses profile.
 
 4. Bootstrap the selected sample.
 
@@ -207,14 +210,17 @@ and Radius environment. Pick **one**:
     current `kubectl` context points at. *For AI portfolios you also need to
     run [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md)
     when selecting KAITO/GPU inference.*
-    2. **Portfolio chart** — `helm upgrade --install` with the right
+    2. **Native gateways** — with `--with agents`, installs pinned Envoy for
+    UI/model ingress and upstream agentgateway for native agent ingress. It
+    refuses an existing installation owned by another release.
+    3. **Portfolio chart** — `helm upgrade --install` with the right
     `charts/adaptive-apps/profiles/<portfolio>.yaml` profile. On `aks` it
     also adds the managed-Istio overrides.
-    3. **Radius** — installs the control plane, creates the `adaptive`
+    4. **Radius** — installs the control plane, creates the `adaptive`
     workspace and group, the `trading` environment, registers the project's
     resource types, and deploys `radius/local-env.bicep` (or
     `aks-env.bicep` on `--platform aks`).
-    4. **OIDC client** — creates or reuses the sample's OIDC client and prints
+    5. **OIDC client** — creates or reuses the sample's OIDC client and prints
     the copyable exports plus application deployment command. For the standard
     sample, `--keep-port-forward` holds Keycloak on `localhost:8080`. For the
     native sample, it holds the HTTPS ingress on `localhost:8444` and includes
@@ -230,7 +236,8 @@ and Radius environment. Pick **one**:
 
 The manual steps below install the standard trading path. For the integrated
 native-agent path, use OPTION 1 so `ada` can prepare retained credentials,
-immutable recipe inputs, Envoy and the native Radius environments in order.
+immutable recipe inputs, Envoy, agentgateway, and the native Radius
+environments in order.
 
 #### 2.2.1 Prepare the cluster
 

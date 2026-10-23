@@ -17,7 +17,7 @@ metadata:
   name: model-ingress
   namespace: {{ $.Release.Namespace }}
 spec:
-  gatewayClassName: adaptive
+  gatewayClassName: adaptive-envoy
   listeners:
     - name: http
       protocol: HTTP

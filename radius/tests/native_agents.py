@@ -51,7 +51,8 @@ class NativeAgents(unittest.TestCase):
             "keycloakService": "agents-keycloak",
             "telemetry": {"enabled": True},
             "runtime": {
-                "agentGatewayImage": "agent-gateway@sha256:" + "c" * 64,
+                "policyServiceImage": "agent-policy@sha256:" + "c" * 64,
+                "strictResponses": True,
                 "uiImage": "ui@sha256:" + "a" * 64,
                 "apiImage": "api@sha256:" + "b" * 64,
                 "issuer": "https://id.example/realms/adaptive",
@@ -90,6 +91,24 @@ class NativeAgents(unittest.TestCase):
             text=True,
         )
         cls.resources = [obj for obj in yaml.safe_load_all(rendered) if obj]
+        default_rendered = subprocess.check_output(
+            [
+                "helm",
+                "template",
+                "agents",
+                str(ROOT / "charts/adaptive-apps"),
+                "--namespace",
+                "native-test",
+                "-f",
+                str(ROOT / "charts/adaptive-apps/profiles/min-ai.yaml"),
+                "-f",
+                str(source),
+                "--set",
+                "agents.runtime.strictResponses=false",
+            ],
+            text=True,
+        )
+        cls.default_resources = [obj for obj in yaml.safe_load_all(default_rendered) if obj]
 
     def test_only_native_lifecycle_resources(self):
         runtime = self.compiled["radius/recipes/agents/runtime.bicep"]
@@ -103,8 +122,7 @@ class NativeAgents(unittest.TestCase):
                 "core/Service",
                 "apps/StatefulSet",
                 "gateway.networking.k8s.io/HTTPRoute",
-                "gateway.envoyproxy.io/SecurityPolicy",
-                "gateway.envoyproxy.io/EnvoyExtensionPolicy",
+                "agentgateway.dev/AgentgatewayPolicy",
                 "networking.k8s.io/NetworkPolicy",
             },
         )
@@ -132,15 +150,19 @@ class NativeAgents(unittest.TestCase):
         deployments = [obj for obj in self.resources if obj["kind"] == "Deployment"]
         keycloak = [obj for obj in deployments if obj["metadata"]["name"].endswith("-keycloak")]
         collector = [obj for obj in deployments if obj["metadata"]["name"] == "otel-collector"]
-        gateway = [obj for obj in deployments
-                   if obj["metadata"]["name"] == "agent-gateway-policy"]
+        admission = [obj for obj in deployments
+                     if obj["metadata"]["name"] == "responses-admission"]
         self.assertEqual(len(keycloak), 1)
         self.assertEqual(len(collector), 1)
-        self.assertEqual(len(gateway), 1)
+        self.assertEqual(len(admission), 1)
         self.assertEqual(
-            gateway[0]["spec"]["template"]["spec"]["containers"][0]["image"],
-            "agent-gateway@sha256:" + "c" * 64,
+            admission[0]["spec"]["template"]["spec"]["containers"][0]["image"],
+            "agent-policy@sha256:" + "c" * 64,
         )
+        self.assertFalse(any(
+            obj["kind"] == "Deployment" and obj["metadata"]["name"] == "responses-admission"
+            for obj in self.default_resources
+        ))
         container = keycloak[0]["spec"]["template"]["spec"]["containers"][0]
         self.assertIn("--import-realm", container["command"])
         env = {entry["name"]: entry for entry in container["env"]}
@@ -299,18 +321,18 @@ class NativeAgents(unittest.TestCase):
         self.assertEqual(route["matches"][0]["method"], "POST")
         self.assertEqual(route["matches"][0]["path"]["type"], "Exact")
         self.assertEqual(route["timeouts"], {"request": "0s", "backendRequest": "0s"})
-        auth = runtime["authorization"]["properties"]["spec"]["extAuth"]
-        self.assertFalse(auth["failOpen"])
-        self.assertFalse(auth["recomputeRoute"])
-        self.assertEqual(auth["bodyToExtAuth"]["maxRequestBytes"], 1048576)
+        policy = runtime["authorization"]["properties"]["spec"]
+        self.assertEqual(policy["targetRefs"][0]["kind"], "HTTPRoute")
+        traffic = json.dumps(policy["traffic"])
+        self.assertIn("FailClosed", traffic)
+        self.assertIn("1048576", traffic)
+        self.assertIn("jwtAuthentication", traffic)
+        self.assertIn("headerModifiers", traffic)
         proxy = next(obj for obj in self.resources if obj["kind"] == "EnvoyProxy")
-        self.assertEqual(
-            proxy["spec"]["filterOrder"],
-            [
-                {"name": "envoy.filters.http.ext_authz", "after": "envoy.filters.http.rbac"},
-                {"name": "envoy.filters.http.lua", "after": "envoy.filters.http.ext_authz"},
-            ],
-        )
+        self.assertNotIn("filterOrder", proxy["spec"])
+        ingress = next(obj for obj in self.resources if obj["kind"] == "Gateway"
+                       and obj["metadata"]["name"] == "agent-ingress")
+        self.assertEqual(ingress["spec"]["gatewayClassName"], "agentgateway")
         self.assertFalse(any(obj["kind"] == "CustomResourceDefinition" for obj in self.resources))
 
     def test_fault_is_only_public_egress(self):

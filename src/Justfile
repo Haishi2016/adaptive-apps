@@ -26,7 +26,8 @@ image COMPONENT:
     set -euo pipefail
     case "{{COMPONENT}}" in
       prompt-agent|editor) path="agents/{{COMPONENT}}" ;;
-      agent-gateway|governance-sidecar|platform-api|ui) path="services/{{COMPONENT}}" ;;
+      agent-policy) path="services/agent-gateway" ;;
+      governance-sidecar|platform-api|ui) path="services/{{COMPONENT}}" ;;
       ui-embedded) path="services/ui" ;;
       *) printf 'Unsupported native agent component: %s\n' "{{COMPONENT}}" >&2; exit 1 ;;
     esac
@@ -34,7 +35,7 @@ image COMPONENT:
       docker build --build-arg VITE_AUTH_ENABLED=true --build-arg VITE_KEYCLOAK_AUTHORITY="${VITE_KEYCLOAK_AUTHORITY:?Set the exact HTTPS realm issuer}" --build-arg VITE_KEYCLOAK_CLIENT_ID=adaptive-ui -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" "$path"
     elif [[ "{{COMPONENT}}" == ui-embedded ]]; then
       docker build --build-arg VITE_EMBEDDED=true --build-arg VITE_AUTH_ENABLED=false -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" "$path"
-    elif [[ "{{COMPONENT}}" == agent-gateway || "{{COMPONENT}}" == platform-api ]]; then
+    elif [[ "{{COMPONENT}}" == agent-policy || "{{COMPONENT}}" == platform-api ]]; then
       docker build -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" "$path"
     else
       docker build -f "$path/Dockerfile" -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" .
