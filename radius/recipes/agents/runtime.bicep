@@ -296,7 +296,7 @@ resource authorization 'agentgateway.dev/AgentgatewayPolicy@v1alpha1' = {
               kind: 'Service'
               name: platform.keycloakService
               namespace: namespace
-              port: 80
+              port: 8080
             }
             jwksPath: '/realms/adaptive/protocol/openid-connect/certs'
             cacheDuration: '5m'
@@ -310,7 +310,7 @@ resource authorization 'agentgateway.dev/AgentgatewayPolicy@v1alpha1' = {
               kind: 'Service'
               name: platform.keycloakService
               namespace: namespace
-              port: 80
+              port: 8080
             }
             jwksPath: '/realms/adaptive/protocol/openid-connect/certs'
             cacheDuration: '5m'

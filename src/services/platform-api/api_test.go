@@ -28,8 +28,8 @@ func resource(plural string) schema.GroupVersionResource {
 		return schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: plural}
 	case "httproutes", "gateways":
 		return schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: plural}
-	case "securitypolicies", "envoyextensionpolicies":
-		return schema.GroupVersionResource{Group: "gateway.envoyproxy.io", Version: "v1alpha1", Resource: plural}
+	case "agentgatewaypolicies":
+		return schema.GroupVersionResource{Group: "agentgateway.dev", Version: "v1alpha1", Resource: plural}
 	default:
 		return schema.GroupVersionResource{Version: "v1", Resource: plural}
 	}
@@ -89,23 +89,21 @@ func newFixture(t *testing.T) fixture {
 		return list
 	}
 	route := native("HTTPRoute", "httproutes", "demo-v1", nil, map[string]any{"parents": []any{map[string]any{
-		"parentRef": map[string]any{"name": "agent-ingress"}, "controllerName": "gateway.envoyproxy.io/gatewayclass-controller", "conditions": gate("Accepted", "ResolvedRefs"),
+		"parentRef": map[string]any{"name": "agent-ingress"}, "controllerName": "agentgateway.dev/agentgateway", "conditions": gate("Accepted", "ResolvedRefs"),
 	}}})
 	own(route)
-	policy := native("SecurityPolicy", "securitypolicies", "demo-v1", nil, map[string]any{"ancestors": []any{map[string]any{
-		"ancestorRef": map[string]any{"name": "agent-ingress"}, "controllerName": "gateway.envoyproxy.io/gatewayclass-controller", "conditions": gate("Accepted"),
+	policy := native("AgentgatewayPolicy", "agentgatewaypolicies", "demo-v1", nil, map[string]any{"ancestors": []any{map[string]any{
+		"ancestorRef": map[string]any{"name": "agent-ingress"}, "controllerName": "agentgateway.dev/agentgateway", "conditions": gate("Accepted", "Attached"),
 	}}})
 	own(policy)
-	headers := policy.DeepCopy()
-	headers.SetKind("EnvoyExtensionPolicy")
 	gateway := native("Gateway", "gateways", "agent-ingress", nil, map[string]any{"conditions": gate("Accepted", "Programmed")})
 	binding := native("ConfigMap", "configmaps", "binding-demo", nil, nil)
 	binding.Object["data"] = map[string]any{"identity.json": `{"ownerUid":"agent-uid","keycloakClientId":"paired-client","entraClientId":"entra-id","blueprintId":"blueprint-id"}`}
 	kinds := map[schema.GroupVersionResource]string{}
-	for plural, kind := range map[string]string{"configmaps": "ConfigMap", "statefulsets": "StatefulSet", "services": "Service", "persistentvolumeclaims": "PersistentVolumeClaim", "httproutes": "HTTPRoute", "gateways": "Gateway", "securitypolicies": "SecurityPolicy", "envoyextensionpolicies": "EnvoyExtensionPolicy"} {
+	for plural, kind := range map[string]string{"configmaps": "ConfigMap", "statefulsets": "StatefulSet", "services": "Service", "persistentvolumeclaims": "PersistentVolumeClaim", "httproutes": "HTTPRoute", "gateways": "Gateway", "agentgatewaypolicies": "AgentgatewayPolicy"} {
 		kinds[resource(plural)] = kind + "List"
 	}
-	objects := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), kinds, a, d, claim, service, route, policy, headers, gateway, binding)
+	objects := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), kinds, a, d, claim, service, route, policy, gateway, binding)
 	// The generic tracker guesses "gatewaies"; use the Gateway API's actual plural.
 	if err := objects.Tracker().Create(resource("gateways"), gateway, "adaptive"); err != nil {
 		t.Fatal(err)
@@ -193,7 +191,7 @@ func TestNativeReadinessFailsClosed(t *testing.T) {
 				case "route":
 					plural, name = "httproutes", "demo-v1"
 				case "policy":
-					plural, name = "securitypolicies", "demo-v1"
+					plural, name = "agentgatewaypolicies", "demo-v1"
 				case "gateway":
 					plural, name = "gateways", "agent-ingress"
 				}

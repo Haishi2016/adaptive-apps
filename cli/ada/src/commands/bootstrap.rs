@@ -22,7 +22,7 @@ use crate::ui;
 const DEFAULT_CHART_REGISTRY: &str = "oci://ghcr.io/microsoft/adaptive-apps/charts";
 
 /// Default chart version pulled when `--version` is not supplied.
-const DEFAULT_CHART_VERSION: &str = "0.3.1";
+const DEFAULT_CHART_VERSION: &str = "0.3.2";
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]

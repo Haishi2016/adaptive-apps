@@ -98,13 +98,13 @@ func conditions(value any, generation int64, required ...string) bool {
 	return true
 }
 
-func routeReady(obj *object, gateway, namespace string, policy bool) bool {
+func routeReady(obj *object, gateway, namespace, controller string, policy bool) bool {
 	if obj.GetDeletionTimestamp() != nil {
 		return false
 	}
 	key, refKey, required := "parents", "parentRef", []string{"Accepted", "ResolvedRefs"}
 	if policy {
-		key, refKey, required = "ancestors", "ancestorRef", []string{"Accepted"}
+		key, refKey, required = "ancestors", "ancestorRef", []string{"Accepted", "Attached"}
 	}
 	list, _ := field(obj, "status", key).([]any)
 	for _, entry := range list {
@@ -117,7 +117,7 @@ func routeReady(obj *object, gateway, namespace string, policy bool) bool {
 			(ref["namespace"] == nil || ref["namespace"] == namespace) &&
 			(ref["kind"] == nil || ref["kind"] == "Gateway") &&
 			(ref["group"] == nil || ref["group"] == "gateway.networking.k8s.io") &&
-			parent["controllerName"] == "gateway.envoyproxy.io/gatewayclass-controller" &&
+			parent["controllerName"] == controller &&
 			conditions(parent["conditions"], obj.GetGeneration(), required...) {
 			return true
 		}
@@ -154,8 +154,7 @@ func (a *API) runtime(r *http.Request, agent *object) (agentRuntime, error) {
 	coordinates := []schema.GroupVersionResource{
 		{Version: "v1", Resource: "services"},
 		{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"},
-		{Group: "gateway.envoyproxy.io", Version: "v1alpha1", Resource: "securitypolicies"},
-		{Group: "gateway.envoyproxy.io", Version: "v1alpha1", Resource: "envoyextensionpolicies"},
+		{Group: "agentgateway.dev", Version: "v1alpha1", Resource: "agentgatewaypolicies"},
 	}
 	actual := make([]*object, 0, len(coordinates))
 	for _, gvr := range coordinates {
@@ -190,7 +189,7 @@ func (a *API) runtime(r *http.Request, agent *object) (agentRuntime, error) {
 			return agentRuntime{}, unavailable("Agent runtime ownership is invalid")
 		}
 	}
-	service, route, policy, headers := actual[0], actual[1], actual[2], actual[3]
+	service, route, policy := actual[0], actual[1], actual[2]
 	_ = service
 	ready := agent.GetDeletionTimestamp() == nil &&
 		field(workload, "status", "observedGeneration") == workload.GetGeneration() && workload.GetGeneration() > 0 &&
@@ -199,9 +198,8 @@ func (a *API) runtime(r *http.Request, agent *object) (agentRuntime, error) {
 		text(workload, "status", "currentRevision") == text(workload, "status", "updateRevision") &&
 		text(claim, "status", "phase") == "Bound" && gateway.GetDeletionTimestamp() == nil &&
 		conditions(field(gateway, "status", "conditions"), gateway.GetGeneration(), "Accepted", "Programmed") &&
-		routeReady(route, gateway.GetName(), a.namespace, false) &&
-		routeReady(policy, gateway.GetName(), a.namespace, true) &&
-		routeReady(headers, gateway.GetName(), a.namespace, true)
+		routeReady(route, gateway.GetName(), a.namespace, "agentgateway.dev/agentgateway", false) &&
+		routeReady(policy, gateway.GetName(), a.namespace, "agentgateway.dev/agentgateway", true)
 	return agentRuntime{document: agentDocument(agent), deployment: workload, ready: ready}, nil
 }
 
