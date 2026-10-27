@@ -309,7 +309,9 @@ Platform recipe bindings are `policyServiceImage`, `strictResponses`,
 `sidecarImage`, `governanceImage`, `keycloakUrl`, `keycloakService`, `issuer`,
 `ingressUrl`, `otelEndpoint` and optional explicit
 `peers` (`keycloakClientId`, `agentId`, `targets`). Sidecar images must be pinned
-digests. `ingressUrl` is the public client origin, not an internal DNS name.
+digests. Local peer identities may use `{namespace}` in `keycloakClientId` and
+`agentId`; `ada init` resolves it to the selected namespace. `ingressUrl` is the
+public client origin, not an internal DNS name.
 Model-gateway chart values require an exact issuer/JWKS URL and explicit
 per-agent Keycloak client allowlist. Connected Azure models use the gateway's
 own federated workload identity; no Azure API key is introduced. Public OpenAI

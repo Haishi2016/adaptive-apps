@@ -5,6 +5,11 @@
   "imageTag": "latest",
   "strictResponses": false,
   "agentModel": "local-chat",
+  "peers": [{
+    "keycloakClientId": "adaptive-{namespace}-editor",
+    "agentId": "adaptive-{namespace}-editor",
+    "targets": ["writer", "auditor"]
+  }],
   "models": [{
     "name": "local-chat",
     "recipe": "kaito",

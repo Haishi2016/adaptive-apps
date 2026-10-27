@@ -1,0 +1,11 @@
+Keycloak: https://github.com/keycloak/keycloak-misc/blob/main/logo/icon.svg
+agentgateway: https://github.com/agentgateway/website/blob/main/static/agw-mark-color.svg
+Eclipse Mosquitto: https://github.com/simple-icons/simple-icons/blob/develop/icons/eclipsemosquitto.svg
+OpenTelemetry: https://github.com/cncf/artwork/blob/master/projects/opentelemetry/icon/color/opentelemetry-icon-color.svg
+Istio: https://github.com/cncf/artwork/blob/master/projects/istio/icon/color/istio-icon-color.svg
+Microsoft Entra Managed Identities, Azure Event Grid, Microsoft Foundry Agent Service,
+Azure Storage, and Azure Kubernetes Service: Microsoft Azure Architecture Icons V24
+https://learn.microsoft.com/azure/architecture/icons/
+
+Microsoft permits its architecture icons for architectural diagrams, training materials,
+and documentation. Preserve the supplied shape, orientation, aspect ratio, and colors.

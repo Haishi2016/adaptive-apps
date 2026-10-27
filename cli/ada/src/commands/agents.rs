@@ -76,6 +76,17 @@ pub struct Peer {
     pub targets: Vec<String>,
 }
 
+fn resolved_peers(peers: &[Peer], namespace: &str) -> Vec<Peer> {
+    peers
+        .iter()
+        .map(|peer| Peer {
+            keycloak_client_id: peer.keycloak_client_id.replace("{namespace}", namespace),
+            agent_id: peer.agent_id.replace("{namespace}", namespace),
+            targets: peer.targets.clone(),
+        })
+        .collect()
+}
+
 fn default_agents() -> Vec<String> {
     ["writer", "auditor", "editor"].map(String::from).into()
 }
@@ -649,6 +660,7 @@ pub fn prepare(
     let keycloak_provisioning =
         format!("http://{release}-keycloak-provisioning.{namespace}.svc.cluster.local:8080");
     let issuer = "https://localhost:8444/realms/adaptive";
+    let peers = resolved_peers(&config.peers, namespace);
     let mut executor = json!({
         "env": {"KEYCLOAK_URL": keycloak_provisioning, "KEYCLOAK_REALM": "master", "KEYCLOAK_CLIENT_ID": "admin-cli", "KEYCLOAK_USER": "admin"},
         "envSecrets": {"KEYCLOAK_PASSWORD": {"source": store, "key": "keycloak-admin-password"}}
@@ -706,7 +718,7 @@ pub fn prepare(
                 "keycloakService": format!("{release}-keycloak"),
                 "issuer": issuer, "ingressUrl": "https://localhost:8443",
                 "otelEndpoint": format!("http://otel-collector.{namespace}.svc.cluster.local:4318"),
-                "peers": config.peers
+                "peers": peers
             }
         }),
         refresh_derived_state,
@@ -875,6 +887,11 @@ mod tests {
             &config,
             serde_json::to_vec(&json!({
                 "recipeArchive":"https://example.test/immutable/recipes.tgz", "images":images,
+                "peers": [{
+                    "keycloakClientId": "adaptive-{namespace}-editor",
+                    "agentId": "adaptive-{namespace}-editor",
+                    "targets": ["writer", "auditor"]
+                }],
                 "models": [{"name":"local-chat","properties":{"model":"local-chat","localService":{"name":"vllm","port":80,"model":"local-chat"}}}]
             }))
             .unwrap(),
@@ -910,6 +927,14 @@ mod tests {
         assert_eq!(
             environment["parameters"]["platform"]["value"]["keycloakUrl"],
             "http://demo-keycloak.demo-test.svc.cluster.local:8080"
+        );
+        assert_eq!(
+            environment["parameters"]["platform"]["value"]["peers"][0],
+            json!({
+                "keycloakClientId": "adaptive-demo-test-editor",
+                "agentId": "adaptive-demo-test-editor",
+                "targets": ["writer", "auditor"]
+            })
         );
         assert_eq!(
             environment["parameters"]["recipeConfig"]["value"]["env"]["KEYCLOAK_URL"],
