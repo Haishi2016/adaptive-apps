@@ -1,0 +1,131 @@
+{{- with .Values.modelGateway.authorization }}
+{{- $auth := . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  type: ExternalName
+  externalName: {{ printf "envoy-%s-model-ingress-%s.envoy-gateway-system.svc.cluster.local" $.Release.Namespace (printf "%s/model-ingress" $.Release.Namespace | sha256sum | trunc 8) }}
+  ports:
+    - port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: model-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  gatewayClassName: adaptive-envoy
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 8080
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: model-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  parentRefs:
+    - name: model-ingress
+  rules:
+    - matches:
+        - path: { type: Exact, value: /v1/models }
+          method: GET
+        - path: { type: Exact, value: /v1/chat/completions }
+          method: POST
+        - path: { type: Exact, value: /v1/responses }
+          method: POST
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove: [Cookie, x-ai-eg-model, x-user-id, x-agent-id, x-adaptive-user-id, x-adaptive-agent-id]
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: model-gateway
+      backendRefs:
+        - name: model-gateway
+          port: 4000
+      timeouts:
+        request: 0s
+        backendRequest: 0s
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: model-ingress
+  namespace: {{ $.Release.Namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: model-ingress
+  jwt:
+    providers:
+{{- range $provider, $audience := dict "keycloak" "api://adaptive-model-gateway" "keycloak-browser" "api://adaptive-broker" }}
+      - name: {{ $provider }}
+        issuer: {{ $auth.issuer | quote }}
+        audiences: [{{ $audience | quote }}]
+        remoteJWKS:
+          uri: {{ $auth.jwksUrl | quote }}
+        extractFrom:
+          headers:
+            - name: Authorization
+              valuePrefix: "Bearer "
+{{- end }}
+{{- if and .agentIds .tenantId }}
+      - name: entra-agent
+        issuer: {{ printf "https://sts.windows.net/%s/" .tenantId | quote }}
+        audiences: ["https://cognitiveservices.azure.com", "https://ai.azure.com"]
+        remoteJWKS:
+          uri: {{ printf "https://login.microsoftonline.com/%s/discovery/v2.0/keys" .tenantId | quote }}
+        extractFrom:
+          headers:
+            - name: Authorization
+              valuePrefix: "Bearer "
+{{- end }}
+  authorization:
+    defaultAction: Deny
+    rules:
+{{- range $provider := list "keycloak" "keycloak-browser" "entra-agent" }}
+{{- if or (ne $provider "entra-agent") (and $auth.agentIds $auth.tenantId) }}
+{{- range $operation := list "catalogue" "inference" }}
+      - name: {{ $provider }}-{{ $operation }}
+        action: Allow
+        operation:
+          methods: [{{ if eq $operation "catalogue" }}GET{{ else }}POST{{ end }}]
+          path:
+            type: {{ if eq $operation "catalogue" }}Exact{{ else }}RegularExpression{{ end }}
+            value: {{ if eq $operation "catalogue" }}"/v1/models"{{ else }}"^/v1/(chat/completions|responses)$"{{ end }}
+        principal:
+          jwt:
+            provider: {{ $provider }}
+            claims:
+{{- if eq $provider "entra-agent" }}
+              - name: oid
+                valueType: String
+                values: {{ $auth.agentIds | toJson }}
+{{- else if eq $provider "keycloak" }}
+              - name: azp
+                valueType: String
+                values: {{ $auth.clients | toJson }}
+{{- else }}
+              - name: azp
+                valueType: String
+                values: ["adaptive-ui", "adaptive-trading"]
+              - name: roles
+                valueType: StringArray
+                values: ["agent.invoke"]
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

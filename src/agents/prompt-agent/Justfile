@@ -1,0 +1,31 @@
+set shell := ["bash", "-cu"]
+
+REGISTRY := env_var_or_default("REGISTRY", "adaptive.local/adaptive")
+TAG := env_var_or_default("TAG", "dev")
+
+_default:
+    @just --list
+
+sync:
+    uv sync
+
+lint:
+    uv run ruff check .
+    uv run ruff format --check .
+    uv run mypy src
+
+format:
+    uv run ruff check --fix .
+    uv run ruff format .
+
+test:
+    uv run pytest -q
+
+test-one TARGET:
+    uv run pytest {{TARGET}}
+
+build:
+    uv sync --frozen
+
+image:
+    REGISTRY={{REGISTRY}} TAG={{TAG}} just --justfile ../../Justfile image prompt-agent

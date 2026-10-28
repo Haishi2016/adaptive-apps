@@ -3,7 +3,6 @@
 // Deploys the full stock-trading simulator on Kubernetes via Radius:
 //   • Radius.Resources/postgreSqlDatabases  → PostgreSQL 16 (with trading schema)
 //   • Radius.Resources/mqttBrokers          → Eclipse Mosquitto 2 (MQTT + WS)
-//   • Radius.Resources/idProviders          → OIDC identity provider (Keycloak by default)
 //   • Radius.Resources/aiModels             → AI inference endpoint (only when aiProvider=='local')
 //   • Radius.Resources/governance           → Mesh-layer PDP (e.g. OPA + Envoy ext_authz; opt-in)
 //   • Radius.Resources/agentGuardrails      → In-pod agent governance sidecar (opt-in, only when AI is enabled)
@@ -42,6 +41,30 @@ param imageRegistry string = 'ghcr.io/microsoft/adaptive-apps'
 
 @description('Container image tag for all three application services.')
 param imageTag string = 'latest'
+
+@description('Enable the native-agent pages and authenticated gateway proxy under /agents. Disabled by default.')
+param enableNativeAgents bool = false
+
+@description('Internal native agent gateway base URL. Required when enableNativeAgents is true.')
+param nativeAgentGatewayUrl string = ''
+
+@description('Embedded native UI image. Defaults to the ui-embedded image using the trading registry and tag.')
+param nativeUiImage string = ''
+
+@description('Namespace owned by the native agent environment.')
+param nativeAgentNamespace string = 'adaptive'
+
+@description('Native agent Radius Environment ID. Required when enableNativeAgents is true.')
+param nativeAgentEnvironment string = ''
+
+@description('Model Gateway model used by the native writer, auditor and editor.')
+param nativeAgentModel string = 'local-chat'
+
+@description('Immutable prompt-agent image used by the native writer and auditor.')
+param promptAgentImage string = ''
+
+@description('Immutable editor image used by the native hosted editor.')
+param editorAgentImage string = ''
 
 @description('Username for the local (password-based) frontend login.')
 param authUsername string = 'admin'
@@ -176,6 +199,7 @@ var effectiveOidcUserInfoEndpoint = oidcUserInfoEndpoint != ''
 var isLocalAi = aiProvider == 'local'
 var hasAi = aiProvider != ''
 var guardrailsActive = enableAgentGuardrails && hasAi
+var effectiveNativeUiImage = nativeUiImage != '' ? nativeUiImage : '${imageRegistry}/ui-embedded:${imageTag}'
 
 // ---------------------------------------------------------------------------
 // Agent guardrails — deterministic coordinates.
@@ -344,6 +368,108 @@ resource frontendIdentity 'Radius.Resources/workloadIdentities@2025-08-01-previe
 }
 
 // ---------------------------------------------------------------------------
+// Native agents — opt-in. Each runtime directly depends on its separately
+// retained identity and consumes that resource's resolved binding.
+// ---------------------------------------------------------------------------
+resource writerIdentity 'Radius.Resources/agentIdentities@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'writer'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    agentName: 'writer'
+  }
+}
+
+resource writerAgent 'Radius.Resources/agents@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'writer'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    kind: 'prompt'
+    identityRef: writerIdentity.properties.identityRef
+    binding: {
+      identity: writerIdentity.properties.identity
+      identityRef: writerIdentity.properties.identityRef
+      secretRef: writerIdentity.properties.secretRef
+      serviceAccountName: writerIdentity.properties.serviceAccountName
+    }
+    definition: {
+      kind: 'prompt'
+      model: nativeAgentModel
+      runtimeImage: promptAgentImage
+      instructions: 'Draft a clear response to the user request.'
+    }
+  }
+}
+
+resource auditorIdentity 'Radius.Resources/agentIdentities@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'auditor'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    agentName: 'auditor'
+  }
+}
+
+resource auditorAgent 'Radius.Resources/agents@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'auditor'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    kind: 'prompt'
+    identityRef: auditorIdentity.properties.identityRef
+    binding: {
+      identity: auditorIdentity.properties.identity
+      identityRef: auditorIdentity.properties.identityRef
+      secretRef: auditorIdentity.properties.secretRef
+      serviceAccountName: auditorIdentity.properties.serviceAccountName
+    }
+    definition: {
+      kind: 'prompt'
+      model: nativeAgentModel
+      runtimeImage: promptAgentImage
+      instructions: 'Audit the draft against the original request and return a corrected final response.'
+    }
+  }
+}
+
+resource editorIdentity 'Radius.Resources/agentIdentities@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'editor'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    agentName: 'editor'
+  }
+}
+
+resource editorAgent 'Radius.Resources/agents@2025-08-01-preview' = if (enableNativeAgents) {
+  name: 'editor'
+  properties: {
+    environment: nativeAgentEnvironment
+    application: tradingApp.id
+    kind: 'hosted'
+    identityRef: editorIdentity.properties.identityRef
+    binding: {
+      identity: editorIdentity.properties.identity
+      identityRef: editorIdentity.properties.identityRef
+      secretRef: editorIdentity.properties.secretRef
+      serviceAccountName: editorIdentity.properties.serviceAccountName
+    }
+    definition: {
+      kind: 'hosted'
+      model: nativeAgentModel
+      image: editorAgentImage
+      environment: {
+        WRITER_NAME: 'writer'
+        WRITER_RESPONSES_BASE_URL: '${nativeAgentGatewayUrl}/agents/writer/'
+        AUDITOR_NAME: 'auditor'
+        AUDITOR_RESPONSES_BASE_URL: '${nativeAgentGatewayUrl}/agents/auditor/'
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Governance (policy decision point) — opt-in.
 //
 // When enableGovernance=true the registered recipe (default: OPA) deploys a
@@ -434,7 +560,7 @@ resource aiAgentLocal 'Applications.Core/containers@2023-10-01-preview' = if (is
   }
 }
 
-resource aiAgentExternal 'Applications.Core/containers@2023-10-01-preview' = if (!isLocalAi) {
+resource aiAgentExternal 'Applications.Core/containers@2023-10-01-preview' = if (hasAi && !isLocalAi) {
   name: 'ai-agent'
   properties: {
     application: tradingApp.id
@@ -545,8 +671,12 @@ resource frontend 'Applications.Core/containers@2023-10-01-preview' = {
         AUTH_USERNAME:  { value: authUsername }
         AUTH_PASSWORD:  { value: authPassword }
         SESSION_SECRET: { value: sessionSecret }
+        NATIVE_AGENT_URL: { value: enableNativeAgents ? nativeAgentGatewayUrl : '' }
+        NATIVE_UI_URL: { value: enableNativeAgents ? 'http://native-agents-ui:8080' : '' }
+        NATIVE_AGENT_NAMESPACE: { value: enableNativeAgents ? nativeAgentNamespace : '' }
       }
     }
+
     extensions: kubernetesMetadataExtension
     connections: {
       backend:  { source: backend.id }
@@ -560,5 +690,24 @@ resource frontend 'Applications.Core/containers@2023-10-01-preview' = {
       mqtt:     { source: tradingMqtt.id }
       identity: { source: frontendIdentity.id }
     }
+  }
+}
+
+resource nativeAgentUi 'Applications.Core/containers@2023-10-01-preview' = if (enableNativeAgents) {
+  name: 'native-agents-ui'
+  properties: {
+    application: tradingApp.id
+    container: {
+      image: effectiveNativeUiImage
+      ports: {
+        http: {
+          containerPort: 8080
+        }
+      }
+      env: {
+        POD_NAMESPACE: { value: nativeAgentNamespace }
+      }
+    }
+    extensions: kubernetesMetadataExtension
   }
 }

@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/release-helm-charts.yml'
       - 'charts/adaptive-apps/**'
+      - 'charts/agent-platform/**'
 
 env:
   OCI_REGISTRY: ghcr.io
@@ -51,6 +52,7 @@ jobs:
           chart_version="$(helm show chart ${{ env.CHART_PATH }} \
             | awk -F': ' '/^version:/ {print $2}')"
           package_file=".helm-packages/${{ env.CHART_NAME }}-${chart_version}.tgz"
+          registry_owner="${GITHUB_REPOSITORY_OWNER,,}"
 
           if [[ ! -f "$package_file" ]]; then
             echo "Unable to find packaged chart at $package_file"
@@ -60,7 +62,7 @@ jobs:
           echo "version=$chart_version"               >> "$GITHUB_OUTPUT"
           echo "package_file=$package_file"           >> "$GITHUB_OUTPUT"
           echo "release_tag=helm-${{ env.CHART_NAME }}-v${chart_version}" >> "$GITHUB_OUTPUT"
-          echo "oci_repo=oci://${{ env.OCI_REGISTRY }}/${{ github.repository_owner }}/adaptive-apps/charts" \
+          echo "oci_repo=oci://${{ env.OCI_REGISTRY }}/${registry_owner}/adaptive-apps/charts" \
             >> "$GITHUB_OUTPUT"
 
       - name: Push chart to GHCR OCI registry

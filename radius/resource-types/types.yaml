@@ -1,8 +1,9 @@
 # types.yaml — All adaptive-apps Radius Resource Type definitions
 #
 # A single namespace is used for all custom resources:
-#   Radius.Resources → postgreSqlDatabases, mqttBrokers, workloadIdentities,
-#                      aiModels, idProviders, governance, agentGuardrails
+#   Radius.Resources → agents, agentIdentities, keycloakLogins,
+#                      postgreSqlDatabases, mqttBrokers, workloadIdentities,
+#                      aiModels, aiGateways, governance, agentGuardrails
 #
 # Publish a single Bicep extension bundle from this file:
 #
@@ -10,12 +11,126 @@
 #     --file resource-types/types.yaml \
 #     --target types.tgz
 #
-# Register all three resource types in one command:
+# Register all ten resource types in one command:
 #
 #   rad resource-type create --from-file resource-types/types.yaml
 
 namespace: Radius.Resources
 types:
+  agents:
+    description: Mutable native agent runtime with independently retained identity and state.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            kind: {type: string, enum: [prompt, hosted]}
+            identityRef: {type: string}
+            binding:
+              type: object
+              nullable: true
+              properties:
+                identity: {type: object}
+                identityRef: {type: string}
+                secretRef: {type: string}
+                serviceAccountName: {type: string}
+              required: [identity, identityRef, secretRef, serviceAccountName]
+            definition:
+              type: object
+              properties:
+                kind: {type: string, enum: [prompt, hosted]}
+                model: {type: string, minLength: 1}
+                image: {type: string, pattern: '^[^@ ]+@sha256:[a-f0-9]{64}$'}
+                runtimeImage: {type: string, pattern: '^[^@ ]+@sha256:[a-f0-9]{64}$'}
+                instructions: {type: string}
+                description: {type: string}
+                temperature: {type: string, pattern: '^([01](\.[0-9]+)?|2(\.0+)?)$'}
+                top_p: {type: string, pattern: '^(0(\.[0-9]+)?|1(\.0+)?)$'}
+                tools:
+                  type: array
+                  items: {type: object}
+                environment:
+                  type: object
+                  additionalProperties: {type: string}
+              required: [kind, model]
+            governance:
+              type: object
+              properties:
+                config: {type: string}
+                digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+                mode: {type: string, enum: [audit, enforce]}
+                reference: {type: string}
+                content: {type: string}
+              required: [config, digest, mode, reference, content]
+            resources: {type: object}
+            stateSize: {type: string}
+            agentName: {type: string, readOnly: true}
+            agentUid: {type: string, readOnly: true}
+            namespace: {type: string, readOnly: true}
+            endpoint: {type: string, readOnly: true}
+            nativeName: {type: string, readOnly: true}
+            nativeIdentity:
+              type: object
+              readOnly: true
+              properties:
+                clientId: {type: string}
+                principalId: {type: string}
+                blueprintId: {type: string}
+                blueprintPrincipalId: {type: string}
+          required: [environment, application, kind, binding, definition]
+  agentIdentities:
+    description: Independently retained Keycloak identity and optional paired Entra Agent ID/blueprint.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            agentName: {type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$'}
+            agentResourceId: {type: string, readOnly: true}
+            agentUid: {type: string, readOnly: true}
+            delegation: {type: object}
+            identity: {type: object, readOnly: true}
+            identityRef: {type: string, readOnly: true}
+            secretRef: {type: string, readOnly: true}
+            serviceAccountName: {type: string, readOnly: true}
+            blueprintId: {type: string, readOnly: true}
+            agentId: {type: string, readOnly: true}
+            identityMode: {type: string, readOnly: true}
+            namespace: {type: string, readOnly: true}
+          required: [environment, application, agentName]
+  keycloakLogins:
+    description: Native PKCE browser login and optional reviewed Entra federation in an existing realm.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            realm: {type: string}
+            uiOrigin: {type: string}
+            tradingOrigin: {type: string}
+            keycloakPublicUrl: {type: string}
+            platformRoles:
+              type: array
+              items: {type: string}
+            platformAudience: {type: string}
+            connected: {type: boolean}
+            entraTenantId: {type: string}
+            entraClientId: {type: string}
+            entraClientSecretVersion: {type: string}
+            manageEntraLinks: {type: boolean}
+            issuer: {type: string, readOnly: true}
+            discoveryUrl: {type: string, readOnly: true}
+            uiClientId: {type: string, readOnly: true}
+            tradingClientId: {type: string, readOnly: true, nullable: true}
+            entraRedirectUri: {type: string, readOnly: true, nullable: true}
+            connectedLoginEnabled: {type: boolean, readOnly: true}
+          required: [environment, application, uiOrigin, keycloakPublicUrl, platformRoles]
   postgreSqlDatabases:
     description: |
       The Radius.Resources/postgreSqlDatabases Resource Type adds a PostgreSQL database to an application.
@@ -258,49 +373,14 @@ types:
             - environment
             - application
 
-  idProviders:
-    description: |
-      The Radius.Resources/idProviders Resource Type adds an OpenID Connect identity provider to an application.
-      Keycloak is the default implementation deployed by the Kubernetes Recipe.
-    apiVersions:
-      '2025-08-01-preview':
-        schema:
-          type: object
-          properties:
-            environment:
-              type: string
-              description: (Required) The Radius Environment ID. Typically set by the rad CLI.
-            application:
-              type: string
-              description: (Required) The Radius Application ID.
-            issuer:
-              type: string
-              readOnly: true
-              description: (Read Only) The OIDC issuer URL for the identity provider.
-            authEndpoint:
-              type: string
-              readOnly: true
-              description: (Read Only) The authorization endpoint URL for initiating OIDC auth flows.
-            tokenEndpoint:
-              type: string
-              readOnly: true
-              description: (Read Only) The token endpoint URL for exchanging auth codes and refreshing tokens.
-            userInfoEndpoint:
-              type: string
-              readOnly: true
-              description: (Read Only) The user info endpoint URL for retrieving authenticated user details.
-          required:
-            - environment
-            - application
   aiModels:
     description: |
-      The Radius.Resources/aiModels Resource Type provides an OpenAI-compatible AI inference
-      endpoint to an application. It is provider-agnostic: a Recipe fulfils the type
-      by provisioning the concrete backend infrastructure and returning a uniform set
-      of connection values so that the consuming container never needs to know which
-      AI backend is running.
+      The Radius.Resources/aiModels Resource Type represents one AI inference backend.
+      A Recipe provisions or binds that backend and returns its endpoint and deployment
+      descriptor. Routing, fallback, weighting and stable application-facing aliases
+      belong to Radius.Resources/aiGateways, not this resource.
 
-      Two recipes are provided in this repository:
+      Example recipes provided in this repository include:
 
         kubernetes-kaito.bicep
           Deploys an open-source LLM in-cluster via the Kaito operator on AKS.
@@ -312,7 +392,11 @@ types:
           Best for: Azure environments where managed cloud AI is preferred.
           Outputs: provider="openai", endpoint=https://<account>.openai.azure.com/, apiKey=<key>
 
-      The Recipe is registered per Radius Environment. Switch AI backends by
+        native-model.bicep
+          Provisions or binds one backend for the native agent platform and emits
+          neutral connection facts consumed by an aiGateways resource.
+
+      The Recipe is registered per Radius Environment. Switch model backends by
       registering a different recipe for the same resource type in your environment:
 
         rad recipe register default \
@@ -373,6 +457,16 @@ types:
                 when provisioning the inference backend and write the resolved value back.
                 Examples: gpt-4o, llama-3.1-8b-instruct, phi-3-mini.
                 Defaults to a recipe-specific value when omitted.
+            azure: {type: object}
+            openai: {type: object}
+            localService: {type: object}
+            localWorkspace: {type: object}
+            deployment:
+              type: string
+              readOnly: true
+            apiVersion:
+              type: string
+              readOnly: true
             endpoint:
               type: string
               readOnly: true
@@ -401,6 +495,55 @@ types:
           required:
             - environment
             - application
+
+  aiGateways:
+    description: |
+      The Radius.Resources/aiGateways Resource Type provides an authenticated,
+      OpenAI-compatible endpoint backed by a dedicated AI gateway such as LiteLLM.
+      It owns model aliases, routing priority, weighting, fallback and retry behavior.
+      Model provisioning remains independently owned by Radius.Resources/aiModels.
+    apiVersions:
+      '2025-08-01-preview':
+        schema:
+          type: object
+          properties:
+            environment: {type: string}
+            application: {type: string}
+            model:
+              type: string
+              minLength: 1
+              description: Public model alias exposed by the gateway.
+            maxRetries:
+              type: integer
+              minimum: 0
+              default: 0
+            members:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                required: [deployment, endpoint, provider, priority, weight]
+                properties:
+                  deployment: {type: string, minLength: 1}
+                  endpoint: {type: string, minLength: 1}
+                  provider: {type: string, minLength: 1}
+                  apiVersion: {type: string}
+                  priority: {type: integer, minimum: 0}
+                  weight: {type: integer, minimum: 1}
+            deployments:
+              type: array
+              readOnly: true
+              items:
+                type: object
+                properties:
+                  model_name: {type: string}
+                  litellm_params: {type: object}
+            configMapName: {type: string, readOnly: true}
+            configDigest: {type: string, readOnly: true}
+            discovery: {type: string, readOnly: true}
+            endpoint: {type: string, readOnly: true}
+            provider: {type: string, readOnly: true}
+          required: [environment, application, model, members]
 
   governance:
     description: |
@@ -601,6 +744,10 @@ types:
                 recipe writes a default-allow placeholder so the ConfigMap
                 exists and the agent pod can mount it. Format is sidecar-
                 specific; see the Agent Governance Toolkit docs.
+            policyNamespace: {type: string, enum: [adaptive-guardrails-apps, adaptive-guardrails-platform]}
+            policyDigest: {type: string, pattern: '^[a-f0-9]{64}$'}
+            bundleRef: {type: string, readOnly: true}
+            content: {type: string, readOnly: true}
             image:
               type: string
               description: >

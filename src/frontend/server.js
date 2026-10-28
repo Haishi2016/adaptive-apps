@@ -54,6 +54,8 @@ const config = {
   aiAgentUrl: process.env.AI_AGENT_URL || "http://localhost:7000",
   mqttWsUrl: process.env.MQTT_WS_URL || "ws://localhost:9001",
   mqttTopic: process.env.MQTT_TOPIC || "orders/new",
+  nativeAgentUrl: process.env.NATIVE_AGENT_URL || "",
+  nativeUiUrl: process.env.NATIVE_UI_URL || "",
 };
 
 // ---------------------------------------------------------------------------
@@ -108,6 +110,8 @@ const hasOidcEndpoints = !!(
   effectiveUserInfoEndpoint
 );
 const microsoftEnabled = hasOidcCredentials && hasOidcEndpoints;
+const nativeAgentsEnabled = !!(config.nativeAgentUrl && config.nativeUiUrl);
+const refreshes = new Map();
 
 // ---------------------------------------------------------------------------
 // Session + Passport setup
@@ -119,7 +123,12 @@ app.use(
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 8 * 60 * 60 * 1000 }, // 8 hours
+    cookie: {
+      maxAge: 8 * 60 * 60 * 1000,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: APP_BASE_URL.startsWith("https://"),
+    },
   })
 );
 
@@ -159,10 +168,7 @@ if (microsoftEnabled) {
     "microsoft",
     new OpenIDConnectStrategy(
       oidcOptions,
-      (iss, profile, done) => {
-        // Debug: log the full profile for troubleshooting claims/mappings
-        console.log("OIDC profile received:", JSON.stringify(profile, null, 2));
-
+      (iss, profile, context, idToken, accessToken, refreshToken, params, done) => {
         const user = {
           id: profile.id || profile.oid || profile.sub || profile._json?.sub,
           displayName:
@@ -181,6 +187,11 @@ if (microsoftEnabled) {
             profile._json?.upn ||
             "",
           provider: "microsoft",
+          _tokens: {
+            accessToken,
+            refreshToken,
+            expiresAt: Date.now() + (Number(params?.expires_in) || 300) * 1000,
+          },
         };
         return done(null, user);
       }
@@ -208,6 +219,59 @@ function ensureAuth(req, res, next) {
   if (req.isAuthenticated()) return next();
   // Allow the login page assets through
   return res.redirect("/login.html");
+}
+
+function ensureNativeAuth(req, res, next) {
+  if (!req.isAuthenticated()) return res.status(401).json({ error: "Authentication required" });
+  if (req.user.provider !== "microsoft") {
+    return res.status(403).json({ error: "Native agents require OIDC sign-in" });
+  }
+  if (!nativeAgentsEnabled) {
+    return res.status(503).json({ error: "Native agent integration is disabled" });
+  }
+  return next();
+}
+
+function saveSession(req) {
+  return new Promise((resolve, reject) => {
+    req.session.save((error) => error ? reject(error) : resolve());
+  });
+}
+
+async function serverAccessToken(req) {
+  const current = req.session.oidcTokens;
+  if (!current?.accessToken) throw new Error("OIDC token is unavailable");
+  if (current.expiresAt > Date.now() + 30_000) return current.accessToken;
+  if (!current.refreshToken) throw new Error("OIDC session cannot be refreshed");
+
+  let refresh = refreshes.get(req.sessionID);
+  if (!refresh) {
+    refresh = (async () => {
+      const body = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: current.refreshToken,
+        client_id: OIDC_CLIENT_ID,
+        client_secret: OIDC_CLIENT_SECRET,
+      });
+      const response = await fetch(effectiveTokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      if (!response.ok) throw new Error(`OIDC refresh failed with ${response.status}`);
+      const result = await response.json();
+      if (!result.access_token) throw new Error("OIDC refresh returned no access token");
+      req.session.oidcTokens = {
+        accessToken: result.access_token,
+        refreshToken: result.refresh_token || current.refreshToken,
+        expiresAt: Date.now() + (Number(result.expires_in) || 300) * 1000,
+      };
+      await saveSession(req);
+      return result.access_token;
+    })().finally(() => refreshes.delete(req.sessionID));
+    refreshes.set(req.sessionID, refresh);
+  }
+  return refresh;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,12 +314,17 @@ if (microsoftEnabled) {
         return res.redirect("/login.html?error=OIDC+sign-in+failed");
       }
 
+      const tokens = user._tokens;
+      delete user._tokens;
       req.logIn(user, (loginErr) => {
         if (loginErr) {
           console.error("OIDC session login error:", loginErr);
           return res.redirect("/login.html?error=OIDC+sign-in+failed");
         }
-        return res.redirect("/");
+        req.session.oidcTokens = tokens;
+        return saveSession(req)
+          .then(() => res.redirect("/"))
+          .catch(next);
       });
     })(req, res, next);
   };
@@ -310,6 +379,7 @@ app.get("/auth/me", ensureAuth, (req, res) => {
   res.json({
     displayName: req.user.displayName,
     provider: req.user.provider,
+    nativeAgents: nativeAgentsEnabled && req.user.provider === "microsoft",
   });
 });
 
@@ -333,6 +403,76 @@ const aiProxy = createProxyMiddleware({
   pathFilter: '/advice',
 });
 app.use(ensureAuth, aiProxy);
+
+const dnsLabel = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+const nativeReadPaths = [
+  new RegExp("^/v1/agents$"),
+  new RegExp(`^/v1/agents/${dnsLabel}$`),
+  new RegExp(`^/v1/agents/${dnsLabel}/spans$`),
+  new RegExp(`^/v1/agents/${dnsLabel}/guardrails$`),
+  new RegExp(`^/v1/agents/${dnsLabel}/agent-card$`),
+];
+const nativeResponsePath = new RegExp(
+  `^/agents/${dnsLabel}/responses$`
+);
+
+function exactNativeRequest(req) {
+  return (req.method === "GET" && nativeReadPaths.some((pattern) => pattern.test(req.path)))
+    || (req.method === "POST" && nativeResponsePath.test(req.path));
+}
+
+const nativeApiProxy = createProxyMiddleware({
+  target: config.nativeAgentUrl || "http://127.0.0.1",
+  changeOrigin: true,
+  proxyTimeout: 10 * 60 * 1000,
+  timeout: 10 * 60 * 1000,
+  on: {
+    proxyReq: (proxyReq, req) => {
+      proxyReq.removeHeader("cookie");
+      proxyReq.removeHeader("authorization");
+      proxyReq.setHeader("Authorization", `Bearer ${req.nativeAccessToken}`);
+    },
+    proxyRes: (proxyRes) => {
+      delete proxyRes.headers["set-cookie"];
+      proxyRes.headers["x-accel-buffering"] = "no";
+    },
+  },
+});
+
+app.use(async (req, res, next) => {
+  if (!req.path.startsWith("/v1/agents") && !req.path.startsWith("/agents/")) return next();
+  if (!exactNativeRequest(req)) return next();
+  ensureNativeAuth(req, res, async () => {
+    try {
+      req.nativeAccessToken = await serverAccessToken(req);
+      nativeApiProxy(req, res, next);
+    } catch (error) {
+      console.warn("Native agent token unavailable:", error.message);
+      delete req.session.oidcTokens;
+      res.status(401).json({ error: "OIDC session expired; sign in again" });
+    }
+  });
+});
+
+app.use("/v1/agents", (req, res) => {
+  res.status(404).json({ error: "Native agent route is not allowed" });
+});
+
+const nativeUiProxy = createProxyMiddleware({
+  target: config.nativeUiUrl || "http://127.0.0.1",
+  changeOrigin: true,
+  pathRewrite: { "^/agents": "" },
+  on: {
+    proxyReq: (proxyReq) => {
+      proxyReq.removeHeader("cookie");
+      proxyReq.removeHeader("authorization");
+    },
+    proxyRes: (proxyRes) => {
+      delete proxyRes.headers["set-cookie"];
+    },
+  },
+});
+app.use("/agents", ensureNativeAuth, nativeUiProxy);
 
 // MQTT WebSocket proxy is set up on the HTTP server after listen (see bottom of file).
 const mqttProxy = createProxyMiddleware({
@@ -362,7 +502,7 @@ server.on("upgrade", (req, socket, head) => {
   }
 });
 
-server.listen(port, () => {
+if (require.main === module) server.listen(port, () => {
   console.log(`Frontend running on port ${port}`);
   console.log(`  Local auth    : enabled (user: ${AUTH_USERNAME})`);
   console.log(`  OIDC issuer   : ${effectiveIssuer}`);
@@ -377,4 +517,7 @@ server.listen(port, () => {
   console.log(`  Backend proxy : ${config.backendUrl} → /api`);
   console.log(`  AI agent proxy: ${config.aiAgentUrl} → /advice`);
   console.log(`  MQTT WS proxy : ${config.mqttWsUrl} → /mqtt`);
+  console.log(`  Native agents : ${nativeAgentsEnabled ? "enabled" : "disabled"}`);
 });
+
+module.exports = { app, exactNativeRequest, ensureNativeAuth, serverAccessToken };

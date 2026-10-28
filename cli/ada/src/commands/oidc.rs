@@ -12,6 +12,7 @@
 //! current kubectl context can reach.
 
 use std::io::Read;
+use std::path::PathBuf;
 use std::process::{Child, ChildStderr, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -33,6 +34,20 @@ enum OidcCommand {
     /// realm and print `export OIDC_CLIENT_ID=… OIDC_CLIENT_SECRET=…`
     /// lines suitable for `eval`.
     SetupClient(SetupClientArgs),
+    /// Create the native demo users and assign only the API client's invocation role.
+    DemoUsers(DemoUsersArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct DemoUsersArgs {
+    #[arg(long, short = 'n')]
+    pub namespace: String,
+    #[arg(long)]
+    pub release: String,
+    #[arg(long, default_value = ".adaptive")]
+    pub state_dir: PathBuf,
+    #[arg(long, default_value_t = 18080)]
+    pub local_port: u16,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -71,6 +86,13 @@ pub struct SetupClientArgs {
     /// value (or read it from the chart's secret).
     #[arg(long, default_value = "admin")]
     pub admin_password: String,
+    /// Read the shared portfolio administrator password without a secret argument.
+    #[arg(long)]
+    pub admin_password_file: Option<PathBuf>,
+
+    /// Read the exact retained client secret instead of accepting a generated one.
+    #[arg(long)]
+    pub client_secret_file: Option<PathBuf>,
 
     /// Local port to bind for the kubectl port-forward to Keycloak.
     /// Defaults to 8080 so the browser-facing `OIDC_BROWSER_AUTH_ENDPOINT`
@@ -107,6 +129,7 @@ pub struct ProvisionedClient {
 
 pub fn run(args: OidcArgs) -> Result<()> {
     match args.command {
+        OidcCommand::DemoUsers(a) => provision_demo_users(&a),
         OidcCommand::SetupClient(a) => {
             let (result, pf) = provision_client_keep(&a)?;
             print_exports(&a, &result);
@@ -123,6 +146,95 @@ pub fn run(args: OidcArgs) -> Result<()> {
     }
 }
 
+pub fn provision_demo_users(args: &DemoUsersArgs) -> Result<()> {
+    use crate::commands::agents;
+    let directory = args.state_dir.join("private");
+    let path = directory.join("demo-users.json");
+    let mut users: serde_json::Value = if path.exists() {
+        serde_json::from_slice(&std::fs::read(&path)?)?
+    } else {
+        serde_json::json!({})
+    };
+    wait_for_pod_ready(&args.namespace, &args.release, Duration::from_secs(300))?;
+    let _pf = PortForward::start(
+        &args.namespace,
+        &format!("{}-keycloak", args.release),
+        args.local_port,
+    )?;
+    let base = format!("http://127.0.0.1:{}", args.local_port);
+    wait_for_keycloak(&base, "adaptive", Duration::from_secs(60))?;
+    let credential = std::fs::read_to_string(directory.join("keycloak-config-client-secret"))?;
+    let response: serde_json::Value = ureq::post(&format!(
+        "{base}/realms/adaptive/protocol/openid-connect/token"
+    ))
+    .send_form(&[
+        ("grant_type", "client_credentials"),
+        ("client_id", "adaptive-login-config"),
+        ("client_secret", credential.trim()),
+    ])
+    .context("Native login administrator authentication failed")?
+    .into_json()?;
+    let token = response["access_token"]
+        .as_str()
+        .context("Missing login administrator token")?;
+    let client = find_client_uuid(&base, "adaptive", token, "adaptive-platform-api")?
+        .context("Deploy the Radius-owned native login declaration before seeding users")?;
+    let authorization = format!("Bearer {token}");
+    let role_url = format!("{base}/admin/realms/adaptive/clients/{client}/roles/agent.invoke");
+    let role: serde_json::Value = ureq::get(&role_url)
+        .set("Authorization", &authorization)
+        .call()
+        .context("Missing native API client role agent.invoke")?
+        .into_json()?;
+    let users_url = format!("{base}/admin/realms/adaptive/users");
+    let mut existing = Vec::new();
+    for username in ["alice", "bob"] {
+        let found: Vec<serde_json::Value> = ureq::get(&users_url)
+            .set("Authorization", &authorization)
+            .query("username", username)
+            .query("exact", "true")
+            .call()?
+            .into_json()?;
+        if !found.is_empty() && users[username]["password"].as_str().is_none() {
+            bail!("User {username} already exists without a saved demo password; refusing to reset it");
+        }
+        if users[username]["password"].as_str().is_none() {
+            users[username] = serde_json::json!({
+                "password": agents::secret(&directory, &format!("demo-{username}-password"))?
+            });
+        }
+        existing.push((username, !found.is_empty()));
+    }
+    agents::save(&path, &users)?;
+    for (username, exists) in existing {
+        if !exists {
+            ureq::post(&users_url).set("Authorization", &authorization).send_json(serde_json::json!({
+                "username": username, "enabled": true, "emailVerified": true,
+                "email": format!("{username}@example.test"), "firstName": username, "lastName": "Demo",
+                "credentials": [{"type":"password","value":users[username]["password"],"temporary":false}]
+            })).context("Demo user creation failed")?;
+        }
+        let current: Vec<serde_json::Value> = ureq::get(&users_url)
+            .set("Authorization", &authorization)
+            .query("username", username)
+            .query("exact", "true")
+            .call()?
+            .into_json()?;
+        let id = current
+            .first()
+            .and_then(|user| user["id"].as_str())
+            .context("Created demo user was not returned by Keycloak")?;
+        ureq::post(&format!("{users_url}/{id}/role-mappings/clients/{client}"))
+            .set("Authorization", &authorization)
+            .send_json(serde_json::json!([role]))
+            .context("Native client-role assignment failed")?;
+    }
+    ui::ok(&format!(
+        "Demo users ready; passwords in {} (not reset on rerun)",
+        path.display()
+    ));
+    Ok(())
+}
 /// Reusable from `bootstrap`. Returns the credentials of the
 /// provisioned (or reused) client. Idempotent. Always tears down the
 /// port-forward before returning.
@@ -131,6 +243,41 @@ pub fn provision_client(args: &SetupClientArgs) -> Result<ProvisionedClient> {
     let (result, _pf) = provision_client_keep(args)?;
     // _pf drops here, killing the port-forward.
     Ok(result)
+}
+
+pub fn wait_native_keycloak(namespace: &str, release: &str) -> Result<()> {
+    wait_for_pod_ready(namespace, release, Duration::from_secs(300))?;
+    let _pf = PortForward::start(namespace, &format!("{release}-keycloak"), 18080)?;
+    wait_for_keycloak(
+        "http://127.0.0.1:18080",
+        "adaptive",
+        Duration::from_secs(60),
+    )
+}
+
+pub fn provision_native_trading_client(
+    namespace: &str,
+    release: &str,
+    state_dir: &std::path::Path,
+) -> Result<()> {
+    let private = state_dir.join("private");
+    provision_client(&SetupClientArgs {
+        namespace: namespace.to_owned(),
+        release: release.to_owned(),
+        client_id: "adaptive-trading".into(),
+        redirect_uris: vec!["http://localhost:3000/auth/oidc/callback".into()],
+        web_origins: vec!["http://localhost:3000".into()],
+        realm: "adaptive".into(),
+        admin_user: "admin".into(),
+        admin_password: String::new(),
+        admin_password_file: Some(private.join("keycloak-admin-password")),
+        client_secret_file: Some(private.join("adaptive-trading-client-secret")),
+        local_port: 18081,
+        pod_ready_timeout_secs: 300,
+        keep_port_forward: false,
+        dry_run: false,
+    })?;
+    Ok(())
 }
 
 /// Like [`provision_client`] but returns the live `PortForward` when
@@ -151,7 +298,9 @@ pub fn provision_client_keep(
     ui::detail("redirect URIs", &args.redirect_uris.join(", "));
 
     if args.dry_run {
-        ui::dry_run("would port-forward to keycloak and create/reuse the client via Admin REST API");
+        ui::dry_run(
+            "would port-forward to keycloak and create/reuse the client via Admin REST API",
+        );
         return Ok((
             ProvisionedClient {
                 client_id: args.client_id.clone(),
@@ -179,9 +328,17 @@ pub fn provision_client_keep(
         return Err(e);
     }
 
-    let token = admin_token(&base, &args.admin_user, &args.admin_password)?;
+    let password = match &args.admin_password_file {
+        Some(path) => std::fs::read_to_string(path)?.trim().to_owned(),
+        None => args.admin_password.clone(),
+    };
+    let token = admin_token(&base, &args.admin_user, &password)?;
     let result = ensure_client(&base, &args.realm, &token, args)?;
-    let pf = if args.keep_port_forward { Some(pf) } else { None };
+    let pf = if args.keep_port_forward {
+        Some(pf)
+    } else {
+        None
+    };
     Ok((result, pf))
 }
 
@@ -200,12 +357,19 @@ pub fn print_exports(args: &SetupClientArgs, result: &ProvisionedClient) {
     println!("export OIDC_CLIENT_SECRET={}", result.client_secret);
 
     let cm_name = format!("{}-oidc", args.release);
+    let mut browser = format!(
+        "http://localhost:{}/realms/{}/protocol/openid-connect/auth",
+        args.local_port, args.realm
+    );
     match read_oidc_configmap(&args.namespace, &cm_name) {
         Ok(cm) => {
             println!("export OIDC_ISSUER={}", cm.issuer);
             println!("export OIDC_AUTH_ENDPOINT={}", cm.auth_endpoint);
             println!("export OIDC_TOKEN_ENDPOINT={}", cm.token_endpoint);
             println!("export OIDC_USERINFO_ENDPOINT={}", cm.userinfo_endpoint);
+            if !cm.browser_auth_endpoint.is_empty() {
+                browser = cm.browser_auth_endpoint;
+            }
         }
         Err(e) => {
             ui::note(&format!(
@@ -214,10 +378,7 @@ pub fn print_exports(args: &SetupClientArgs, result: &ProvisionedClient) {
             ui::note("the frontend pod will not be able to reach Keycloak for token exchange unless you set OIDC_ISSUER / OIDC_TOKEN_ENDPOINT / OIDC_USERINFO_ENDPOINT manually.");
         }
     }
-    println!(
-        "export OIDC_BROWSER_AUTH_ENDPOINT=http://localhost:8080/realms/{}/protocol/openid-connect/auth",
-        args.realm
-    );
+    println!("export OIDC_BROWSER_AUTH_ENDPOINT={browser}");
 }
 
 struct OidcConfigMap {
@@ -225,13 +386,14 @@ struct OidcConfigMap {
     auth_endpoint: String,
     token_endpoint: String,
     userinfo_endpoint: String,
+    browser_auth_endpoint: String,
 }
 
 fn read_oidc_configmap(namespace: &str, name: &str) -> Result<OidcConfigMap> {
     let out = Command::new("kubectl")
         .args([
             "get", "cm", "-n", namespace, name,
-            "-o", "jsonpath={.data.issuer}|{.data.authEndpoint}|{.data.tokenEndpoint}|{.data.userInfoEndpoint}",
+            "-o", "jsonpath={.data.issuer}|{.data.authEndpoint}|{.data.tokenEndpoint}|{.data.userInfoEndpoint}|{.data.browserAuthEndpoint}",
         ])
         .output()
         .with_context(|| format!("failed to run kubectl get cm {name}"))?;
@@ -243,7 +405,7 @@ fn read_oidc_configmap(namespace: &str, name: &str) -> Result<OidcConfigMap> {
     }
     let body = String::from_utf8_lossy(&out.stdout).trim().to_string();
     let parts: Vec<&str> = body.split('|').collect();
-    if parts.len() != 4 || parts.iter().any(|p| p.is_empty()) {
+    if parts.len() != 5 || parts[..4].iter().any(|p| p.is_empty()) {
         bail!("cm/{name} did not expose all 4 endpoint keys: `{body}`");
     }
     Ok(OidcConfigMap {
@@ -251,6 +413,7 @@ fn read_oidc_configmap(namespace: &str, name: &str) -> Result<OidcConfigMap> {
         auth_endpoint: parts[1].to_string(),
         token_endpoint: parts[2].to_string(),
         userinfo_endpoint: parts[3].to_string(),
+        browser_auth_endpoint: parts[4].to_string(),
     })
 }
 
@@ -266,8 +429,17 @@ pub struct PortForward {
 
 impl PortForward {
     fn start(namespace: &str, service: &str, local_port: u16) -> Result<Self> {
+        Self::start_service(namespace, service, local_port, 8080)
+    }
+
+    pub fn start_service(
+        namespace: &str,
+        service: &str,
+        local_port: u16,
+        remote_port: u16,
+    ) -> Result<Self> {
         ui::step(&format!(
-            "kubectl port-forward -n {namespace} svc/{service} {local_port}:8080"
+            "kubectl port-forward -n {namespace} svc/{service} {local_port}:{remote_port}"
         ));
         let mut child = Command::new("kubectl")
             .args([
@@ -275,14 +447,14 @@ impl PortForward {
                 "-n",
                 namespace,
                 &format!("svc/{service}"),
-                &format!("{local_port}:8080"),
+                &format!("{local_port}:{remote_port}"),
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
-            .with_context(|| format!(
-                "failed to spawn `kubectl port-forward` on local port {local_port}"
-            ))?;
+            .with_context(|| {
+                format!("failed to spawn `kubectl port-forward` on local port {local_port}")
+            })?;
         let stderr = child.stderr.take();
         Ok(Self { child, stderr })
     }
@@ -344,10 +516,7 @@ fn wait_for_pod_ready(namespace: &str, release: &str, timeout: Duration) -> Resu
     //    pods exist, so we can't rely on it to wait for pod creation.
     loop {
         let out = Command::new("kubectl")
-            .args([
-                "get", "pod", "-n", namespace, "-l", &selector,
-                "-o", "name",
-            ])
+            .args(["get", "pod", "-n", namespace, "-l", &selector, "-o", "name"])
             .output()
             .context("failed to run `kubectl get pod` for keycloak")?;
         if out.status.success() && !out.stdout.is_empty() {
@@ -396,8 +565,13 @@ fn wait_for_pod_ready(namespace: &str, release: &str, timeout: Duration) -> Resu
 fn service_selector(namespace: &str, service: &str) -> Result<String> {
     let out = Command::new("kubectl")
         .args([
-            "get", "svc", "-n", namespace, service,
-            "-o", "jsonpath={.spec.selector}",
+            "get",
+            "svc",
+            "-n",
+            namespace,
+            service,
+            "-o",
+            "jsonpath={.spec.selector}",
         ])
         .output()
         .with_context(|| format!("failed to read selector of svc/{service} in {namespace}"))?;
@@ -457,7 +631,8 @@ fn admin_token(base: &str, user: &str, password: &str) -> Result<String> {
             ("password", password),
         ]);
     let body = match resp {
-        Ok(r) => r.into_json::<serde_json::Value>()
+        Ok(r) => r
+            .into_json::<serde_json::Value>()
             .context("admin-cli token response was not JSON")?,
         Err(ureq::Error::Status(code, r)) => {
             let body = r.into_string().unwrap_or_default();
@@ -480,6 +655,23 @@ fn ensure_client(
     token: &str,
     args: &SetupClientArgs,
 ) -> Result<ProvisionedClient> {
+    if args
+        .client_secret_file
+        .as_ref()
+        .is_some_and(|path| path.is_symlink())
+    {
+        bail!("Refusing a symlink OIDC client secret");
+    }
+    let requested_secret = args
+        .client_secret_file
+        .as_deref()
+        .map(std::fs::read_to_string)
+        .transpose()?
+        .map(|value| value.trim().to_owned());
+    if requested_secret.as_ref().is_some_and(String::is_empty) {
+        bail!("Requested OIDC client secret is empty");
+    }
+
     // 1. Look up existing client by clientId.
     if let Some(uuid) = find_client_uuid(base, realm, token, &args.client_id)? {
         ui::step(&format!(
@@ -487,6 +679,15 @@ fn ensure_client(
             args.client_id
         ));
         let secret = fetch_client_secret(base, realm, token, &uuid)?;
+        if requested_secret
+            .as_ref()
+            .is_some_and(|expected| expected != &secret)
+        {
+            bail!(
+                "client `{}` exists with a different secret; rotate it explicitly",
+                args.client_id
+            );
+        }
         return Ok(ProvisionedClient {
             client_id: args.client_id.clone(),
             client_secret: secret,
@@ -496,7 +697,7 @@ fn ensure_client(
 
     // 2. Create it.
     ui::step(&format!("creating client `{}`", args.client_id));
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "clientId": args.client_id,
         "enabled": true,
         "protocol": "openid-connect",
@@ -507,6 +708,9 @@ fn ensure_client(
         "redirectUris": args.redirect_uris,
         "webOrigins": args.web_origins,
     });
+    if let Some(secret) = &requested_secret {
+        body["secret"] = serde_json::json!(secret);
+    }
     let url = format!("{base}/admin/realms/{realm}/clients");
     let resp = ureq::post(&url)
         .set("Authorization", &format!("Bearer {token}"))
@@ -547,7 +751,9 @@ fn find_client_uuid(
         .query("clientId", client_id)
         .call();
     let arr: serde_json::Value = match resp {
-        Ok(r) => r.into_json().context("clients list response was not JSON")?,
+        Ok(r) => r
+            .into_json()
+            .context("clients list response was not JSON")?,
         Err(ureq::Error::Status(code, r)) => {
             let body = r.into_string().unwrap_or_default();
             bail!("list clients failed (HTTP {code}): {body}");

@@ -21,6 +21,75 @@
         padding: 16px 24px;
         flex-shrink: 0;
       }
+      .header-content,
+      .header-actions,
+      .user-info {
+        display: flex;
+        align-items: center;
+      }
+      .header-content {
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .header-content h1 {
+        margin: 0 0 4px;
+      }
+      .header-actions {
+        gap: 18px;
+      }
+      .user-info {
+        gap: 12px;
+        font-size: 14px;
+      }
+      .red-button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 14px 8px 9px;
+        border: 1px solid #f87171;
+        border-radius: 999px;
+        background: #7f1d1d;
+        color: #fff;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+        transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
+      }
+      .red-button:hover {
+        background: #991b1b;
+        box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.25);
+      }
+      .red-button:active {
+        transform: translateY(1px);
+      }
+      .red-button:focus-visible {
+        outline: 3px solid #fca5a5;
+        outline-offset: 3px;
+      }
+      .red-button-light {
+        width: 22px;
+        height: 22px;
+        border: 2px solid #fecaca;
+        border-radius: 50%;
+        background: #ef4444;
+        box-shadow: inset 0 -3px 0 rgba(127, 29, 29, 0.45), 0 0 10px rgba(248, 113, 113, 0.8);
+      }
+      body[data-connectivity="disconnected"] .red-button {
+        border-color: #86efac;
+        background: #14532d;
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15);
+      }
+      body[data-connectivity="disconnected"] .red-button:hover {
+        background: #166534;
+      }
+      body[data-connectivity="disconnected"] .red-button-light {
+        border-color: #bbf7d0;
+        background: #22c55e;
+        box-shadow: inset 0 -3px 0 rgba(20, 83, 45, 0.45), 0 0 10px rgba(74, 222, 128, 0.7);
+      }
       .app-layout {
         display: flex;
         flex: 1;
@@ -34,10 +103,14 @@
         background: #1f2937;
         color: #fff;
         overflow-y: auto;
+        scrollbar-width: none;
         padding: 16px 12px;
         display: flex;
         flex-direction: column;
         gap: 8px;
+      }
+      .symbols-sidebar::-webkit-scrollbar {
+        display: none;
       }
       .symbols-sidebar h2 {
         margin: 0 0 8px 4px;
@@ -45,6 +118,126 @@
         text-transform: uppercase;
         letter-spacing: 1px;
         color: #9ca3af;
+      }
+      .market-watch {
+        flex-shrink: 0;
+      }
+      .platform-capabilities {
+        border-top: 1px solid #374151;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+        margin-top: 12px;
+        padding: 18px 0 0;
+      }
+      .capability-mode {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0 0 12px 4px;
+        border-radius: 999px;
+        padding: 4px 8px;
+        background: rgba(37, 99, 235, 0.18);
+        color: #93c5fd;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .capability-mode::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #60a5fa;
+        box-shadow: 0 0 7px #60a5fa;
+        content: "";
+      }
+      body[data-connectivity="disconnected"] .capability-mode {
+        background: rgba(245, 158, 11, 0.16);
+        color: #fcd34d;
+      }
+      body[data-connectivity="disconnected"] .capability-mode::before {
+        background: #f59e0b;
+        box-shadow: 0 0 7px #f59e0b;
+      }
+      .capability-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .capability-card {
+        border: 1px solid #374151;
+        border-radius: 8px;
+        background: #111827;
+        padding: 7px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+      }
+      .capability-card[data-backing="cloud"] {
+        border-color: #15803d;
+        background: rgba(20, 83, 45, 0.58);
+      }
+      .capability-card[data-backing="local"] {
+        border-color: #a16207;
+        background: rgba(113, 63, 18, 0.58);
+      }
+      .capability-icon {
+        width: 27px;
+        height: 27px;
+        flex: 0 0 27px;
+        display: grid;
+        place-items: center;
+        border: 1px solid #4b5563;
+        border-radius: 7px;
+        background: #1e293b;
+        color: #93c5fd;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+      .capability-icon.has-image {
+        border-color: rgba(255, 255, 255, 0.7);
+        background: #fff;
+        padding: 4px;
+        box-sizing: border-box;
+      }
+      .capability-icon img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .capability-copy {
+        min-width: 0;
+      }
+      .capability-label {
+        margin-bottom: 2px;
+        color: #9ca3af;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        line-height: 1.1;
+        text-transform: uppercase;
+      }
+      .capability-value {
+        color: #f9fafb;
+        font-size: 11px;
+        font-weight: 700;
+        line-height: 1.15;
+        overflow-wrap: anywhere;
+      }
+      .capability-detail {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
       }
       .symbol-card {
         background: #111827;
@@ -213,23 +406,43 @@
       }
     </style>
   </head>
-  <body>
+  <body data-connectivity="connected">
     <header>
-      <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="header-content">
         <div>
           <h1>Simplified Stock Trading App</h1>
           <div class="status" id="status">Connecting...</div>
         </div>
-        <div id="user-info" style="display:flex;align-items:center;gap:12px;font-size:14px;">
-          <span id="user-name"></span>
-          <a href="/auth/logout" style="color:#9ca3af;text-decoration:none;border:1px solid #4b5563;padding:4px 12px;border-radius:4px;">Sign out</a>
+        <div class="header-actions">
+          <button
+            class="red-button"
+            id="red-button"
+            type="button"
+            aria-pressed="false"
+            title="Simulate a disconnected cloud-services scenario"
+          >
+            <span class="red-button-light" aria-hidden="true"></span>
+            <span id="red-button-label">Simulate outage</span>
+          </button>
+          <div class="user-info" id="user-info">
+            <a id="agents-link" href="/agents" hidden style="color:#fff;text-decoration:none;border:1px solid #6b7280;padding:4px 12px;border-radius:4px;">Agents</a>
+            <span id="user-name"></span>
+            <a href="/auth/logout" style="color:#9ca3af;text-decoration:none;border:1px solid #4b5563;padding:4px 12px;border-radius:4px;">Sign out</a>
+          </div>
         </div>
       </div>
     </header>
     <div class="app-layout">
     <aside class="symbols-sidebar">
-      <h2>Market Watch</h2>
-      <div id="symbols"></div>
+      <div class="market-watch">
+        <h2>Market Watch</h2>
+        <div id="symbols"></div>
+      </div>
+      <section class="platform-capabilities" aria-labelledby="platform-capabilities-heading">
+        <h2 id="platform-capabilities-heading">Platform Capabilities</h2>
+        <div class="capability-mode" id="capability-mode">Cloud connected</div>
+        <div class="capability-list" id="capability-list"></div>
+      </section>
     </aside>
     <main>
       <section>
@@ -335,6 +548,96 @@
 
       const statusEl = document.getElementById("status");
       const orderStatusEl = document.getElementById("order-status");
+      const redButtonEl = document.getElementById("red-button");
+      const redButtonLabelEl = document.getElementById("red-button-label");
+      const capabilityModeEl = document.getElementById("capability-mode");
+      const capabilityListEl = document.getElementById("capability-list");
+      const capabilities = {
+        connected: [
+          { icon: "/icons/keycloak.svg", fallback: "KC", backing: "cloud", label: "Authentication", value: "Keycloak + Entra", detail: "Keycloak federated with Microsoft Entra ID" },
+          { icon: "/icons/agentgateway.svg", fallback: "AG", backing: "cloud", label: "Agent gateway", value: "agentgateway", detail: "Authenticated agent ingress" },
+          { fallback: "LL", backing: "cloud", label: "AI gateway", value: "LiteLLM", detail: "Model routing and access" },
+          { icon: "/icons/managed-identity.svg", fallback: "MI", backing: "cloud", label: "Agent identity", value: "Managed identity", detail: "Cloud workload identity" },
+          { icon: "/icons/event-grid.svg", fallback: "EG", backing: "cloud", label: "MQTT messaging", value: "Event Grid", detail: "Azure Event Grid cloud event broker" },
+          { icon: "/icons/foundry-agent-service.svg", fallback: "AF", backing: "cloud", label: "Agents", value: "Foundry", detail: "Agents hosted on Microsoft Foundry" },
+          { fallback: "OAI", backing: "cloud", label: "AI model", value: "OpenAI", detail: "Cloud model provider" },
+          { fallback: "ADT", backing: "cloud", label: "Governance", value: "ADT + OPA", detail: "ADT with OPA policies" },
+          { icon: "/icons/opentelemetry.svg", fallback: "OT", backing: "cloud", label: "Observability", value: "OpenTelemetry", detail: "Traces, metrics, and logs" },
+          { icon: "/icons/istio.svg", fallback: "IS", backing: "cloud", label: "Service mesh", value: "Istio", detail: "Service-to-service networking" },
+          { icon: "/icons/azure-storage.svg", fallback: "AS", backing: "cloud", label: "Agent memory", value: "Azure Storage", detail: "Cloud-backed persistent agent memory" },
+          { icon: "/icons/aks.svg", fallback: "AKS", backing: "cloud", label: "Compute", value: "AKS", detail: "Hosted on Azure Kubernetes Service" },
+        ],
+        disconnected: [
+          { icon: "/icons/keycloak.svg", fallback: "KC", backing: "local", label: "Authentication", value: "Keycloak", detail: "Local authentication" },
+          { icon: "/icons/agentgateway.svg", fallback: "AG", backing: "local", label: "Agent gateway", value: "agentgateway", detail: "Authenticated agent ingress" },
+          { fallback: "LL", backing: "local", label: "AI gateway", value: "LiteLLM", detail: "Model routing and access" },
+          { fallback: "LI", backing: "local", label: "Agent identity", value: "Local identity", detail: "Keycloak service identity" },
+          { icon: "/icons/mosquitto.svg", fallback: "MQ", backing: "local", label: "MQTT messaging", value: "Mosquitto", detail: "Local event broker" },
+          { fallback: "LOC", backing: "local", label: "Agents", value: "Local", detail: "Agents hosted locally in-cluster" },
+          { fallback: "KAI", backing: "local", label: "AI model", value: "KAITO", detail: "Local model serving" },
+          { fallback: "ADT", backing: "local", label: "Governance", value: "ADT + OPA", detail: "ADT with OPA policies" },
+          { icon: "/icons/opentelemetry.svg", fallback: "OT", backing: "local", label: "Observability", value: "OpenTelemetry", detail: "Traces, metrics, and logs" },
+          { icon: "/icons/istio.svg", fallback: "IS", backing: "local", label: "Service mesh", value: "Istio", detail: "Service-to-service networking" },
+          { fallback: "MEM", backing: "local", label: "Agent memory", value: "Local", detail: "Locally retained agent memory" },
+          { icon: "/icons/aks.svg", fallback: "AKS", backing: "cloud", label: "Compute", value: "AKS", detail: "Hosted on Azure Kubernetes Service" },
+        ],
+      };
+
+      function renderCapabilities(mode) {
+        const disconnected = mode === "disconnected";
+        document.body.dataset.connectivity = mode;
+        redButtonEl.setAttribute("aria-pressed", String(disconnected));
+        redButtonEl.title = disconnected
+          ? "Return to the cloud-connected scenario"
+          : "Simulate a disconnected cloud-services scenario";
+        redButtonLabelEl.textContent = disconnected ? "Restore cloud" : "Simulate outage";
+        capabilityModeEl.textContent = disconnected ? "Disconnected scenario" : "Cloud connected";
+        capabilityListEl.replaceChildren(
+          ...capabilities[mode].map(({ icon, fallback, backing, label, value, detail }) => {
+            const card = document.createElement("div");
+            card.className = "capability-card";
+            card.dataset.backing = backing;
+            card.title = `${label}: ${value}. ${detail}`;
+            const iconEl = document.createElement("span");
+            iconEl.className = "capability-icon";
+            iconEl.setAttribute("aria-hidden", "true");
+            if (icon) {
+              iconEl.classList.add("has-image");
+              const image = document.createElement("img");
+              image.src = icon;
+              image.alt = "";
+              image.addEventListener("error", () => {
+                iconEl.classList.remove("has-image");
+                iconEl.replaceChildren(fallback);
+              }, { once: true });
+              iconEl.appendChild(image);
+            } else {
+              iconEl.textContent = fallback;
+            }
+            const copyEl = document.createElement("div");
+            copyEl.className = "capability-copy";
+            const labelEl = document.createElement("div");
+            labelEl.className = "capability-label";
+            labelEl.textContent = label;
+            const valueEl = document.createElement("div");
+            valueEl.className = "capability-value";
+            valueEl.textContent = value;
+            const detailEl = document.createElement("div");
+            detailEl.className = "capability-detail";
+            detailEl.textContent = detail;
+            copyEl.append(labelEl, valueEl, detailEl);
+            card.append(iconEl, copyEl);
+            return card;
+          })
+        );
+      }
+
+      function toggleConnectivityScenario() {
+        const nextMode = document.body.dataset.connectivity === "connected"
+          ? "disconnected"
+          : "connected";
+        renderCapabilities(nextMode);
+      }
 
       // Seed a simulated price for a symbol
       function seedPrice(sym) {
@@ -530,6 +833,7 @@
         try {
           const me = await fetchJson("/auth/me");
           document.getElementById("user-name").textContent = me.displayName;
+          document.getElementById("agents-link").hidden = !me.nativeAgents;
         } catch (e) { /* ignore */ }
 
         mqttClient = mqtt.connect(config.mqttWsUrl);
@@ -551,6 +855,8 @@
         setInterval(tickPrices, 15000);
       }
 
+      redButtonEl.addEventListener("click", toggleConnectivityScenario);
+      renderCapabilities("connected");
       init().catch(() => {
         statusEl.textContent = "Failed to initialize frontend config.";
       });

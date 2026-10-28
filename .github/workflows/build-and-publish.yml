@@ -8,7 +8,6 @@ on:
 
 env:
   VERSION: 'latest'
-  CONTAINER_REGISTRY: 'ghcr.io/${{ github.repository_owner }}'
 
 jobs:
   build-ghcr:
@@ -27,9 +26,37 @@ jobs:
             image: adaptive-apps/ai-agent
           - directory: src/frontend/
             image: adaptive-apps/frontend
+          - directory: src/
+            dockerfile: src/agents/prompt-agent/Dockerfile
+            image: adaptive-apps/prompt-agent
+          - directory: src/
+            dockerfile: src/agents/editor/Dockerfile
+            image: adaptive-apps/editor
+          - directory: src/
+            dockerfile: src/services/governance-sidecar/Dockerfile
+            image: adaptive-apps/governance-sidecar
+          - directory: src/services/agent-gateway/
+            image: adaptive-apps/agent-policy
+          - directory: src/services/platform-api/
+            image: adaptive-apps/platform-api
+          - directory: src/services/ui/
+            image: adaptive-apps/ui
+            build_args: |
+              VITE_AUTH_ENABLED=true
+              VITE_KEYCLOAK_AUTHORITY=${{ vars.NATIVE_KEYCLOAK_AUTHORITY || 'https://localhost:8444/realms/adaptive' }}
+              VITE_KEYCLOAK_CLIENT_ID=adaptive-ui
+          - directory: src/services/ui/
+            image: adaptive-apps/ui-embedded
+            build_args: |
+              VITE_EMBEDDED=true
+              VITE_AUTH_ENABLED=false
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Normalize GHCR registry
+        shell: bash
+        run: echo "CONTAINER_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -42,6 +69,8 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ./${{ matrix.directory }}
+          file: ${{ matrix.dockerfile || format('{0}Dockerfile', matrix.directory) }}
+          build-args: ${{ matrix.build_args || '' }}
           push: true
           tags: ${{ env.CONTAINER_REGISTRY }}/${{ matrix.image }}:${{ env.VERSION }}
 

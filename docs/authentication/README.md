@@ -23,6 +23,28 @@ Once an Adaptive App capability profile is deployed, you can acess KeyCloak port
 
 ## Service authentication
 
+### Native agent application capability
+
+Native agents reuse the portfolio's PostgreSQL-backed Keycloak. Browser login
+uses the Radius-owned public `adaptive-ui` client with authorization-code/S256
+PKCE in realm `adaptive`; there is no browser client secret or password grant.
+Invocation permission is the **client role** `agent.invoke` on
+`adaptive-platform-api`, mapped into `roles` by the login recipe.
+`ada oidc demo-users` assigns that role to saved local demo users without
+granting administrator roles or resetting existing passwords.
+
+The trading frontend's confidential `adaptive-apps` client in `master` remains
+a different application contract. For a native-enabled portfolio, provision it
+using `ada oidc setup-client --admin-password-file
+.adaptive/private/keycloak-admin-password`; native UI client ownership remains
+with `radius/recipes/keycloak-login`.
+
+Browser federation is distinct from Kubernetes OIDC workload federation and
+the Agent ID blueprint. Connected agents use the official sidecar with the
+blueprint assertion; agents use their paired local Keycloak identity directly
+for reachable in-cluster targets. Cloud-only targets require Entra/connectivity.
+See [native delivery](../agents/native-radius.md) for those bindings and gates.
+
 Adaptive Apps uses workload identity based on Kubernetes service accounts for service-to-service authentication. Each service runs in a Kubernetes pod associated with a service account. This service account represents the workload’s identity and can be used to obtain a security token from an identity provider.
 
 Two patterns are supported depending on the environment:
@@ -49,3 +71,5 @@ In Azure environments, Adaptive Apps leverages workload identity integration wit
 * [Configure KeyCloak federation with Azure Entra](./keycloak-entra.md)
 * [Configure KeyCloak federation with local Active Directory](./keycloak-active-directory.md)
 * [Sync local Active Directory credentials to an Azure Entra tenant](./microsoft-entra-connect.md)
+* [Prepare Arc OIDC and workload identity](../../tutorials/common/prepare-arc.md)
+* [Native agent application identity and Radius delivery](../agents/native-radius.md)

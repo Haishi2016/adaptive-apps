@@ -11,7 +11,10 @@ use std::process::Command;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Args, ValueEnum};
 
-use crate::commands::oidc::{self, SetupClientArgs};
+use crate::commands::{
+    agents,
+    oidc::{self, DemoUsersArgs, SetupClientArgs},
+};
 use crate::ui;
 
 /// Default OCI repository prefix for the published `adaptive-apps` chart.
@@ -19,7 +22,7 @@ use crate::ui;
 const DEFAULT_CHART_REGISTRY: &str = "oci://ghcr.io/microsoft/adaptive-apps/charts";
 
 /// Default chart version pulled when `--version` is not supplied.
-const DEFAULT_CHART_VERSION: &str = "0.1.0";
+const DEFAULT_CHART_VERSION: &str = "0.3.2";
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "kebab-case")]
@@ -84,11 +87,10 @@ impl Platform {
     }
 }
 
-/// Additive capability overlays. Reserved for future axes (edge, airgap,
-/// …); the `ai` overlay is folded into the portfolio enum itself
-/// (`--portfolio core-ai`, etc.). No `--with` flag is currently exposed.
-#[allow(dead_code)]
-struct Capability;
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ValueEnum)]
+enum Capability {
+    Agents,
+}
 
 #[derive(Debug, Args)]
 pub struct BootstrapArgs {
@@ -192,11 +194,25 @@ pub struct BootstrapArgs {
     #[arg(long)]
     skip_azure_credentials: bool,
 
-    /// Additive capability overlays (repeatable). Reserved for future
-    /// axes; the `ai` overlay is now part of the portfolio enum itself
-    /// (e.g. `--portfolio core-ai`).
-    #[arg(skip)]
-    with: Vec<()>,
+    /// Add the native prompt/hosted agent application capability.
+    #[arg(long, value_enum)]
+    with: Vec<Capability>,
+
+    /// Reviewed native recipe/archive and immutable image configuration.
+    #[arg(long, requires = "with")]
+    agents_config: Option<PathBuf>,
+
+    /// Project-local private inputs; distinct from $ADA_HOME.
+    #[arg(long, default_value = ".adaptive")]
+    state_dir: PathBuf,
+
+    /// Replace derived native-agent JSON state after reviewing changed inputs.
+    #[arg(long, requires = "agents_config")]
+    refresh_derived_state: bool,
+
+    /// Seed alice/bob with the native API client invocation role.
+    #[arg(long, requires = "with")]
+    demo_users: bool,
 
     /// Helm release name.
     #[arg(long, default_value = "adaptive-apps")]
@@ -288,6 +304,18 @@ pub struct BootstrapArgs {
 pub fn run(args: BootstrapArgs) -> Result<()> {
     ensure_tool("helm")?;
     ensure_tool("kubectl")?;
+    let native = args.with.contains(&Capability::Agents);
+    if native && (args.agents_config.is_none() || !args.with_radius || args.skip_radius_recipes) {
+        bail!("--with agents requires --agents-config and --with-radius without --skip-radius-recipes");
+    }
+    if native
+        && matches!(
+            args.portfolio,
+            Portfolio::Min | Portfolio::Core | Portfolio::Ent
+        )
+    {
+        bail!("Select an AI portfolio for the native agent capability");
+    }
 
     // Platform automation: switch Azure subscription if requested, derive
     // platform-specific --set overrides. Run before resolve_chart_and_values
@@ -314,6 +342,10 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
     for v in &args.values {
         helm.arg("-f").arg(v);
     }
+    if native {
+        helm.arg("-f")
+            .arg(args.state_dir.join("private/portfolio.values.json"));
+    }
     // Platform-derived --set comes BEFORE user --set so the user can override.
     for s in &platform.helm_sets {
         helm.arg("--set").arg(s);
@@ -334,7 +366,9 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
             );
         }
     }
-    let _ = &args.with; // reserved for future overlays
+    if native {
+        ui::detail("capability", "agents (shared Keycloak and telemetry)");
+    }
     ui::detail("release", &args.release);
     ui::detail("namespace", &args.namespace);
     ui::detail("chart", &resolution.chart_ref.to_string_lossy());
@@ -359,21 +393,31 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
     if args.with_radius {
         ui::detail(
             "with-radius",
-            &format!("workspace={} group={}", args.radius_workspace, args.radius_group),
+            &format!(
+                "workspace={} group={}",
+                args.radius_workspace, args.radius_group
+            ),
         );
     }
     println!();
 
     // Provision a local k3d cluster before helm runs on --platform k3s.
     if matches!(args.platform, Some(Platform::K3s)) && !args.skip_cluster_provision {
-        provision_k3d_cluster(&args.k3d_cluster, args.dry_run)?;
+        provision_k3d_cluster(&args.k3d_cluster, args.dry_run, native)?;
         println!();
+    }
+
+    if args.chart_root.is_some() {
+        build_local_chart_dependencies(Path::new(&resolution.chart_ref), args.dry_run)?;
     }
 
     ui::command(&render_command(&helm));
 
     if args.dry_run {
         ui::dry_run("not executing helm");
+        if native {
+            ui::dry_run("would prepare private inputs, install Envoy v1.9.2 and agentgateway v1.6.0, wait for shared Keycloak, deploy native services and optionally seed demo users");
+        }
         if args.with_radius {
             install_radius(&args)?;
             print_app_deploy_hint(&args);
@@ -382,6 +426,32 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
         return Ok(());
     }
 
+    let prepared = if native {
+        agents::check_ownership(&args.namespace, &args.release)?;
+        let prepared = agents::prepare(
+            args.agents_config
+                .as_deref()
+                .context("Missing native config")?,
+            &args.state_dir,
+            &args.namespace,
+            &args.release,
+            &args.radius_group,
+            args.refresh_derived_state,
+        )?;
+        agents::save_derived(
+            &prepared.private.join("trading.parameters.json"),
+            &serde_json::json!({
+                "parameters": {"enableIstioInjection": {"value": !matches!(args.portfolio, Portfolio::Min | Portfolio::MinAi)}}
+            }),
+            args.refresh_derived_state,
+        )?;
+        install_native_gateways(&args.namespace)?;
+        install_radius(&args)?;
+        native_prerequisites(&args, &prepared)?;
+        Some(prepared)
+    } else {
+        None
+    };
     ui::tool_banner("helm", "upgrade --install");
     let status = helm.status().with_context(|| "failed to spawn helm")?;
     if !status.success() {
@@ -389,25 +459,215 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
     }
     ui::ok("helm install complete");
 
-    if args.with_radius {
+    if args.with_radius && !native {
         install_radius(&args)?;
         print_app_deploy_hint(&args);
     }
 
-    maybe_provision_oidc_client(&args)?;
+    let mut native_port_forward = None;
+    if let Some(prepared) = prepared {
+        for (file, parameters) in [
+            ("agents-env.bicep", "environment.parameters.json"),
+            ("credentials.bicep", "credentials.parameters.json"),
+            ("agent-services.bicep", "services.parameters.json"),
+        ] {
+            if file == "agent-services.bicep" {
+                oidc::wait_native_keycloak(&args.namespace, &args.release)?;
+                oidc::provision_native_trading_client(
+                    &args.namespace,
+                    &args.release,
+                    &args.state_dir,
+                )?;
+            }
+            agents::deploy(
+                &args.radius_dir,
+                file,
+                &prepared,
+                &args.radius_group,
+                parameters,
+            )?;
+        }
+        let status = Command::new("kubectl")
+            .args([
+                "-n",
+                &args.namespace,
+                "rollout",
+                "restart",
+                "deployment/model-gateway",
+            ])
+            .status()?;
+        if !status.success() {
+            bail!("Model Gateway restart failed after model configuration deployment");
+        }
+        let status = Command::new("kubectl")
+            .args([
+                "-n",
+                &args.namespace,
+                "rollout",
+                "status",
+                "deployment",
+                "--timeout=15m",
+            ])
+            .status()?;
+        if !status.success() {
+            bail!("Native shared-service rollout did not become ready");
+        }
+        if args.demo_users {
+            oidc::provision_demo_users(&DemoUsersArgs {
+                namespace: args.namespace.clone(),
+                release: args.release.clone(),
+                state_dir: args.state_dir.clone(),
+                local_port: 18080,
+            })?;
+        }
+        print_native_app_exports(&args, &prepared)?;
+        if args.keep_port_forward {
+            let service = native_ui_gateway_service(&args.namespace)?;
+            native_port_forward = Some(oidc::PortForward::start_service(
+                "envoy-gateway-system",
+                &service,
+                8444,
+                8444,
+            )?);
+        }
+    } else {
+        maybe_provision_oidc_client(&args)?;
+    }
 
     if let Some(rev) = &platform.istio_revision {
         println!();
         ui::note("AKS Istio add-on revision (use to label app namespaces):");
         println!("export ISTIO_REVISION={rev}");
     }
+    if let Some(mut pf) = native_port_forward {
+        println!();
+        ui::note("keeping native HTTPS ingress on https://localhost:8444 — press Ctrl-C to stop");
+        ui::note("copy the exports and `rad deploy` command above into another terminal");
+        let _ = pf.wait();
+    }
     Ok(())
+}
+
+fn print_native_app_exports(args: &BootstrapArgs, prepared: &agents::Prepared) -> Result<()> {
+    let client_secret =
+        std::fs::read_to_string(prepared.private.join("adaptive-trading-client-secret"))?;
+    let keycloak = format!(
+        "http://{}-keycloak.{}.svc.cluster.local:8080",
+        args.release, args.namespace
+    );
+    println!();
+    ui::note("Native services ready. In a second terminal, run:");
+    println!("export AUTH_USERNAME=admin");
+    println!("export AUTH_PASSWORD=admin");
+    println!("export OIDC_CLIENT_ID=adaptive-trading");
+    println!("export OIDC_CLIENT_SECRET={}", client_secret.trim());
+    println!("export OIDC_ISSUER=https://localhost:8444/realms/adaptive");
+    println!("export OIDC_AUTH_ENDPOINT={keycloak}/realms/adaptive/protocol/openid-connect/auth");
+    println!(
+        "export OIDC_BROWSER_AUTH_ENDPOINT=https://localhost:8444/realms/adaptive/protocol/openid-connect/auth"
+    );
+    println!("export OIDC_TOKEN_ENDPOINT={keycloak}/realms/adaptive/protocol/openid-connect/token");
+    println!(
+        "export OIDC_USERINFO_ENDPOINT={keycloak}/realms/adaptive/protocol/openid-connect/userinfo"
+    );
+    println!("export AGENT_ENVIRONMENT={}", prepared.environment);
+    println!(
+        "export AGENT_GATEWAY_URL=http://agent-ingress.{}.svc.cluster.local:8080",
+        args.namespace
+    );
+    println!("export NATIVE_MODEL={}", prepared.agent_model);
+    println!("export PROMPT_AGENT_IMAGE={}", prepared.prompt_agent_image);
+    println!("export EDITOR_IMAGE={}", prepared.editor_image);
+    println!("export NATIVE_UI_IMAGE={}", prepared.embedded_ui_image);
+    println!(
+        "export TRADING_IMAGE_REGISTRY={}",
+        shell_quote(OsStr::new(&prepared.image_registry))
+    );
+    println!(
+        "export TRADING_IMAGE_TAG={}",
+        shell_quote(OsStr::new(&prepared.image_tag))
+    );
+    println!();
+    println!("rad deploy radius/app.bicep \\");
+    println!("  --group {} \\", args.radius_group);
+    println!("  --environment {} \\", args.radius_environment);
+    println!("  --parameters imageRegistry=\"$TRADING_IMAGE_REGISTRY\" \\");
+    println!("  --parameters imageTag=\"$TRADING_IMAGE_TAG\" \\");
+    println!("  --parameters authUsername=\"$AUTH_USERNAME\" \\");
+    println!("  --parameters authPassword=\"$AUTH_PASSWORD\" \\");
+    println!(
+        "  --parameters otelCollectorEndpoint=\"http://otel-collector.{}:4318\" \\",
+        args.namespace
+    );
+    println!("  --parameters oidcIssuer=\"$OIDC_ISSUER\" \\");
+    println!("  --parameters oidcAuthEndpoint=\"$OIDC_AUTH_ENDPOINT\" \\");
+    println!("  --parameters oidcBrowserAuthEndpoint=\"$OIDC_BROWSER_AUTH_ENDPOINT\" \\");
+    println!("  --parameters oidcTokenEndpoint=\"$OIDC_TOKEN_ENDPOINT\" \\");
+    println!("  --parameters oidcUserInfoEndpoint=\"$OIDC_USERINFO_ENDPOINT\" \\");
+    println!("  --parameters oidcClientId=\"$OIDC_CLIENT_ID\" \\");
+    println!("  --parameters oidcClientSecret=\"$OIDC_CLIENT_SECRET\" \\");
+    let application_parameters = format!(
+        "@{}",
+        prepared
+            .private
+            .join("application.parameters.json")
+            .display()
+    );
+    println!(
+        "  --parameters {} \\",
+        shell_quote(OsStr::new(&application_parameters))
+    );
+    println!("  --parameters nativeAgentNamespace={} \\", args.namespace);
+    println!("  --parameters nativeAgentEnvironment=\"$AGENT_ENVIRONMENT\" \\");
+    println!("  --parameters nativeAgentGatewayUrl=\"$AGENT_GATEWAY_URL\" \\");
+    println!("  --parameters nativeAgentModel=\"$NATIVE_MODEL\" \\");
+    println!("  --parameters promptAgentImage=\"$PROMPT_AGENT_IMAGE\" \\");
+    println!("  --parameters editorAgentImage=\"$EDITOR_IMAGE\" \\");
+    println!("  --parameters nativeUiImage=\"$NATIVE_UI_IMAGE\"");
+    Ok(())
+}
+
+fn native_ui_gateway_service(namespace: &str) -> Result<String> {
+    let selector = format!(
+        "gateway.envoyproxy.io/owning-gateway-name=ui-ingress,gateway.envoyproxy.io/owning-gateway-namespace={namespace}"
+    );
+    let output = Command::new("kubectl")
+        .args([
+            "-n",
+            "envoy-gateway-system",
+            "get",
+            "services",
+            "-l",
+            &selector,
+            "-o",
+            "jsonpath={.items[*].metadata.name}",
+        ])
+        .output()
+        .context("failed to find the native UI gateway Service")?;
+    if !output.status.success() {
+        bail!(
+            "failed to find the native UI gateway Service: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    single_service_name(&String::from_utf8(output.stdout)?)
+}
+
+fn single_service_name(services: &str) -> Result<String> {
+    let mut names = services.split_whitespace();
+    let service = names
+        .next()
+        .context("native UI gateway Service was not found")?;
+    if names.next().is_some() {
+        bail!("native UI gateway Service ownership is ambiguous");
+    }
+    Ok(service.to_owned())
 }
 
 /// Idempotently provision a local k3d cluster. If a cluster with the
 /// requested name already exists we just switch the kubectl context to
 /// it; otherwise we create it. Requires `k3d` and `kubectl` on PATH.
-fn provision_k3d_cluster(name: &str, dry_run: bool) -> Result<()> {
+fn provision_k3d_cluster(name: &str, dry_run: bool, native: bool) -> Result<()> {
     ensure_tool("k3d")?;
     let context = format!("k3d-{name}");
 
@@ -428,9 +688,21 @@ fn provision_k3d_cluster(name: &str, dry_run: bool) -> Result<()> {
     } else {
         ui::step(&format!("creating k3d cluster `{name}`"));
         let mut cmd = Command::new("k3d");
-        cmd.args(["cluster", "create", name]);
+        if native {
+            cmd.args([
+                "cluster",
+                "create",
+                name,
+                "--image",
+                "rancher/k3s:v1.35.5-k3s1",
+            ]);
+        } else {
+            cmd.args(["cluster", "create", name]);
+        }
         ui::tool_banner("k3d", &render_command(&cmd));
-        let status = cmd.status().context("failed to spawn `k3d cluster create`")?;
+        let status = cmd
+            .status()
+            .context("failed to spawn `k3d cluster create`")?;
         if !status.success() {
             bail!("`k3d cluster create {name}` exited with status {status}");
         }
@@ -513,9 +785,7 @@ fn resolve_local(chart_root: &Path, args: &BootstrapArgs) -> Result<Resolution> 
     }
 
     let profile_name = args.portfolio.as_str(); // e.g. `core` or `core-ai`
-    let profile_file = chart
-        .join("profiles")
-        .join(format!("{profile_name}.yaml"));
+    let profile_file = chart.join("profiles").join(format!("{profile_name}.yaml"));
     require_file(&profile_file, "portfolio profile")?;
 
     Ok(Resolution {
@@ -528,6 +798,27 @@ fn resolve_local(chart_root: &Path, args: &BootstrapArgs) -> Result<Resolution> 
 fn require_file(path: &Path, what: &str) -> Result<()> {
     if !path.is_file() {
         return Err(anyhow!("missing {what}: {}", path.display()));
+    }
+    Ok(())
+}
+
+fn build_local_chart_dependencies(chart: &Path, dry_run: bool) -> Result<()> {
+    let mut command = Command::new("helm");
+    command
+        .arg("dependency")
+        .arg("build")
+        .arg(chart)
+        .arg("--skip-refresh");
+    ui::command(&render_command(&command));
+    if dry_run {
+        ui::dry_run("not building local chart dependencies");
+        return Ok(());
+    }
+    let status = command
+        .status()
+        .with_context(|| "failed to spawn helm dependency build")?;
+    if !status.success() {
+        bail!("helm dependency build exited with status {status}");
     }
     Ok(())
 }
@@ -691,6 +982,9 @@ fn install_radius(args: &BootstrapArgs) -> Result<()> {
 
     let mut rad_install = Command::new("rad");
     rad_install.args(["install", "kubernetes"]);
+    if args.with.contains(&Capability::Agents) {
+        rad_install.arg("--skip-contour-install");
+    }
     if matches!(args.platform, Some(Platform::Aks)) {
         rad_install.args(["--set", "global.azureWorkloadIdentity.enabled=true"]);
     }
@@ -714,7 +1008,13 @@ fn install_radius(args: &BootstrapArgs) -> Result<()> {
     let mut rad_group_switch = Command::new("rad");
     rad_group_switch.args(["group", "switch", &args.radius_group]);
 
-    let steps = [&rad_install, &rad_workspace, &rad_switch, &rad_group, &rad_group_switch];
+    let steps = [
+        &rad_install,
+        &rad_workspace,
+        &rad_switch,
+        &rad_group,
+        &rad_group_switch,
+    ];
     println!();
     ui::heading("Radius bootstrap plan:");
     for s in steps {
@@ -738,7 +1038,13 @@ fn install_radius(args: &BootstrapArgs) -> Result<()> {
         return Ok(());
     }
 
-    for mut cmd in [rad_install, rad_workspace, rad_switch, rad_group, rad_group_switch] {
+    for mut cmd in [
+        rad_install,
+        rad_workspace,
+        rad_switch,
+        rad_group,
+        rad_group_switch,
+    ] {
         let label = render_command(&cmd);
         ui::tool_banner("rad", &label);
         let status = cmd
@@ -811,7 +1117,8 @@ fn install_radius_recipes(args: &BootstrapArgs) -> Result<()> {
     ui::detail("environment", &args.radius_environment);
 
     let mut type_cmd = Command::new("rad");
-    type_cmd.args(["resource-type", "create", "--from-file"])
+    type_cmd
+        .args(["resource-type", "create", "--from-file"])
         .arg(&types_file);
 
     let mut env_create_cmd = Command::new("rad");
@@ -835,6 +1142,16 @@ fn install_radius_recipes(args: &BootstrapArgs) -> Result<()> {
         if let Some(rg) = &args.resource_group {
             deploy_cmd.args(["--parameters", &format!("azureResourceGroup={rg}")]);
         }
+    } else if args.with.contains(&Capability::Agents) {
+        deploy_cmd.args([
+            "--parameters",
+            &format!(
+                "@{}",
+                args.state_dir
+                    .join("private/trading.parameters.json")
+                    .display()
+            ),
+        ]);
     }
 
     ui::command(&render_command(&type_cmd));
@@ -872,12 +1189,141 @@ fn wants_azure_credential_automation(args: &BootstrapArgs) -> bool {
         && args.aks_cluster.is_some()
 }
 
-/// OIDC client provisioning entry point used by bootstrap. Skips silently
-/// when Keycloak is not present in the target namespace (e.g. the
-/// operator installed an Entra-only configuration with
-/// `global.components.keycloak.enabled=false`).
+fn install_native_gateways(namespace: &str) -> Result<()> {
+    if !Command::new("kubectl")
+        .args(["get", "namespace", namespace])
+        .status()?
+        .success()
+        && !Command::new("kubectl")
+            .args(["create", "namespace", namespace])
+            .status()?
+            .success()
+    {
+        bail!("Failed to prepare native namespace {namespace}");
+    }
+    let status = Command::new("helm")
+        .args([
+            "upgrade",
+            "--install",
+            "adaptive-envoy",
+            "oci://docker.io/envoyproxy/gateway-helm",
+            "--version",
+            "v1.9.2",
+            "--namespace",
+            "envoy-gateway-system",
+            "--create-namespace",
+            "--set",
+            "config.envoyGateway.extensionApis.enableLua=true",
+            "--wait",
+            "--timeout",
+            "10m",
+        ])
+        .status()?;
+    if !status.success() {
+        bail!("Native Envoy prerequisite failed");
+    }
+
+    for (release, chart) in [
+        (
+            "agentgateway-crds",
+            "oci://cr.agentgateway.dev/charts/agentgateway-crds",
+        ),
+        (
+            "agentgateway",
+            "oci://cr.agentgateway.dev/charts/agentgateway",
+        ),
+    ] {
+        let mut command = Command::new("helm");
+        command.args([
+            "upgrade",
+            "--install",
+            release,
+            chart,
+            "--version",
+            "v1.6.0",
+            "--namespace",
+            "agentgateway-system",
+            "--create-namespace",
+        ]);
+        if release == "agentgateway" {
+            command
+                .arg("--set")
+                .arg(format!("rbac.gatewayNamespaces[0]={namespace}"));
+        }
+        command.args(["--wait", "--timeout", "10m"]);
+        if !command.status()?.success() {
+            bail!("{release} installation failed");
+        }
+    }
+    Ok(())
+}
+
+fn native_prerequisites(args: &BootstrapArgs, prepared: &agents::Prepared) -> Result<()> {
+    use std::io::Write;
+    use std::process::Stdio;
+    let namespace = serde_json::json!({
+        "apiVersion":"v1","kind":"Namespace","metadata":{"name":args.namespace}
+    });
+    let mut apply = Command::new("kubectl")
+        .args(["apply", "-f", "-"])
+        .stdin(Stdio::piped())
+        .spawn()?;
+    apply
+        .stdin
+        .take()
+        .context("Missing kubectl input pipe")?
+        .write_all(&serde_json::to_vec(&namespace)?)?;
+    if !apply.wait()?.success() {
+        bail!("Native namespace preparation failed");
+    }
+    let mut commands = vec![
+        {
+            let mut command = Command::new("kubectl");
+            command
+                .args(["apply", "-f"])
+                .arg(prepared.private.join("secrets.json"));
+            command
+        },
+        {
+            let mut command = Command::new("kubectl");
+            command
+                .args(["apply", "-f"])
+                .arg(args.radius_dir.join("prerequisites.yaml"));
+            command
+        },
+        {
+            let mut command = Command::new("rad");
+            command.args([
+                "environment",
+                "create",
+                "agents",
+                "--group",
+                &args.radius_group,
+                "--namespace",
+                &args.namespace,
+            ]);
+            command
+        },
+        {
+            let mut command = Command::new("rad");
+            command
+                .args(["bicep", "publish-extension", "--from-file"])
+                .arg(args.radius_dir.join("resource-types/types.yaml"))
+                .arg("--target")
+                .arg(args.radius_dir.join("types.tgz"));
+            command
+        },
+    ];
+    for command in &mut commands {
+        if !command.status()?.success() {
+            bail!("Native prerequisite failed: {}", render_command(command));
+        }
+    }
+    Ok(())
+}
+
 fn maybe_provision_oidc_client(args: &BootstrapArgs) -> Result<()> {
-    if args.skip_oidc_client {
+    if args.skip_oidc_client || args.with.contains(&Capability::Agents) {
         return Ok(());
     }
     let service = format!("{}-keycloak", args.release);
@@ -907,6 +1353,8 @@ fn maybe_provision_oidc_client(args: &BootstrapArgs) -> Result<()> {
         realm: args.oidc_realm.clone(),
         admin_user: args.keycloak_admin_user.clone(),
         admin_password: args.keycloak_admin_password.clone(),
+        admin_password_file: None,
+        client_secret_file: None,
         local_port: 8080,
         pod_ready_timeout_secs: 180,
         keep_port_forward: args.keep_port_forward,
@@ -936,6 +1384,7 @@ fn keycloak_service_present(namespace: &str, service: &str) -> Result<bool> {
     if out.status.success() {
         return Ok(true);
     }
+
     let stderr = String::from_utf8_lossy(&out.stderr);
     if stderr.contains("NotFound") || stderr.contains("not found") {
         return Ok(false);
@@ -944,6 +1393,21 @@ fn keycloak_service_present(namespace: &str, service: &str) -> Result<bool> {
         "`kubectl get svc -n {namespace} {service}` failed: {}",
         stderr.trim()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::single_service_name;
+
+    #[test]
+    fn native_gateway_service_must_have_one_owner() {
+        assert_eq!(
+            single_service_name("envoy-ui-123\n").unwrap(),
+            "envoy-ui-123"
+        );
+        assert!(single_service_name("").is_err());
+        assert!(single_service_name("envoy-ui-1 envoy-ui-2").is_err());
+    }
 }
 
 /// Federated identity subjects for the Radius control plane service
@@ -987,7 +1451,10 @@ fn provision_azure_credential(args: &BootstrapArgs) -> Result<()> {
                 .join(",")
         ),
     );
-    ui::detail("rbac scope", &format!("/subscriptions/<sub>/resourceGroups/{rg} (Owner)"));
+    ui::detail(
+        "rbac scope",
+        &format!("/subscriptions/<sub>/resourceGroups/{rg} (Owner)"),
+    );
 
     if args.dry_run {
         ui::dry_run("would discover AKS OIDC issuer, create/reuse Entra app, federate SAs, grant Owner, rad credential register azure wi");
@@ -996,8 +1463,16 @@ fn provision_azure_credential(args: &BootstrapArgs) -> Result<()> {
 
     let oidc_issuer = az_query(
         &[
-            "aks", "show", "-g", rg, "-n", cluster,
-            "--query", "oidcIssuerProfile.issuerUrl", "-o", "tsv",
+            "aks",
+            "show",
+            "-g",
+            rg,
+            "-n",
+            cluster,
+            "--query",
+            "oidcIssuerProfile.issuerUrl",
+            "-o",
+            "tsv",
         ],
         "AKS OIDC issuer URL",
     )?;
@@ -1020,8 +1495,15 @@ fn provision_azure_credential(args: &BootstrapArgs) -> Result<()> {
     // Create-or-reuse the Entra application.
     let existing = az_query(
         &[
-            "ad", "app", "list", "--display-name", &app_name,
-            "--query", "[0].appId", "-o", "tsv",
+            "ad",
+            "app",
+            "list",
+            "--display-name",
+            &app_name,
+            "--query",
+            "[0].appId",
+            "-o",
+            "tsv",
         ],
         "existing Entra app id",
     )?;
@@ -1029,17 +1511,28 @@ fn provision_azure_credential(args: &BootstrapArgs) -> Result<()> {
         ui::step(&format!("creating Entra application `{app_name}`"));
         az_query(
             &[
-                "ad", "app", "create", "--display-name", &app_name,
-                "--query", "appId", "-o", "tsv",
+                "ad",
+                "app",
+                "create",
+                "--display-name",
+                &app_name,
+                "--query",
+                "appId",
+                "-o",
+                "tsv",
             ],
             "new Entra app id",
         )?
     } else {
-        ui::step(&format!("reusing existing Entra application `{app_name}` ({existing})"));
+        ui::step(&format!(
+            "reusing existing Entra application `{app_name}` ({existing})"
+        ));
         existing
     };
     let app_object_id = az_query(
-        &["ad", "app", "show", "--id", &app_id, "--query", "id", "-o", "tsv"],
+        &[
+            "ad", "app", "show", "--id", &app_id, "--query", "id", "-o", "tsv",
+        ],
         "Entra app object id",
     )?;
 
@@ -1047,29 +1540,49 @@ fn provision_azure_credential(args: &BootstrapArgs) -> Result<()> {
     // federated-credential create` is not idempotent, so list first.
     let existing_fc = az_query(
         &[
-            "ad", "app", "federated-credential", "list",
-            "--id", &app_object_id, "--query", "[].name", "-o", "tsv",
+            "ad",
+            "app",
+            "federated-credential",
+            "list",
+            "--id",
+            &app_object_id,
+            "--query",
+            "[].name",
+            "-o",
+            "tsv",
         ],
         "existing federated credentials",
     )?;
-    let existing_fc: std::collections::HashSet<&str> =
-        existing_fc.lines().map(str::trim).filter(|s| !s.is_empty()).collect();
+    let existing_fc: std::collections::HashSet<&str> = existing_fc
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
 
     for (fc_name, sa) in RADIUS_FEDERATED_SAS {
         if existing_fc.contains(fc_name) {
-            ui::step(&format!("federated credential `{fc_name}` already exists, skipping"));
+            ui::step(&format!(
+                "federated credential `{fc_name}` already exists, skipping"
+            ));
             continue;
         }
         let subject = format!("system:serviceaccount:radius-system:{sa}");
         let params = format!(
             r#"{{"name":"{fc_name}","issuer":"{oidc_issuer}","subject":"{subject}","description":"Radius {sa} service account","audiences":["api://AzureADTokenExchange"]}}"#
         );
-        ui::step(&format!("creating federated credential `{fc_name}` for {subject}"));
+        ui::step(&format!(
+            "creating federated credential `{fc_name}` for {subject}"
+        ));
         let status = Command::new("az")
             .args([
-                "ad", "app", "federated-credential", "create",
-                "--id", &app_object_id,
-                "--parameters", &params,
+                "ad",
+                "app",
+                "federated-credential",
+                "create",
+                "--id",
+                &app_object_id,
+                "--parameters",
+                &params,
             ])
             .status()
             .context("failed to run `az ad app federated-credential create`")?;
@@ -1090,10 +1603,15 @@ fn provision_azure_credential(args: &BootstrapArgs) -> Result<()> {
     ui::step(&format!("granting Owner to `{app_id}` on `{scope}`"));
     let status = Command::new("az")
         .args([
-            "role", "assignment", "create",
-            "--assignee", &app_id,
-            "--role", "Owner",
-            "--scope", &scope,
+            "role",
+            "assignment",
+            "create",
+            "--assignee",
+            &app_id,
+            "--role",
+            "Owner",
+            "--scope",
+            &scope,
         ])
         .status()
         .context("failed to run `az role assignment create`")?;
@@ -1108,9 +1626,14 @@ fn provision_azure_credential(args: &BootstrapArgs) -> Result<()> {
     ));
     let status = Command::new("rad")
         .args([
-            "credential", "register", "azure", "wi",
-            "--client-id", &app_id,
-            "--tenant-id", &tenant_id,
+            "credential",
+            "register",
+            "azure",
+            "wi",
+            "--client-id",
+            &app_id,
+            "--tenant-id",
+            &tenant_id,
         ])
         .status()
         .context("failed to run `rad credential register azure wi`")?;

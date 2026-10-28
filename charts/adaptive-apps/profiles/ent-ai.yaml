@@ -1,6 +1,6 @@
 # Reproduces the legacy `ent-ai` portfolio chart.
 # Full stack: identity + mesh + observability + governance (off by default)
-# + ai marker. AI workloads are deployed via Radius (Kaito).
+# + provider-neutral AI marker. KAITO is opt-in.
 #
 # This is the only portfolio where agentGuardrails defaults to ON: the
 # enterprise + AI intersection is where in-pod agent governance (prompt-

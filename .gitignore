@@ -214,7 +214,15 @@ node_modules/
 **/obj/
 
 # Radius generated artefacts
+.adaptive/
+charts/adaptive-apps/charts/
 radius/types.tgz
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+playwright-report/
+test-results/
 
 **/*.cer
 **/*.crt

@@ -23,6 +23,16 @@ min-ai  core-ai ent-ai
 - `core-ai` — `core` plus AI capabilities.
 - `ent-ai` — `ent` plus AI capabilities.
 
+Native prompt/hosted agents are an additive application capability, selected
+with `ada bootstrap --with agents`, not a seventh portfolio. The native
+application targets **`min-ai` plus agents**. It shares PostgreSQL-backed Keycloak
+and, when enabled, one OTel Collector; its Monitor adds retained Jaeger/Loki
+stores. Local models use KAITO/vLLM; cloud models use gateway workload identity.
+KAITO/GPU prerequisites apply to local and hybrid model variants.
+`core-ai`/`ent-ai` rendering does not establish native-agent mesh, enterprise,
+or cloud-hosting qualification. Follow the same
+[Getting Started CLI/manual flow](../../tutorials/getting-started/README.md).
+
 ## Capability matrix
 
 The following table summarizes capabilities offered by each of the portfolios. A capability is inherited when the portfolio's chart depends (directly or transitively) on a chart that provides it.

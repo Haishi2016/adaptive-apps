@@ -1,0 +1,30 @@
+# Shared Ruff configuration for native agent packages.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["**/.venv", "**/build", "**/dist"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "C4",  # comprehensions
+    "PT",  # pytest style
+    "RUF", # ruff-specific
+    "ASYNC",
+    "SIM",
+    "TID",
+]
+ignore = ["E501"]  # handled by formatter
+
+[tool.ruff.lint.isort]
+known-first-party = ["adaptive"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

@@ -1,6 +1,30 @@
 # Radius Deployment Guide — adaptive-apps
 
-This directory contains all Radius assets needed to deploy the **adaptive-apps** stock-trading simulator on Kubernetes.
+This directory contains the Radius application assets for the trading sample
+and native prompt/hosted agents. Shared infrastructure is the portfolio Helm
+chart; applications do not deploy another Keycloak.
+
+The optional [native agent capability](../docs/agents/native-radius.md) uses
+`agents-env.bicep`, `agent-services.bicep`, and opt-in declarations in
+`app.bicep`. The reusable `agents.bicep` and advanced `agent-identity.bicep`
+remain available for non-trading applications. The trading application
+deployment creates separately owned retained identities and mutable runtimes
+together. These deploy native resources,
+not an agent operator or lifecycle CRDs. The trading application remains unchanged.
+`agent-models.bicep` provides separately owned KAITO/vLLM and Foundry model
+backends plus a priority-based `aiGateways` declaration using their actual outputs.
+Foundry **agent hosting** has a source-tested
+[initial-deployment recipe](../docs/agents/native-radius.md#pending-foundry-11-agent-hosting-proof):
+`foundry-env.bicep`, `foundry-agent.bicep` and `recipes/foundry-agent`.
+It deploys native prompt/hosted kinds, not a hosted prompt-runtime substitute.
+Live proof and unchanged editor peer invocation
+remain unqualified; the guide documents the current Foundry routing difference.
+Connected clusters use the existing [Arc preparation guide](../tutorials/common/prepare-arc.md)
+before Radius/application deployment. Use the shared CLI/manual
+[Getting Started](../tutorials/getting-started/README.md) flow.
+Native artifact/executor prerequisites
+and secure credential-store delivery are documented in the agent capability
+guide; they are not a second agent lifecycle installer.
 
 ```
 radius/
@@ -52,7 +76,7 @@ kubectl get pods -n radius-system
 ## Step 2 — Register the Resource Types
 
 Radius needs to know about the custom portable resource types before they can be
-referenced in `app.bicep`. All three types are defined in the single `types.yaml` file
+referenced in `app.bicep`. All types are defined in the single `types.yaml` file
 and can be registered with one command:
 
 ```bash
@@ -419,11 +443,9 @@ kubectl get pods -n <namespace> -l kaito.sh/workspace=<workspace-name>
 # Stream logs to watch model download and vLLM startup
 kubectl logs -n <namespace> <workspace-pod-name> -f
 ```
-If the Workspace shows `RESOURCEREADY: False` with message "Not enough Nodes are
-ready", this is likely the Kaito v0.9.0 node estimator bug (it ignores
-`max-model-len` from the ConfigMap and over-estimates GPU requirements). Fix by
-inflating the `nvidia.com/gpu.memory` node label — see the
-[root README known issues](../README.md#5-known-issues-kaito-v090) for details.
+If a Workspace reports insufficient nodes, verify allocatable GPUs, truthful
+memory labels and the requested model size. Do not inflate GPU memory or remove
+validation webhooks. Follow the [GPU preparation guide](../tutorials/common/prepare-gpu-kaito.md).
 
 **Backend cannot connect to the MQTT broker**
 The backend logs the CONNECT result and retries with exponential backoff instead
