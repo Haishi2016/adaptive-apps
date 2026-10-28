@@ -57,7 +57,7 @@ jobs:
             resourceType: Radius.Resources/agentGuardrails
             implementation: agt-sidecar
           - file: radius/recipes/agents/logical.bicep
-            tag: recipes/agents:0.6.1
+            tag: recipes/agents:0.6.2
             resourceType: Radius.Resources/agents
             implementation: native
           - file: radius/recipes/ai-agent/native-model.bicep
@@ -177,7 +177,7 @@ jobs:
                 recipes: {
                   "Radius.Resources/agents": {
                     name: "agents",
-                    version: "0.6.1"
+                    version: "0.6.2"
                   },
                   "Radius.Resources/aiModels": {
                     name: "ai-models",
