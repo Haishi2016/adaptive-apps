@@ -7,9 +7,28 @@ from typing import Any
 
 import httpx
 import pytest
+from adaptive_agent_contracts import (
+    AgentIdentity,
+    AgentInvocationContext,
+    CallerIdentity,
+    bind_invocation,
+    current_invocation,
+)
+from adaptive_runtime.hosts.middleware import ToolHeadersMiddleware
+from adaptive_runtime.tools import build_agent_tools
 from pydantic import ValidationError
 
-from adaptive_runtime.tools import ToolHeadersMiddleware, _headers, build_agent_tools
+TEST_AGENT_IDENTITY = AgentIdentity(
+    agent_id="adaptive/writer",
+    subject="writer",
+    issuer="urn:test",
+    hosting_environment="test",
+)
+
+
+def assert_no_invocation() -> None:
+    with pytest.raises(RuntimeError, match="No agent invocation"):
+        current_invocation()
 
 
 def descriptor(**overrides: Any) -> dict[str, Any]:
@@ -53,7 +72,9 @@ async def invoke(tool: Any, mode: str, token: str | None, user: str | None) -> A
         headers.append((b"x-client-microsoft-graph-access-token", token.encode()))
     if user:
         headers.append((b"x-client-graph-user-id", user.encode()))
-    await ToolHeadersMiddleware(app)({"type": "http", "headers": headers}, unused, unused)
+    await ToolHeadersMiddleware(app, agent_identity=TEST_AGENT_IDENTITY)(
+        {"type": "http", "headers": headers}, unused, unused
+    )
     return result
 
 
@@ -95,10 +116,10 @@ async def test_verified_graph_users_are_request_local(monkeypatch: pytest.Monkey
         "Bearer alice",
         "Bearer bob",
     }
-    assert _headers.get() is None
+    assert_no_invocation()
     assert all(str(r.url).startswith("https://graph.microsoft.com/v1.0/me?") for r in requests)
     assert all(r.url.params["$select"] == "id,displayName,userPrincipalName" for r in requests)
-    with pytest.raises(PermissionError, match="app identity"):
+    with pytest.raises(PermissionError, match="active agent invocation"):
         await tool.func()
 
 
@@ -126,7 +147,7 @@ async def test_graph_personal_fields_are_redacted_before_return(
     serialized = json.dumps(result)
     assert all(value not in serialized for value in profile.values())
     assert "private-token" not in serialized
-    assert _headers.get() is None
+    assert_no_invocation()
 
 
 @pytest.mark.parametrize(
@@ -134,7 +155,6 @@ async def test_graph_personal_fields_are_redacted_before_return(
     [
         ("redButton", "endUserOBO", "token", "alice", "red-button"),
         ("connected", "app", "token", "alice", "app identity"),
-        ("connected", "unsupported", "token", "alice", "app identity"),
         ("connected", "endUserOBO", None, "alice", "request-local"),
         ("connected", "agentUser", "token", None, "request-local"),
     ],
@@ -154,7 +174,35 @@ async def test_graph_denies_without_app_fallback(
     monkeypatch.setattr("azure.identity.DefaultAzureCredential", forbidden)
     with pytest.raises(PermissionError, match=message):
         await invoke(graph_tool(cluster_mode), identity_mode, token, user)
-    assert _headers.get() is None
+    assert_no_invocation()
+
+
+async def test_middleware_rejects_unsupported_identity_mode() -> None:
+    events: list[dict[str, Any]] = []
+
+    async def forbidden_app(*args: Any) -> None:
+        raise AssertionError("Invalid identity mode must not reach the protocol host")
+
+    async def unused(*args: Any) -> None:
+        raise AssertionError("Unexpected ASGI receive")
+
+    async def send(event: dict[str, Any]) -> None:
+        events.append(event)
+
+    await ToolHeadersMiddleware(
+        forbidden_app, agent_identity=TEST_AGENT_IDENTITY
+    )(
+        {
+            "type": "http",
+            "headers": [(b"x-client-identity-mode", b"unsupported")],
+        },
+        unused,
+        send,
+    )
+
+    assert events[0]["status"] == 400
+    assert events[1]["body"] == b"Unsupported caller identity mode"
+    assert_no_invocation()
 
 
 @pytest.mark.parametrize(
@@ -179,7 +227,7 @@ async def test_graph_result_must_match_verified_user(
     )
     with pytest.raises(PermissionError, match="verified user"):
         await invoke(graph_tool(), "endUserOBO", "token", "alice")
-    assert _headers.get() is None
+    assert_no_invocation()
 
 
 @pytest.mark.parametrize(
@@ -239,7 +287,7 @@ async def test_graph_http_errors_are_sanitized(
     assert "private-token" not in details
     assert "downstream-secret" not in details
     assert "untrusted.test" not in details
-    assert _headers.get() is None
+    assert_no_invocation()
 
 
 @pytest.mark.parametrize(
@@ -269,20 +317,21 @@ async def test_graph_profile_body_and_fields_are_bounded(
     )
     with pytest.raises(PermissionError, match=message):
         await invoke(graph_tool(), "agentUser", "private-token", "alice")
-    assert _headers.get() is None
+    assert_no_invocation()
 
 
 async def test_middleware_restores_ambient_context_after_sdk_failure() -> None:
-    outer = {"x-client-identity-mode": "app"}
-    token = _headers.set(outer)
+    outer = AgentInvocationContext(
+        agent_identity=TEST_AGENT_IDENTITY,
+        caller_identity=CallerIdentity(subject="outer", issuer="urn:test"),
+    )
 
     async def failed_sdk(scope: Any, *args: Any) -> None:
         assert scope["headers"] == []
-        assert _headers.get() == {
-            "x-client-identity-mode": "agentUser",
-            "x-client-microsoft-graph-access-token": "request-secret",
-            "x-client-graph-user-id": "worker",
-        }
+        invocation = current_invocation()
+        assert invocation.caller_identity.subject == "worker"
+        assert invocation.caller_identity.claims["identity_mode"] == "agentUser"
+        assert invocation.delegated_credentials["microsoft-graph"].subject == "worker"
         raise RuntimeError("SDK failed")
 
     async def unused(*args: Any) -> Any:
@@ -298,11 +347,11 @@ async def test_middleware_restores_ambient_context_after_sdk_failure() -> None:
             (b"X-Entra-User-Token", b"upstream-secret"),
         ],
     }
-    try:
+    with bind_invocation(outer):
         with pytest.raises(RuntimeError, match="SDK failed"):
-            await ToolHeadersMiddleware(failed_sdk)(scope, unused, unused)
-        assert _headers.get() is outer
+            await ToolHeadersMiddleware(
+                failed_sdk, agent_identity=TEST_AGENT_IDENTITY
+            )(scope, unused, unused)
+        assert current_invocation() is outer
         assert len(scope["headers"]) == 5
-    finally:
-        _headers.reset(token)
-    assert _headers.get() is None
+    assert_no_invocation()

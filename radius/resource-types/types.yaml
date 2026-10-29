@@ -18,7 +18,7 @@
 namespace: Radius.Resources
 types:
   agents:
-    description: Mutable native agent runtime with independently retained identity and state.
+    description: Portable agent definition with environment-selected hosting and independently retained identity and state.
     apiVersions:
       '2025-08-01-preview':
         schema:
@@ -393,7 +393,7 @@ types:
           Outputs: provider="openai", endpoint=https://<account>.openai.azure.com/, apiKey=<key>
 
         native-model.bicep
-          Provisions or binds one backend for the native agent platform and emits
+          Provisions or binds one backend for the portable-agent platform and emits
           neutral connection facts consumed by an aiGateways resource.
 
       The Recipe is registered per Radius Environment. Switch model backends by

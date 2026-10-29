@@ -102,15 +102,15 @@ Workload credentials must then use an exact federated subject
 `api://AzureADTokenExchange`. Verify an actual token exchange at the downstream
 service, not just the presence of a webhook, annotation or projected file.
 
-For native agents, only the official Entra sidecar receives the blueprint
+For Kubernetes-hosted portable agents, only the official Entra sidecar receives the blueprint
 assertion. The agent uses Keycloak for platform calls, not the blueprint
-credentials. See [native agent delivery](../../docs/agents/native-radius.md).
+credentials. See [portable-agent delivery](../../docs/agents/native-radius.md).
 Cloud-only tokens/services remain unavailable during an outage; local paired
 identity is a separate mechanism, not a substitute cloud actor.
 
 After these checks, return to
 [§2 Bring up the platform](../getting-started/README.md#2-bring-up-the-platform).
-For the optional native agent capability, use its Radius-owned delivery branch
+For the optional portable-agent capability, use its Radius-owned delivery branch
 instead of installing a second owner over the same shared identity/ingress.
 
 Reference:

@@ -4,6 +4,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
 
 WORKDIR /workspace
+COPY agent-contracts ./agent-contracts
+COPY agent-hosts ./agent-hosts
 COPY agents/prompt-agent/pyproject.toml agents/prompt-agent/uv.lock agents/prompt-agent/README.md ./agents/prompt-agent/
 COPY agents/prompt-agent/src ./agents/prompt-agent/src
 

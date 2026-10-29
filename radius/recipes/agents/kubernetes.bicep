@@ -35,7 +35,7 @@ resource agent 'core/ConfigMap@v1' = {
   }
 }
 
-module runtime 'runtime.bicep' = {
+module runtime 'kubernetes-runtime.bicep' = {
   name: 'runtime'
   params: {
     context: {

@@ -4,7 +4,7 @@ This directory contains the Radius application assets for the trading sample
 and native prompt/hosted agents. Shared infrastructure is the portfolio Helm
 chart; applications do not deploy another Keycloak.
 
-The optional [native agent capability](../docs/agents/native-radius.md) uses
+The optional [portable-agent capability](../docs/agents/native-radius.md) uses
 `agents-env.bicep`, `agent-services.bicep`, and opt-in declarations in
 `app.bicep`. The reusable `agents.bicep` and advanced `agent-identity.bicep`
 remain available for non-trading applications. The trading application

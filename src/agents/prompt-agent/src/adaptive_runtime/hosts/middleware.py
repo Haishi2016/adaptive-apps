@@ -1,0 +1,5 @@
+from __future__ import annotations
+
+from adaptive_agent_hosts import GatewayInvocationMiddleware
+
+ToolHeadersMiddleware = GatewayInvocationMiddleware

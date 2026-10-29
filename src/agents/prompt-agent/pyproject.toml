@@ -1,10 +1,12 @@
 [project]
 name = "adaptive-runtime"
 version = "0.1.0"
-description = "Foundry-compatible prompt-agent runtime for the Adaptive AI Stack."
+description = "Portable prompt agent with explicit hosting adapters."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "adaptive-agent-contracts",
+    "adaptive-agent-hosts",
     "agent-framework-core==1.19.0",
     "agent-framework-openai==1.14.4",
     "agent-framework-foundry-hosting==1.0.0b260918",
@@ -15,6 +17,10 @@ dependencies = [
     "httpx",
     "openai>=1.30",
 ]
+
+[tool.uv.sources]
+adaptive-agent-contracts = { path = "../../agent-contracts" }
+adaptive-agent-hosts = { path = "../../agent-hosts" }
 
 [dependency-groups]
 dev = [

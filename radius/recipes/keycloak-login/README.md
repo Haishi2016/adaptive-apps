@@ -10,7 +10,7 @@ retaining normal profile fields and adding administrator-only `entra_tid`/`entra
 identity-link attributes with native ID-token/userinfo mappers. The default is
 false and neither writes the profile nor needs additional profile permissions.
 See the
-[native agent identity setup](../../../docs/agents/native-radius.md).
+[portable-agent identity setup](../../../docs/agents/native-radius.md).
 
 ## Prerequisites
 

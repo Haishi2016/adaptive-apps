@@ -3,45 +3,12 @@
 from __future__ import annotations
 
 import json
-from contextvars import ContextVar
 from typing import Annotated, Any, Literal, Self
 
 import httpx
+from adaptive_agent_contracts import current_invocation
 from agent_framework import tool
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
-from starlette.types import ASGIApp, Receive, Scope, Send
-
-_headers: ContextVar[dict[str, str] | None] = ContextVar("tool_headers", default=None)
-
-
-class ToolHeadersMiddleware:
-    """Strip forwarded credentials before the SDK can persist client headers."""
-
-    def __init__(self, app: ASGIApp) -> None:
-        self.app = app
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-        token = _headers.set(
-            {
-                key.decode().lower(): value.decode()
-                for key, value in scope["headers"]
-                if key.lower().startswith(b"x-client-")
-            }
-        )
-        scope = dict(scope)
-        scope["headers"] = [
-            (key, value)
-            for key, value in scope["headers"]
-            if not key.lower().startswith(b"x-client-")
-            and key.lower() not in {b"authorization", b"x-entra-user-token"}
-        ]
-        try:
-            await self.app(scope, receive, send)
-        finally:
-            _headers.reset(token)
 
 
 class BuiltinToolBinding(BaseModel):
@@ -74,13 +41,18 @@ def graph_profile_tool(cluster_mode: Literal["connected", "redButton"]) -> Any:
         """Verify the selected user's Graph profile; personal fields are redacted."""
         if cluster_mode != "connected":
             raise PermissionError("Microsoft Graph is unavailable in red-button mode")
-        headers = _headers.get() or {}
-        mode = headers.get("x-client-identity-mode", "app")
+        try:
+            invocation = current_invocation()
+        except RuntimeError:
+            raise PermissionError("Graph /me requires an active agent invocation") from None
+        mode = invocation.caller_identity.claims.get("identity_mode", "app")
         if mode not in {"endUserOBO", "agentUser"}:
             raise PermissionError("Graph /me requires a user identity, not app identity")
-        token = headers.get("x-client-microsoft-graph-access-token")
-        expected = headers.get("x-client-graph-user-id")
-        if not token or not expected:
+        credential = invocation.delegated_credentials.get("microsoft-graph")
+        if (
+            credential is None
+            or credential.audience != "https://graph.microsoft.com"
+        ):
             raise PermissionError("A verified request-local Graph user token is required")
         try:
             async with (
@@ -89,7 +61,7 @@ def graph_profile_tool(cluster_mode: Literal["connected", "redButton"]) -> Any:
                     "GET",
                     "https://graph.microsoft.com/v1.0/me",
                     params={"$select": "id,displayName,userPrincipalName"},
-                    headers={"Authorization": f"Bearer {token}"},
+                    headers={"Authorization": f"Bearer {credential.access_token}"},
                 ) as response,
             ):
                 response.raise_for_status()
@@ -106,7 +78,7 @@ def graph_profile_tool(cluster_mode: Literal["connected", "redButton"]) -> Any:
             raise PermissionError("Microsoft Graph returned an invalid profile") from None
         if (
             not isinstance(profile, dict)
-            or profile.get("id") != expected
+            or profile.get("id") != credential.subject
             or any(
                 not isinstance(profile.get(key), str) or len(profile[key]) > 4096
                 for key in ("id", "displayName", "userPrincipalName")

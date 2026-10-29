@@ -8,7 +8,7 @@ model gateway or agent operator.
 
 ## 1. Prepare a real GPU node
 
-Use an existing GPU-capable K3s/AKS/Kubernetes cluster. Native agents require
+Use an existing GPU-capable K3s/AKS/Kubernetes cluster. Kubernetes-hosted portable agents require
 Kubernetes 1.33+. On host K3s, install the appropriate NVIDIA driver and container
 toolkit before K3s starts so its containerd can discover `nvidia-container-runtime`.
 Verify `nvidia-smi` and the configured NVIDIA runtime. Restarting an existing

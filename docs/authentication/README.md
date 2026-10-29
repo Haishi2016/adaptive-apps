@@ -23,9 +23,9 @@ Once an Adaptive App capability profile is deployed, you can acess KeyCloak port
 
 ## Service authentication
 
-### Native agent application capability
+### Portable-agent application capability
 
-Native agents reuse the portfolio's PostgreSQL-backed Keycloak. Browser login
+Portable agents reuse the portfolio's PostgreSQL-backed Keycloak. Browser login
 uses the Radius-owned public `adaptive-ui` client with authorization-code/S256
 PKCE in realm `adaptive`; there is no browser client secret or password grant.
 Invocation permission is the **client role** `agent.invoke` on
@@ -72,4 +72,4 @@ In Azure environments, Adaptive Apps leverages workload identity integration wit
 * [Configure KeyCloak federation with local Active Directory](./keycloak-active-directory.md)
 * [Sync local Active Directory credentials to an Azure Entra tenant](./microsoft-entra-connect.md)
 * [Prepare Arc OIDC and workload identity](../../tutorials/common/prepare-arc.md)
-* [Native agent application identity and Radius delivery](../agents/native-radius.md)
+* [Portable-agent identity and Radius delivery](../agents/native-radius.md)

@@ -1,5 +1,3 @@
-"""Direct Keycloak client-credentials token acquisition."""
-
 from __future__ import annotations
 
 import asyncio
@@ -12,8 +10,6 @@ import httpx
 
 
 class KeycloakTokenProvider:
-    """Concurrency-safe async bearer-token provider for OpenAI clients."""
-
     def __init__(self, token_url: str, client_id: str, client_secret: str) -> None:
         url = urlsplit(token_url)
         if (

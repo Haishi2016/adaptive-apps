@@ -56,10 +56,10 @@ jobs:
             tag: recipes/agent-guardrails-agt:latest
             resourceType: Radius.Resources/agentGuardrails
             implementation: agt-sidecar
-          - file: radius/recipes/agents/logical.bicep
-            tag: recipes/agents:0.6.1
+          - file: radius/recipes/agents/kubernetes.bicep
+            tag: recipes/agents-kubernetes:0.7.0
             resourceType: Radius.Resources/agents
-            implementation: native
+            implementation: kubernetes
           - file: radius/recipes/ai-agent/native-model.bicep
             tag: recipes/ai-models:0.5.2
             resourceType: Radius.Resources/aiModels
@@ -176,8 +176,8 @@ jobs:
                 registry: $registry,
                 recipes: {
                   "Radius.Resources/agents": {
-                    name: "agents",
-                    version: "0.6.1"
+                    name: "agents-kubernetes",
+                    version: "0.7.0"
                   },
                   "Radius.Resources/aiModels": {
                     name: "ai-models",

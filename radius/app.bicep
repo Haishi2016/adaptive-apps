@@ -42,19 +42,19 @@ param imageRegistry string = 'ghcr.io/microsoft/adaptive-apps'
 @description('Container image tag for all three application services.')
 param imageTag string = 'latest'
 
-@description('Enable the native-agent pages and authenticated gateway proxy under /agents. Disabled by default.')
+@description('Enable the portable-agent pages and authenticated gateway proxy under /agents. Disabled by default.')
 param enableNativeAgents bool = false
 
-@description('Internal native agent gateway base URL. Required when enableNativeAgents is true.')
+@description('Internal portable-agent gateway base URL. Required when enableNativeAgents is true.')
 param nativeAgentGatewayUrl string = ''
 
 @description('Embedded native UI image. Defaults to the ui-embedded image using the trading registry and tag.')
 param nativeUiImage string = ''
 
-@description('Namespace owned by the native agent environment.')
+@description('Namespace owned by the Kubernetes-hosted agent environment.')
 param nativeAgentNamespace string = 'adaptive'
 
-@description('Native agent Radius Environment ID. Required when enableNativeAgents is true.')
+@description('Portable-agent Radius Environment ID. Required when enableNativeAgents is true.')
 param nativeAgentEnvironment string = ''
 
 @description('Model Gateway model used by the native writer, auditor and editor.')
@@ -368,7 +368,7 @@ resource frontendIdentity 'Radius.Resources/workloadIdentities@2025-08-01-previe
 }
 
 // ---------------------------------------------------------------------------
-// Native agents — opt-in. Each runtime directly depends on its separately
+// Portable agents — opt-in. Each runtime directly depends on its separately
 // retained identity and consumes that resource's resolved binding.
 // ---------------------------------------------------------------------------
 resource writerIdentity 'Radius.Resources/agentIdentities@2025-08-01-preview' = if (enableNativeAgents) {

@@ -19,10 +19,10 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Initialize installed assets or prepare project-local native-agent inputs.
+    /// Initialize installed assets or prepare project-local portable-agent inputs.
     Init(home_cmd::InitArgs),
 
-    /// Create or update a public native-agent configuration for this checkout.
+    /// Create or update a public portable-agent configuration for this checkout.
     AgentsConfig(agents_config::AgentsConfigArgs),
 
     /// Install or upgrade a portfolio onto the current Kubernetes context.
@@ -34,7 +34,7 @@ enum Command {
     /// Manage external agent-skill packs used by `ada package`.
     Skill(skill::SkillArgs),
 
-    /// Manage OIDC clients and native demo users in the shared Keycloak.
+    /// Manage OIDC clients in a chart-deployed Keycloak.
     Oidc(oidc::OidcArgs),
 
     /// Inspect the bundled Radius artifacts under `$ADA_HOME/radius`.

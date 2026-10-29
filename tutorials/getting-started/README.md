@@ -1,8 +1,6 @@
 # Adaptive Apps — Getting Started
 
-This tutorial walks you through the step of deploying an Adaptive Apps portfolio (`min`, `core`,
-`ent`, `min-ai`, `core-ai`, `ent-ai`) to any supported environment
-(local k3s, AKS, Azure Local, Azure Arc), and then deploy a sample Radius application.
+This tutorial walks you through the step of deploying an Adaptive Apps portfolio (`min`, `core`, `ent`, `min-ai`, `core-ai`, `ent-ai`) to any supported environment (local k3s, AKS, Azure Local, Azure Arc), and then deploy a sample Radius application.
 
 ## 0. Prerequisites
 
@@ -10,12 +8,66 @@ This tutorial walks you through the step of deploying an Adaptive Apps portfolio
 * [helm](https://helm.sh/)
 * [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
 * [rad](https://docs.radapp.io/guides/tooling/rad-cli/howto-rad-cli/)
-* The integrated native-agent path additionally requires Terraform
-  1.10–1.16, Kubernetes 1.33+, persistent storage and enforced
-  NetworkPolicies.
+* The integrated portable-agent path on Kubernetes additionally requires:
+  * Terraform 1.10–1.16.
+  * Kubernetes 1.33+ with `ValidatingAdmissionPolicy`.
+  * A default, dynamically provisioning `StorageClass`. Kubernetes-hosted agents request
+    `ReadWriteOnce` persistent volumes for retained state. "Persistent storage"
+    means that this state survives Pod replacement; it does not mean that it
+    survives deletion of the volume, cluster, or underlying storage.
+  * A CNI that enforces Kubernetes `NetworkPolicy` resources. "Enforced" means
+    the CNI actually allows and denies traffic according to a policy. The
+    presence of the `networking.k8s.io/v1` API alone is not sufficient.
 * For the trading sample's cloud variant, an optional provider key. Native
   Foundry models instead require reviewed gateway workload identity and scoped
   inference access; no Azure API key is used.
+
+### Verify portable-agent cluster prerequisites
+
+Run these checks against the `kubectl` context that you intend to use:
+
+```bash
+terraform version
+kubectl version
+
+# Must list validatingadmissionpolicies.
+kubectl api-resources \
+  --api-group=admissionregistration.k8s.io |
+  grep validatingadmissionpolicies
+
+# At least one class must show true in the DEFAULT column and have a real
+# provisioner rather than kubernetes.io/no-provisioner.
+kubectl get storageclass \
+  -o custom-columns='NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class,PROVISIONER:.provisioner'
+
+# Confirms that the API is available, but not that the CNI enforces policies.
+kubectl api-resources \
+  --api-group=networking.k8s.io |
+  grep networkpolicies
+```
+
+How to satisfy the storage and network requirements depends on the platform:
+
+* **Local k3s via `ada`/k3d:** no separate installation is required. The
+  standard k3s cluster includes the `local-path` dynamic provisioner and its
+  embedded NetworkPolicy controller. Do not create k3s with
+  `--disable-network-policy`.
+* **AKS:** create the cluster with Azure CNI powered by Cilium, as shown in the
+  [AKS preparation guide](../common/prepare-aks.md). AKS installs managed CSI
+  storage classes, including a default class.
+* **Existing Kubernetes, Arc-enabled Kubernetes, or Azure Local:** these
+  platforms are passthrough targets. `ada` does not install or replace the
+  cluster's storage provisioner or CNI. Before continuing, install a CSI
+  provisioner with a default `StorageClass` and a NetworkPolicy-enforcing CNI
+  such as Cilium or Calico, following the cluster vendor's production guidance.
+  Connecting a cluster to Azure Arc does not add either capability.
+
+If the storage check has no default class, follow the Kubernetes
+[StorageClass](https://kubernetes.io/docs/concepts/storage/storage-classes/)
+guidance for your CSI provider and mark exactly one suitable class as default.
+If the CNI does not enforce policies, install or enable that capability before
+deploying Kubernetes-hosted agents; do not treat successful creation of a `NetworkPolicy`
+object as proof of enforcement.
 
 
 ## 1. Choose your sample and portfolio
@@ -28,7 +80,7 @@ agent pages enabled.
 export SAMPLE=trading
 export PORTFOLIO=min          # or: core | ent | min-ai | core-ai | ent-ai
 
-# OR integrated trading + native agents:
+# OR integrated trading + portable agents:
 export SAMPLE=trading-native
 export PORTFOLIO=min-ai       # native local-model path requires an AI portfolio
 
@@ -38,7 +90,7 @@ export PLATFORM=k3s           # or: k8s | aks | arc | azure-local
 ```
 
 Every subsequent step references these variables. Re-export them in each new
-terminal. The native-agent path works on local k3s; Arc is not required.
+terminal. The Kubernetes-hosted portable-agent path works on local k3s; Arc is not required.
 
 If your target is AKS, define a few more environment variables:
 ```bash
@@ -75,7 +127,7 @@ and Radius environment. Pick **one**:
 | Option | What it covers | When to use |
 | --- | --- | --- |
 | OPTION 1 — `ada` CLI | Helm install **+** Radius install **+** Keycloak OIDC client provisioning. On `--platform k3s` it also creates a local k3d cluster. | Recommended for all platforms. On k8s / AKS / Arc / Azure Local you prepare the cluster yourself first, then point `ada` at the existing `kubectl` context. |
-| OPTION 2 — Manual | Standard trading platform, one shell command at a time | When you want to inspect or script the standard trading setup. Use OPTION 1 for the integrated native-agent path. |
+| OPTION 2 — Manual | Standard trading platform, one shell command at a time | When you want to inspect or script the standard trading setup. Use OPTION 1 for the integrated portable-agent path. |
 
 ### 2.1 OPTION 1 — Use the `ada` CLI
 
@@ -211,7 +263,7 @@ and Radius environment. Pick **one**:
     run [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md)
     when selecting KAITO/GPU inference.*
     2. **Native gateways** — with `--with agents`, installs pinned Envoy for
-    UI/model ingress and upstream agentgateway for native agent ingress. It
+    UI/model ingress and upstream agentgateway for portable-agent ingress. It
     refuses an existing installation owned by another release.
     3. **Portfolio chart** — `helm upgrade --install` with the right
     `charts/adaptive-apps/profiles/<portfolio>.yaml` profile. On `aks` it
@@ -235,7 +287,7 @@ and Radius environment. Pick **one**:
 ### 2.2 OPTION 2 — Manual
 
 The manual steps below install the standard trading path. For the integrated
-native-agent path, use OPTION 1 so `ada` can prepare retained credentials,
+portable-agent path, use OPTION 1 so `ada` can prepare retained credentials,
 immutable recipe inputs, Envoy, agentgateway, and the native Radius
 environments in order.
 
@@ -508,7 +560,7 @@ endpoint available on `https://localhost:8444`.
 
 Sign in with OIDC, select **Agents** in the trading header, open `writer`,
 invoke it and open Monitor. Local password users can use the
-trading pages but cannot access native-agent routes.
+trading pages but cannot access portable-agent routes.
 
 > **`aiProvider=local`:** The Kaito-managed model pod may take several
 > minutes to become ready while the model is downloaded. Watch

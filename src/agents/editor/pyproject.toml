@@ -5,6 +5,8 @@ description = "Portable hosted Agent Framework writer and auditor demo."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "adaptive-agent-contracts",
+    "adaptive-agent-hosts",
     "agent-framework-core==1.19.0",
     "agent-framework-foundry-hosting==1.0.0b260918",
     "azure-ai-agentserver-core==2.2.0",
@@ -12,6 +14,10 @@ dependencies = [
     "httpx",
     "openai>=1.30",
 ]
+
+[tool.uv.sources]
+adaptive-agent-contracts = { path = "../../agent-contracts" }
+adaptive-agent-hosts = { path = "../../agent-hosts" }
 
 [dependency-groups]
 dev = ["pytest", "pytest-asyncio", "respx", "ruff", "mypy", "httpx2>=2.12,<3"]

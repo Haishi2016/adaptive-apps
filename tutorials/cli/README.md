@@ -59,9 +59,7 @@ Before generating, `ada package` loads this repo's **resource-type
 catalog** — the types defined in
 [`radius/resource-types/types.yaml`](../../radius/resource-types/types.yaml)
 (`Radius.Resources/postgreSqlDatabases`, `mqttBrokers`, `aiModels`,
-`workloadIdentities`, `governance`, `agentGuardrails`, and the native agent/login
-types). Keycloak is shared portfolio infrastructure, not an application-owned
-`idProviders` deployment. The
+`workloadIdentities`, `idProviders`, `governance`, `agentGuardrails`). The
 catalog is resolved in this order:
 
 1. an explicit `--types <path>`;
@@ -316,7 +314,6 @@ The critic set (assembled automatically):
 | resource-type catalog | deterministic | every `Radius.Resources/*` type + api-version exists in the catalog |
 | `rad`/`bicep`/`az` build | deterministic | the candidate actually compiles |
 | LLM checklist judge | LLM | scores against the skill's own validation checklist (or a built-in rubric) |
-| truth-ref regression | LLM | only added when `--truth-ref` is set: flags resources/connections/params dropped or changed vs the baseline without a source-driven reason |
 
 A loop iteration looks like:
 
@@ -337,57 +334,6 @@ warn: critic [rad bicep build] found 2 issue(s)
 > `compose` output is deterministic, so there's nothing to iterate). If no
 > `rad`/`bicep`/`az` is found on `PATH`, the compile critic is skipped with
 > a note and the loop continues with the remaining critics.
-
-### Updating an existing app (`--truth-ref` + `--explain`)
-
-When you already have a known-good `app.bicep` and want to regenerate it
-against changed source (a new service, updated image, removed dependency),
-pass the existing file as the **truth reference**. It is used three ways:
-
-1. **Grounding** — the baseline is added to the generation prompt as the
-   authoritative source for structure, naming, api-versions, and wiring;
-   the model preserves what still applies and changes only what the source
-   requires.
-2. **Regression critic** — under `--critic`, a `truth-ref regression`
-   critic flags anything dropped or altered without a source-driven reason
-   (additions and intentional updates are allowed).
-3. **Explanation** — `--explain` prints an `Added / Removed / Changed /
-   Risk` summary of how the result diverges from the baseline and why.
-
-```bash
-ada package \
-  --input src \
-  --output app.bicep \
-  --strategy skill \
-  --truth-ref radius/app.bicep \
-  --critic \
-  --explain
-```
-
-With `--explain`, the run ends with a human-readable diff so you can see
-exactly what changed before committing the regenerated file:
-
-```text
-Divergence from --truth-ref
-
-## Added
-- container `notifier` — new service detected in src/notifier (Dockerfile + package.json).
-- connection `mqtt` on `backend` — wired to the existing mqttBroker for the new event flow.
-
-## Removed
-- container `legacy-worker` — no longer present in docker-compose / source bundle.
-
-## Changed
-- `frontend` image tag inferred from build context; containerPort 8080 → 3000 (matches server.js).
-
-## Risk / review notes
-- `notifier` has no resource limits; confirm before deploying to a shared cluster.
-```
-
-> `--truth-ref` and `--explain` need an API key (they drive the LLM). The
-> `compose` strategy ignores `--truth-ref` for *generation* (its output is
-> deterministic) but still uses it for `--explain`. `--explain` requires
-> `--truth-ref`.
 
 ## 7. Compare the strategies
 
@@ -435,7 +381,6 @@ rad deploy app.bicep \
 ada package -i <src> -o <app.bicep> [--strategy compose|llm|skill]
                                     [--types <types.yaml>]
                                     [--critic [--max-iters N]]
-                                    [--truth-ref <app.bicep>] [--explain]
                                     [--dry-run]
                                     [--skill <owner/repo>] [--skill-name <name>]
                                     [--llm-endpoint URL] [--llm-model M] [--llm-api-key KEY]

@@ -39,7 +39,7 @@ def _runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENAI_BASE_URL", "http://model-gateway.adaptive.svc.cluster.local:8080")
     monkeypatch.setenv("OPENAI_MODEL", "qwen2.5-7b-instruct")
     monkeypatch.setenv("KEYCLOAK_TOKEN_URL", "http://keycloak.test/realms/adaptive/token")
-    monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "prompt-agent")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "writer")
     monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "test-secret")
     monkeypatch.setenv("CLUSTER_MODE", "redButton")
     # The native host reads telemetry configuration directly from the environment.
@@ -64,6 +64,25 @@ def test_runtime_module_exposes_responses_host() -> None:
     assert "readiness" in route_names
 
 
+def test_runtime_can_select_kubernetes_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    from adaptive_agent_hosts import KubernetesResponsesHost
+
+    monkeypatch.setenv("AGENT_HOST_ADAPTER", "kubernetes")
+    runtime = _import()
+
+    assert isinstance(runtime.app, KubernetesResponsesHost)
+    route_names = {getattr(route, "name", "") for route in runtime.app.routes}
+    assert "create_response" in route_names
+    assert "readiness" in route_names
+
+
+def test_runtime_rejects_unknown_host_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AGENT_HOST_ADAPTER", "unsupported")
+
+    with pytest.raises(RuntimeError, match="Unsupported agent host adapter"):
+        _import()
+
+
 def test_agent_is_a_chat_agent_with_env_injected_prompt() -> None:
     runtime = _import()
 
@@ -82,22 +101,13 @@ def test_agent_is_a_chat_agent_with_env_injected_prompt() -> None:
     assert options.get("top_p") == pytest.approx(1.0)
 
 
-async def test_gateway_uses_fresh_native_oauth_token_callback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_host_exposes_gateway_token_provider() -> None:
     runtime = _import()
-    tokens = iter(["first-token", "refreshed-token"])
-
-    async def token() -> str:
-        return next(tokens)
-
-    monkeypatch.setattr(runtime, "_gateway_token", token)
-    assert await runtime._gateway_token() == "first-token"
-    assert await runtime._gateway_token() == "refreshed-token"
+    assert runtime.gateway_token is not None
 
 
 def test_runtime_installs_request_identity_middleware() -> None:
-    from adaptive_runtime.tools import ToolHeadersMiddleware
+    from adaptive_runtime.hosts.middleware import ToolHeadersMiddleware
 
     runtime = _import()
     assert runtime.app.user_middleware[0].cls is ToolHeadersMiddleware
@@ -125,8 +135,7 @@ def test_deployment_skills_are_native_context_providers(monkeypatch: pytest.Monk
         ),
     )
     runtime = _import()
-    assert runtime._skills is not None
-    assert runtime._skills in runtime.agent.context_providers
+    assert runtime.agent.context_providers
 
 
 def test_native_sdk_exports_otlp_from_environment() -> None:

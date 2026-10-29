@@ -1,3 +1,4 @@
+@description('Kubernetes hosting implementation for one portable agent.')
 param context object
 param namespace string
 

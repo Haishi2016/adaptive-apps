@@ -37,6 +37,8 @@ export RADIUS_GROUP=trading
     --resource-group $RESOURCE_GROUP \
     --name $AKS_CLUSTER \
     --node-count 2 \
+    --network-plugin azure \
+    --network-dataplane cilium \
     --enable-addons monitoring \
     --generate-ssh-keys  \
     --enable-oidc-issuer \
@@ -50,6 +52,23 @@ export RADIUS_GROUP=trading
     az aks get-credentials --resource-group $RESOURCE_GROUP --name $AKS_CLUSTER
     ```
     > **NOTE:** The above command merges AKS cluster config into your local `kubectl` config. Run it from where you plan to use `kubectl` command.
+
+5. Verify the portable-agent storage and network prerequisites:
+    ```bash
+    az aks show \
+      --resource-group $RESOURCE_GROUP \
+      --name $AKS_CLUSTER \
+      --query '{networkPlugin:networkProfile.networkPlugin,networkDataplane:networkProfile.networkDataplane,networkPolicy:networkProfile.networkPolicy}' \
+      -o table
+
+    kubectl get storageclass \
+      -o custom-columns='NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class,PROVISIONER:.provisioner'
+    ```
+
+    The network data plane must be `cilium`, and at least one dynamically
+    provisioning storage class must be marked as the default. Do not deploy the
+    integrated portable-agent path to an existing AKS cluster until both checks
+    pass.
 
 ##. Register Azure credentials 
 

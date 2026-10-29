@@ -1,15 +1,47 @@
-# Native agents with Radius
+# Portable agents with Radius
 
-This fork adds an optional native agent capability alongside the unchanged
-trading application. Radius deploys prompt/hosted agents directly; there is no
+This fork adds optional portable agents alongside the unchanged trading
+application. A **local agent** is an ordinary service designed to remain
+co-hosted with its application and does not require a hosting abstraction. A
+**portable agent** separates agent behavior from its hosting environment so
+the same definition can be composed with Kubernetes or Foundry hosting.
+
+Portable agent code depends on narrow identity, model, peer-resolution, state
+and observability contracts. Hosting adapters resolve those contracts using
+platform-specific facilities. Agent identity remains distinct from workload
+identity: the former names the logical agent and is established by its host;
+the latter identifies a deployed service or execution workload.
+
+Radius deploys the current portable prompt/hosted agents directly; there is no
 agent lifecycle operator, Kubernetes agent CRD, Foundry management emulation or
 API reconciliation loop. The existing `aiModels` and `agentGuardrails` Radius
 types are extended, not registered again under conflicting contracts. Their
-trading recipes remain independent of the native-agent environment.
+trading recipes remain independent of the portable-agent environment.
+
+```mermaid
+flowchart LR
+    Definition[Portable agent definition] --> Behavior[Host-neutral agent behavior]
+    Behavior --> Contracts[Identity, invocation, peer, state and telemetry contracts]
+    Contracts --> K8s[Kubernetes host composition]
+    Contracts --> Foundry[Foundry host composition]
+    K8s --> K8sServices[Keycloak, Agent Gateway, PVC and OpenTelemetry]
+    Foundry --> FoundryServices[Foundry identity, protocol hosting and managed state]
+    Workload[Workload identity] -. service execution .-> K8s
+    Agent[Agent identity] -. logical agent .-> Contracts
+```
+
+There is no single lifecycle-owning `Host` interface. Portable behavior asks
+for narrow capabilities and each composition validates its required capability
+set at startup. The Foundry-compatible Responses adapter preserves the existing
+stored/background/streaming behavior. The host-neutral Kubernetes adapter
+currently supports foreground non-streaming calls with `store: false` and
+rejects unsupported semantics explicitly. Radius selects the Kubernetes Bicep
+recipe or the Foundry Terraform recipe for the same
+`Radius.Resources/agents` logical type.
 
 ## Ownership and boundaries
 
-| Declaration | Native implementation | Retention |
+| Declaration | Kubernetes hosting implementation | Retention |
 | --- | --- | --- |
 | `agents` | Logical ConfigMap plus one mutable singleton StatefulSet, Service, HTTPRoute, AgentgatewayPolicy and NetworkPolicy | Logical metadata and state PVC retained; current runtime updated in place |
 | `agentIdentities` | Keycloak client, optional Entra blueprint/principal/Agent ID, Secret, binding ConfigMap and ServiceAccount | Independent protected Terraform state |
@@ -17,11 +49,11 @@ trading recipes remain independent of the native-agent environment.
 | `agentGuardrails` | Native policy ConfigMap | Retained; the current agent records exact attached content |
 | `keycloakLogins` | Existing-realm PKCE client and optional reviewed Entra federation | Separate administrator environment |
 
-The portfolio Helm release owns the additive native capability, shared
+The portfolio Helm release owns the additive Kubernetes-hosted agent capability, shared
 PostgreSQL-backed Keycloak and one OTel Collector. Stock Helm releases own
 upstream Envoy for UI/model ingress and upstream agentgateway for agent
 ingress. Radius owns application models, login clients, logical agents and
-retained identities, not either gateway release. Superseded native
+retained identities, not either gateway release. Superseded local
 H2/Keycloak, collector and platform Terraform
 implementations have been removed.
 
@@ -41,23 +73,23 @@ LiteLLM owns model routing and provider identity. Connected Graph delegation
 remains an explicit colocated broker backed by the official Entra sidecar; it
 is not part of model invocation.
 
-Native ValidatingAdmissionPolicies keep logical kind/ownership,
+Kubernetes ValidatingAdmissionPolicies keep logical kind/ownership,
 prevent a second runtime replica (including the scale subresource), reject
 cross-agent identity bindings and protect platform-injected runtime fields.
-Native names derive from the retained identity's stable logical UID. Updating
+Kubernetes resource names derive from the retained identity's stable logical UID. Updating
 the same Radius agent rolls the current workload and cannot create a second
 state writer.
 Do not force-delete a writer or bypass admission. Singleton scheduling is not
 distributed fencing or crash recovery.
 
-The agent environment explicitly binds one shared native namespace to logical,
+The agent environment explicitly binds one shared Kubernetes namespace to logical,
 identity, runtime and model recipes. Radius's application-specific
 `context.runtime.kubernetes.namespace` is not this shared namespace. This keeps
 independently owned identities, identity federation subjects and diagnostics
 on the same contract; application deletion does not own the shared namespace.
 Guardrail policy declarations retain their separate application/platform scopes.
 
-Agents retain their existing native Responses-host implementations and OCI
+Agents retain their existing Responses-host implementations and OCI
 build inputs in `src/agents/{prompt-agent,editor}`. Build these Dockerfiles with
 `src` as context. They use standard Keycloak client credentials for in-cluster
 gateway calls. The environment supplies model, telemetry, optional governance
@@ -69,18 +101,18 @@ Ordinary calls go directly through authorized agentgateway ingress to
 `POST /agents/{agent}/responses`. Agentgateway removes browser credentials and
 delegation inputs before SDK handling. When strict Responses admission is
 enabled, the separate policy service admits only foreground plain-text
-requests with explicit `store=false`; native child, reference, and background
+requests with explicit `store=false`; child, reference, and background
 operations are denied. All edge model calls and
 `GET /v1/models` use authenticated `model-ingress`/LiteLLM, never the diagnostics
 API or an inference Pod directly.
 
-The diagnostic API reads retained metadata and current native StatefulSet,
+The diagnostic API reads retained metadata and the current Kubernetes StatefulSet,
 PVC, Gateway, HTTPRoute and authorization-policy conditions. It writes no
 agent resource, workload or identity. An effective endpoint
 requires one ready, current-revision replica, Bound state, current-generation
 accepted/programmed ingress and exact Radius ownership. An unready update does
 not produce a success-shaped endpoint and there is no release fallback.
-Monitor reads bounded native Jaeger/Loki records, not manufactured events.
+Monitor reads bounded Jaeger/Loki records, not manufactured events.
 
 ## Delivery
 
@@ -229,11 +261,11 @@ or platform resources owned by the mutable workload.
    `rad resource-type create --from-file radius/resource-types/types.yaml`.
    Generate its existing extension:
    `rad bicep publish-extension --from-file radius/resource-types/types.yaml --target radius/types.tgz`.
-2. Publish `agents` at `0.5.0`, `agent-guardrails` at `0.3.0`,
+2. Publish `agents-kubernetes` at `0.7.0`, `agent-guardrails` at `0.3.0`,
    `ai-models` at `0.5.2` and `ai-gateways` at `0.2.0`, using
    `rad bicep publish`.
-   Their files are `recipes/agents/logical.bicep` (which includes the internal
-   `runtime.bicep` module),
+   Their files are `recipes/agents/kubernetes.bicep` (which includes the
+   internal `kubernetes-runtime.bicep` module),
    `recipes/ai-agent/native-model.bicep`,
    `recipes/ai-agent/native-gateway.bicep` and
    `recipes/agent-guardrails/native-policy.bicep`. Use the loopback registry
@@ -421,7 +453,7 @@ do not regenerate credentials to repeat setup.
 Use the UI's Sign in action and authorization-code PKCE. Do not enable password
 grants on `adaptive-ui`. Browser model discovery uses `/models/v1/models`,
 rewritten to the gateway's `/v1/models`; `/v1/models` on the browser origin is
-not a model discovery wrapper. Native agent calls pin
+not a model discovery wrapper. Portable-agent calls pin
 `/agents/{name}/responses` and send `store: false`.
 Stored/background/reference operations remain denied. Monitor uses
 authenticated streaming fetch at `/v1/agents/{name}/spans`.

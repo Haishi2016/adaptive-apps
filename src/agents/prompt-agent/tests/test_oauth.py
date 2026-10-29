@@ -4,8 +4,7 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 import respx
-
-from adaptive_runtime.oauth import KeycloakTokenProvider
+from adaptive_agent_hosts import KeycloakTokenProvider
 
 TOKEN_URL = "https://keycloak.test/realms/adaptive/protocol/openid-connect/token"
 

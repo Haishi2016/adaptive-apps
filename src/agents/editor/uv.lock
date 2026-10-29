@@ -13,6 +13,38 @@ resolution-markers = [
 prerelease-mode = "allow"
 
 [[package]]
+name = "adaptive-agent-contracts"
+version = "0.1.0"
+source = { directory = "../../agent-contracts" }
+dependencies = [
+    { name = "opentelemetry-api" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "opentelemetry-api" }]
+
+[[package]]
+name = "adaptive-agent-hosts"
+version = "0.1.0"
+source = { directory = "../../agent-hosts" }
+dependencies = [
+    { name = "adaptive-agent-contracts" },
+    { name = "agent-framework-core" },
+    { name = "httpx" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "adaptive-agent-contracts", directory = "../../agent-contracts" },
+    { name = "agent-framework-core", specifier = "==1.19.0" },
+    { name = "httpx" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[[package]]
 name = "agent-framework-core"
 version = "1.19.0"
 source = { registry = "https://pypi.org/simple" }
@@ -734,6 +766,8 @@ name = "editor"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "adaptive-agent-contracts" },
+    { name = "adaptive-agent-hosts" },
     { name = "agent-framework-core" },
     { name = "agent-framework-foundry-hosting" },
     { name = "azure-ai-agentserver-core" },
@@ -754,6 +788,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "adaptive-agent-contracts", directory = "../../agent-contracts" },
+    { name = "adaptive-agent-hosts", directory = "../../agent-hosts" },
     { name = "agent-framework-core", specifier = "==1.19.0" },
     { name = "agent-framework-foundry-hosting", specifier = "==1.0.0b260918" },
     { name = "azure-ai-agentserver-core", specifier = "==2.2.0" },
