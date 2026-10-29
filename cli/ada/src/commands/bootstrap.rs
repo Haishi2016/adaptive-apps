@@ -416,7 +416,7 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
     if args.dry_run {
         ui::dry_run("not executing helm");
         if native {
-            ui::dry_run("would prepare private inputs, install Envoy v1.9.2 and agentgateway v1.6.0, wait for shared Keycloak, deploy native services and optionally seed demo users");
+            ui::dry_run("would prepare private inputs, install Envoy v1.9.2 and agentgateway v1.6.0, wait for shared Keycloak, deploy portable-agent services and optionally seed demo users");
         }
         if args.with_radius {
             install_radius(&args)?;

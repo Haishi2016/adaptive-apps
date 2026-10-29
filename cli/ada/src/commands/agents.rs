@@ -792,7 +792,7 @@ pub fn prepare(
         refresh_derived_state,
     )?;
     ui::ok(&format!(
-        "Native inputs ready in {}; existing credentials preserved",
+        "Portable-agent inputs ready in {}; existing credentials preserved",
         private.display()
     ));
     Ok(Prepared {
