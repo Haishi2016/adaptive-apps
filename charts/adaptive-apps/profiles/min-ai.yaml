@@ -1,5 +1,5 @@
 # Reproduces the legacy `min-ai` portfolio chart.
-# Identity only; AI workloads are deployed via Radius (Kaito).
+# Identity plus a provider-neutral AI capability marker. KAITO is opt-in.
 features:
   identity:
     enabled: true

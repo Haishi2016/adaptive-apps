@@ -10,18 +10,35 @@ This tutorial walks you through the step of deploying an Adaptive Apps portfolio
 * [helm](https://helm.sh/)
 * [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
 * [rad](https://docs.radapp.io/guides/tooling/rad-cli/howto-rad-cli/)
-* (optional) An [OpenAI API Key](https://platform.openai.com/api-keys) or [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-foundry/models/openai) deployment key, when you plan to use cloud-based LLM.
+* The integrated native-agent path additionally requires Terraform
+  1.10–1.16, Kubernetes 1.33+, persistent storage and enforced
+  NetworkPolicies.
+* For the trading sample's cloud variant, an optional provider key. Native
+  Foundry models instead require reviewed gateway workload identity and scoped
+  inference access; no Azure API key is used.
 
 
-## 1. Choose your portfolio
+## 1. Choose your sample and portfolio
 
-Pick a portfolio and export it. **Every subsequent step references `$PORTFOLIO`** — re-export it in any new terminal you open.
+Choose the standard trading sample or the same trading sample with the native
+agent pages enabled.
 
 ```bash
+# Standard trading sample:
+export SAMPLE=trading
 export PORTFOLIO=min          # or: core | ent | min-ai | core-ai | ent-ai
+
+# OR integrated trading + native agents:
+export SAMPLE=trading-native
+export PORTFOLIO=min-ai       # native local-model path requires an AI portfolio
+
 export RELEASE=$PORTFOLIO     # Helm release name; defaults to the portfolio
 export NAMESPACE=$PORTFOLIO   # Kubernetes namespace for the portfolio
+export PLATFORM=k3s           # or: k8s | aks | arc | azure-local
 ```
+
+Every subsequent step references these variables. Re-export them in each new
+terminal. The native-agent path works on local k3s; Arc is not required.
 
 If your target is AKS, define a few more environment variables:
 ```bash
@@ -35,7 +52,7 @@ export AKS_OIDC_ISSUER=$(az aks show \
       -o tsv)
 ```
 
-| Portfolio | Identity | Service mesh (Istio) | Observability | Service policies (OPA) | On-cluster AI (Kaito) |
+| Portfolio | Identity | Service mesh (Istio) | Observability | Governance (OPA) | AI capability marker |
 | --- | :-: | :-: | :-: | :-: | :-: |
 | `min` | ✓ | ✗ | ✗ | ✗ | ✗ |
 | `core` | ✓ | ✓ | ✓ | ✗ | ✗ |
@@ -44,17 +61,21 @@ export AKS_OIDC_ISSUER=$(az aks show \
 | `core-ai` | ✓ | ✓ | ✓ | ✗ | ✓ |
 | `ent-ai` | ✓ | ✓ | ✓ | ✓ (off by default) | ✓ |
 
-> **What "On-cluster AI" means here.** The `*-ai` suffix only controls whether the cluster provisions Kaito so the sample app can serve a model **locally**. It does **not** restrict which AI provider the app uses at runtime — any portfolio (including `min`) can be pointed at OpenAI / Azure OpenAI via the `aiProvider=openai`. Pick `*-ai` only if you want a self-contained on-cluster model.
+> **What the AI marker means here.** The `*-ai` suffix selects the AI capability
+> portfolio; it does not install KAITO. Model infrastructure is
+> application-owned through Radius. Local-model variants use KAITO/vLLM only
+> after the explicit GPU/KAITO preparation. Cloud/local selection remains an
+> application binding, not a portfolio switch.
 
 ## 2. Bring up the platform
 
-This section gets you from "empty cluster context" to "Radius is installed,
-the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
+This section gets you from an empty cluster context to an installed portfolio
+and Radius environment. Pick **one**:
 
 | Option | What it covers | When to use |
 | --- | --- | --- |
 | OPTION 1 — `ada` CLI | Helm install **+** Radius install **+** Keycloak OIDC client provisioning. On `--platform k3s` it also creates a local k3d cluster. | Recommended for all platforms. On k8s / AKS / Arc / Azure Local you prepare the cluster yourself first, then point `ada` at the existing `kubectl` context. |
-| OPTION 2 — Manual | Same steps, one shell command at a time | When you want to see what's happening, or to script just one of the sub-steps. |
+| OPTION 2 — Manual | Standard trading platform, one shell command at a time | When you want to inspect or script the standard trading setup. Use OPTION 1 for the integrated native-agent path. |
 
 ### 2.1 OPTION 1 — Use the `ada` CLI
 
@@ -72,11 +93,70 @@ the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
    | `arc` | no | passthrough — standard kubectl context |
    | `azure-local` | no | passthrough — standard kubectl context |
 
-3. Run:
+3. If you selected `SAMPLE=trading-native`, prepare its artifacts and retained
+   private inputs:
 
     ```bash
-    export PLATFORM=k3s   # or: k8s | aks | arc | azure-local
+    helm dependency build charts/adaptive-apps --skip-refresh
 
+    # Publish recipes and application images first:
+    # docs/agents/native-radius.md#local-artifact-and-executor-preparation
+    # Public OpenAI:
+    export OPENAI_API_KEY_FILE="${OPENAI_API_KEY_FILE:-$HOME/.config/adaptive/openai.key}"
+    install -d -m 700 "$(dirname "$OPENAI_API_KEY_FILE")"
+    if [ ! -s "$OPENAI_API_KEY_FILE" ]; then
+      read -rsp "OpenAI API key: " OPENAI_API_KEY
+      echo
+      printf '%s' "$OPENAI_API_KEY" > "$OPENAI_API_KEY_FILE"
+      unset OPENAI_API_KEY
+    fi
+    chmod 600 "$OPENAI_API_KEY_FILE"
+
+    ada agents-config \
+      --output agents.json \
+      --import-images \
+      --with-openai-model \
+      --openai-model gpt-4o \
+      --openai-api-key-file "$OPENAI_API_KEY_FILE"
+
+    # Or prepare without a model:
+    # ada agents-config --output agents.json --import-images
+    # New configurations deploy no model by default. Add
+    # --with-kaito-model only after completing GPU + KAITO preparation.
+    # Omit both --with-* flags to prepare identity and agents without a model.
+    # Use --without-models to clear models from an existing configuration.
+    # This uses the origin GitHub repository and its newest published
+    # recipes-<commit> release containing recipes.tgz. An explicit --commit
+    # must already have been published by .github/workflows/publish-recipes.yml.
+    # Use --repository OWNER/REPOSITORY to select another repository.
+    # Prefer an explicit `images` map containing the seven immutable fork image
+    # digests over the mutable imageRegistry/imageTag.
+
+    ada init \
+      --agents-config agents.json \
+      --namespace "$NAMESPACE" \
+      --release "$RELEASE" \
+      --refresh-derived-state
+    ```
+
+    The command block creates or reuses a mode-0600 key file outside the
+    repository. The generated OpenAI declaration drives both the trading
+    application and native Model Gateway; do not set a separate `AI_PARAMS`
+    array for `trading-native`. The opt-in KAITO example requires a GPU. Complete
+    [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md), or configure
+    a reviewed remote model. Public OpenAI uses an `openai` binding and
+    `openaiApiKeyFile`; `ada init` retains that file's value only in private
+    state used for the Model Gateway Secret and Radius application parameters.
+    There is no automatic CPU fallback. Ordinary calls route directly through
+    upstream agentgateway. Set `"strictResponses": true` in `agents.json` only
+    when the demo must enforce the narrower stateless, foreground, text-only
+    Responses profile.
+
+4. Bootstrap the selected sample.
+
+   For `SAMPLE=trading`:
+
+    ```bash
     ada bootstrap \
       --portfolio $PORTFOLIO \
       --platform $PLATFORM \
@@ -87,7 +167,23 @@ the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
       --keep-port-forward
     ```
 
-    If your are using AKS, you need to pass in three additional parameters:
+   For `SAMPLE=trading-native`:
+
+    ```bash
+    ada bootstrap \
+      --portfolio "$PORTFOLIO" \
+      --platform "$PLATFORM" \
+      --release "$RELEASE" \
+      --namespace "$NAMESPACE" \
+      --chart-root charts \
+      --with-radius \
+      --with agents \
+      --agents-config agents.json \
+      --keep-port-forward \
+      --demo-users
+    ```
+
+    If you are using AKS, pass three additional parameters:
     `--azure-subscription`, `--resource-group`, and `--aks-cluster`. `ada`
     uses the rg/cluster pair to discover the active Istio add-on revision
     and (with `--with-radius`) to federate the Radius service accounts.
@@ -113,22 +209,35 @@ the portfolio chart is running, and OIDC env vars are exported". Pick **one**:
     other platform this step is a no-op — `ada` uses whatever cluster the
     current `kubectl` context points at. *For AI portfolios you also need to
     run [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md)
-    before invoking `ada bootstrap`.*
-    2. **Portfolio chart** — `helm upgrade --install` with the right
+    when selecting KAITO/GPU inference.*
+    2. **Native gateways** — with `--with agents`, installs pinned Envoy for
+    UI/model ingress and upstream agentgateway for native agent ingress. It
+    refuses an existing installation owned by another release.
+    3. **Portfolio chart** — `helm upgrade --install` with the right
     `charts/adaptive-apps/profiles/<portfolio>.yaml` profile. On `aks` it
     also adds the managed-Istio overrides.
-    3. **Radius** — installs the control plane, creates the `adaptive`
+    4. **Radius** — installs the control plane, creates the `adaptive`
     workspace and group, the `trading` environment, registers the project's
     resource types, and deploys `radius/local-env.bicep` (or
     `aks-env.bicep` on `--platform aks`).
-    4. **OIDC client** — port-forwards to Keycloak, creates/reuses the
-    `adaptive-apps` OIDC client, prints an `export OIDC_*` block, and (with
-    `--keep-port-forward`) holds the port-forward open in the foreground.
+    5. **OIDC client** — creates or reuses the sample's OIDC client and prints
+    the copyable exports plus application deployment command. For the standard
+    sample, `--keep-port-forward` holds Keycloak on `localhost:8080`. For the
+    native sample, it holds the HTTPS ingress on `localhost:8444` and includes
+    retained identity, model and immutable image exports.
 
-4. Copy the `export OIDC_*` lines into the terminal you'll use for step 3 and
-skip ahead to [3 Deploy the sample app](#3-deploy-the-sample-app).
+5. Continue to [3 Deploy the sample app](#3-deploy-the-sample-app).
+
+   Copy the printed block into that terminal. The integrated native block uses
+   the retained `adaptive-trading` client and includes its complete
+   `rad deploy radius/app.bicep` command.
 
 ### 2.2 OPTION 2 — Manual
+
+The manual steps below install the standard trading path. For the integrated
+native-agent path, use OPTION 1 so `ada` can prepare retained credentials,
+immutable recipe inputs, Envoy, agentgateway, and the native Radius
+environments in order.
 
 #### 2.2.1 Prepare the cluster
 
@@ -142,7 +251,7 @@ Pick **one** environment and follow the linked guide. Each leaves you with
 | Azure Arc-enabled cluster | [`common/prepare-arc.md`](../common/prepare-arc.md) |
 | Azure Local | [`common/prepare-azure-local.md`](../common/prepare-azure-local.md) |
 
-AI portfolios (`*-ai`) additionally need GPU + Kaito on the cluster. Follow
+The KAITO inference variant additionally needs GPU + Kaito on the cluster. Follow
 [`common/prepare-gpu-kaito.md`](../common/prepare-gpu-kaito.md) before
 proceeding.
 
@@ -283,18 +392,24 @@ cd -
 > `$FRONTEND_CLIENT_ID` to `rad deploy radius/app.bicep` as parameters
 > wired to the bicep's workload-identity inputs.
 
-### 3.1 Pick an AI provider
+### 3.1 Configure the trading AI provider
 
 Pick how the sample app's AI agent reaches a model. The choice is
 **independent of the portfolio** — any portfolio can use either provider:
 
-* **`local`** — talk to a Kaito-served model running in the cluster. Only
-  works on `*-ai` portfolios (they're the ones that provision Kaito).
+For `SAMPLE=trading-native`, skip this section. The model selected by
+`ada agents-config` is authoritative, and `ada init` writes the corresponding
+private Radius application parameters.
+
+For `SAMPLE=trading`, use `AI_PARAMS`:
+
+* **`local`** — talk to a separately installed Kaito-served model running in
+  the cluster. KAITO remains an explicit prerequisite for every portfolio.
 * **`openai`** — call an OpenAI or Azure OpenAI endpoint with the API key
   from §0. Works on every portfolio.
 
 ```bash
-# Local on-cluster model (requires a *-ai portfolio):
+# Local on-cluster model (requires a separately installed KAITO provider):
 AI_PARAMS=(--parameters aiProvider=local --parameters aiModel=Qwen/Qwen3-0.6B)
 
 # OR — OpenAI / Azure OpenAI (works with any portfolio):
@@ -313,7 +428,9 @@ AI_PARAMS=(--parameters aiProvider=openai --parameters aiModelName=gpt-4o --para
 > for the per-portfolio matrix. The guardrails parameter is a no-op on
 > non-AI portfolios.
 
-Deploy:
+### 3.2 Deploy the selected sample
+
+For `SAMPLE=trading`, deploy with the parameters prepared above:
 
 ```bash
 rad deploy radius/app.bicep \
@@ -335,11 +452,45 @@ rad deploy radius/app.bicep \
   "${AI_PARAMS[@]}"
 ```
 
+For `SAMPLE=trading-native`, the `ada bootstrap --with agents
+--keep-port-forward` command from §2 prints a complete copyable block containing:
+
+- all `AUTH_*` and `OIDC_*` exports;
+- the retained agent Environment ID and stable Agent Gateway URL;
+- the configured `agentModel`;
+- immutable prompt, editor and embedded-UI image references resolved from
+  `agents.json`; and
+- the complete `rad deploy radius/app.bicep` command.
+
+Leave that first terminal running so `https://localhost:8444` remains forwarded
+to the native HTTPS ingress. Copy the printed block into a second terminal and
+run it without editing a parameter file. If `agents.json` predates the embedded
+UI image, rerun `ada agents-config --import-images`; existing immutable pins are
+preserved and the missing image is added.
+
+The default `agentModel` name is `local-chat`, but new configurations do not
+declare a model. Set it and add a reviewed model declaration before invocation,
+or regenerate a new configuration with `--with-kaito-model` only after KAITO
+and GPU preparation. Selecting an `*-ai` portfolio does not install or select
+KAITO automatically.
+
+The writer, auditor and editor are ordinary components declared directly in
+`radius/app.bicep`. Each `agents` resource references its corresponding
+`agentIdentities` resource, so Radius resolves the identity dependency before
+deploying the runtime. Updating a definition rolls the same StatefulSet; it
+does not create or promote a release. Verify the current runtimes with:
+
+```bash
+kubectl -n "$NAMESPACE" get statefulset,pvc,httproute,securitypolicy
+```
+
 **Istio portfolios only** (`core`, `ent`, `core-ai`, `ent-ai`) — the app
 namespace isn't enrolled in the mesh yet, so pods come up without sidecars.
 That's fine for getting the app running; enroll the namespace when you're
 ready to exercise mTLS, `AuthorizationPolicy`, and traffic shaping by
 following the [service mesh tutorial](../service-mesh/README.md).
+
+### 3.3 Open and test the application
 
 Expose the frontend and open it:
 
@@ -350,6 +501,14 @@ rad resource expose Applications.Core/containers frontend -a adaptive-apps --por
 Browse to <http://localhost:3000>. Log in with the local admin account
 (`admin` / `admin`), or click **Sign in with OIDC** to authenticate through
 Keycloak.
+
+For `SAMPLE=trading-native`, leave the first `ada bootstrap
+--keep-port-forward` terminal running. It keeps the native Keycloak browser
+endpoint available on `https://localhost:8444`.
+
+Sign in with OIDC, select **Agents** in the trading header, open `writer`,
+invoke it and open Monitor. Local password users can use the
+trading pages but cannot access native-agent routes.
 
 > **`aiProvider=local`:** The Kaito-managed model pod may take several
 > minutes to become ready while the model is downloaded. Watch
@@ -367,6 +526,11 @@ kubectl delete namespace $NAMESPACE
 # Local k3s only (uses the `k3s` cluster name created by `--platform k3s`):
 k3d cluster delete k3s
 ```
+
+For `SAMPLE=trading-native`, deleting the trading application does not delete
+retained agent identities or agent state. Delete
+the entire disposable k3d cluster for a full local reset; do not treat ordinary
+application deletion as identity or state pruning.
 
 ---
 

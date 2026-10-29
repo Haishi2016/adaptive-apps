@@ -1,103 +1,124 @@
-# Prepare GPU + Kaito on K3s
+# Prepare NVIDIA GPU + KAITO
 
-These steps are only required for the `*-ai` portfolios when you intend to run
-local LLM inference on-cluster (i.e. `aiProvider=local`). If you plan to use a
-cloud provider such as OpenAI or Azure OpenAI (`aiProvider=openai`), skip this
-doc entirely.
+Local inference uses stock KAITO and vLLM, not a CPU llama.cpp server.
+Foundry-only deployments do not require a GPU. Hybrid deployments require both
+this local path and [gateway workload identity](../../docs/agents/native-radius.md#models).
+Use the existing portfolio, Radius and OIDC preparation; do not install another
+model gateway or agent operator.
 
-> **Note:** This guide assumes you have already followed
-> [prepare-k3s.md](./prepare-k3s.md) up to (but not including) the
-> `k3d cluster create` step. We re-create the cluster here with GPU passthrough.
+## 1. Prepare a real GPU node
 
-## Prerequisites
+Use an existing GPU-capable K3s/AKS/Kubernetes cluster. Native agents require
+Kubernetes 1.33+. On host K3s, install the appropriate NVIDIA driver and container
+toolkit before K3s starts so its containerd can discover `nvidia-container-runtime`.
+Verify `nvidia-smi` and the configured NVIDIA runtime. Restarting an existing
+cluster is a separately scoped operation, not part of ordinary model delivery.
 
-* NVIDIA GPU with >= 4G memory, preferably >= 16G
-* Latest NVIDIA driver installed (with WSL support if using WSL)
+GPU availability on the host does not imply availability inside k3d. An ordinary
+CLI-created k3d cluster does not install NVIDIA support. Container-based nodes
+need a compatible GPU-enabled image, Docker's NVIDIA runtime, GPU passthrough
+and, on WSL, the actual driver libraries/device. The older custom
+`assets/gpu/Dockerfile.nvidia` is a trading-sample asset, not a qualified native
+Kubernetes 1.33+ bootstrap. Do not replace a working cluster to follow that path.
 
-## 1. Create the GPU-enabled K3s cluster
+## 2. Install the shared device plugin
 
-```bash
-mkdir -p ~/k3d/localk8s-storage
-
-k3d cluster create localk8s \
-  --image hbai/cuda:0.1 \
-  --gpus all \
-  --k3s-arg "--disable=traefik@server:0" \
-  --volume "$HOME/k3d/localk8s-storage:/var/lib/rancher/k3s@server:0" \
-  --volume "/usr/lib/wsl:/usr/lib/wsl@server:0" \
-  --volume "/dev/dxg:/dev/dxg@server:0"
-```
-
-> **NOTE:** To build the `hbai/cuda:0.1` image yourself, use
-> [`assets/gpu/Dockerfile.nvidia`](./assets/gpu/Dockerfile.nvidia):
-> `docker build -t hbai/cuda:0.1 -f tutorials/common/assets/gpu/Dockerfile.nvidia .`
-
-## 2. Install Kyverno
-
-Kaito needs a cluster policy to patch StatefulSets with the NVIDIA
-`runtimeClassName`:
+Do not install a second plugin if the cluster already supplies one. For BYO
+K3s with an NVIDIA container runtime:
 
 ```bash
-helm repo add kyverno https://kyverno.github.io/kyverno/
-helm repo update
-
-helm upgrade --install kyverno kyverno/kyverno \
-  -n kyverno \
-  --create-namespace
-```
-
-## 3. Apply the GPU bootstrap artifact
-
-```bash
-kubectl apply -f tutorials/common/assets/gpu/gpu_bootstrap.yaml
-```
-
-## 4. Validate the node has allocatable GPU
-
-```bash
+kubectl apply -f tutorials/common/assets/gpu/device-plugin-daemonset.yaml
+kubectl rollout status daemonset/nvidia-device-plugin-daemonset \
+  -n kube-system --timeout=180s
+kubectl get nodes -o custom-columns='NAME:.metadata.name,GPU:.status.allocatable.nvidia\.com/gpu'
 ./tutorials/common/assets/gpu/validate_gpu.sh
 ```
 
-## 5. Label the node with GPU facts
+The CUDA validation Pod must finish **Succeeded**. Failures retain the Pod for
+diagnosis; remove that exact test Pod before retrying. The device plugin fails
+explicitly when initialization is unavailable.
 
-Kaito's node estimator reads `nvidia.com/gpu.memory` to size workloads. WSL2
-GPU Feature Discovery may not auto-populate all labels, so set them manually:
+## 3. Label only verified GPU facts
+
+Select the actual node name and set the selector used in the model declaration:
 
 ```bash
-export NODE_NAME=k3d-localk8s-server-0   # adjust via `kubectl get nodes`
-kubectl label node $NODE_NAME nvidia.com/gpu=true
-kubectl label node $NODE_NAME nvidia.com/gpu.product=<your-gpu-product>
-kubectl label node $NODE_NAME nvidia.com/gpu.present=true
-kubectl label node $NODE_NAME nvidia.com/gpu.count=1
-kubectl label node $NODE_NAME nvidia.com/gpu.memory=<MiB>
+kubectl label node <gpu-node> nvidia.com/gpu=true --overwrite
 ```
 
-> **Tip:** If you have a small GPU, you can over-claim `nvidia.com/gpu.memory`
-> (e.g. label a 4GiB GPU as `12288`) to coax the Kaito estimator into scheduling
-> small models like `Qwen/Qwen3-0.6B` on a single node.
+KAITO presets may additionally need truthful product, count and memory labels
+when GPU Feature Discovery cannot supply them, particularly on WSL. Measure
+these with `nvidia-smi`; never inflate GPU memory or remove validation webhooks
+to make an unsuitable model schedule.
 
-## 6. Install Kaito
+## 4. Install stock KAITO on BYO nodes
 
 ```bash
 helm repo add kaito https://kaito-project.github.io/kaito/charts/kaito
-helm repo update
-
+helm repo update kaito
 helm upgrade --install kaito-workspace kaito/workspace \
-  --create-namespace \
-  --version 0.10.0 \
-  --namespace kaito-workspace \
+  --version 0.10.0 --namespace kaito-workspace --create-namespace \
   --set featureGates.disableNodeAutoProvisioning=true \
   --set nvidiaDevicePlugin.enabled=false \
-  --set localCSIDriver.useLocalCSIDriver=false
+  --set localCSIDriver.useLocalCSIDriver=false \
+  --wait --timeout=10m
+kubectl get deployments -n kaito-workspace
+kubectl get crd workspaces.kaito.sh
 ```
 
-> **NOTE:** Minimum required Kaito version is 0.9.0. `nvidiaDevicePlugin.enabled=false`
-> avoids conflict with the device-plugin DaemonSet bundled in step 3.
-> `disableNodeAutoProvisioning=true` enables BYO GPU mode.
+The native recipe's custom Workspace sets `runtimeClassName: nvidia` itself.
+**Kyverno is not required for native inference.** The separate
+`assets/gpu/gpu_bootstrap.yaml` contains only the optional trading-preset
+runtime-class mutation policy; apply it only where Kyverno is already installed
+and that preset needs the mutation.
 
-## Known issues (Kaito v0.9.0)
+## 5. Declare the small GPU model through Radius
 
-| Issue | Workaround |
-| --- | --- |
-| Webhook panic (`MustParse("")`) when applying a generic-model Workspace in BYO mode | `kubectl delete validatingwebhookconfiguration validation.workspace.kaito.sh` |
-| Node estimator ignores `max-model-len` from the ConfigMap and over-estimates `targetNodeCount` | Inflate the `nvidia.com/gpu.memory` node label to satisfy the estimator |
+`ada agents-config --with-kaito-model` selects **Qwen/Qwen3-0.6B**, an exact
+model revision and pinned vLLM image through the explicit `kaito` model recipe.
+KAITO is off by default for every portfolio. Native `ada init` consumes explicit `models`, then the
+normal bootstrap deploys them through `radius/agent-services.bicep`.
+Alternatively, `radius/agent-models.bicep` declares independently owned local
+and Foundry `aiModels` resources plus an `aiGateways` hybrid route built from
+their real Radius outputs.
+
+The smoke profile requests one GPU, a retained HF cache, 2048-token context,
+one sequence and 30% GPU utilization. It is a small serving test, not a tool
+quality or production-capacity claim. Image/model downloads require internet;
+disconnected restart requires the image and exact weights to be present.
+Do not change agent images or call the KAITO Service from application clients:
+all calls and discovery still use the authenticated LiteLLM gateway.
+
+```bash
+kubectl get workspaces,pods,pvc -n <namespace>
+kubectl describe workspace <model-resource-name> -n <namespace>
+kubectl logs -n <namespace> <inference-pod> -c vllm
+```
+
+Confirm serving readiness and perform real inference through the model gateway
+before retiring an earlier model. Preserve retained caches unless their deletion
+is explicitly scoped.
+
+KAITO 0.10.0 did not propagate a changed custom template into an existing
+StatefulSet in the local qualification. Compare the desired Workspace and actual
+StatefulSet container arguments; Workspace generation alone is not rollout
+evidence. For an explicitly scoped update, stop and delete only that
+KAITO-generated StatefulSet with foreground cascading, retaining the Workspace
+and external HF-cache PVC, then wait for KAITO to recreate the desired singleton:
+
+```bash
+kubectl delete statefulset <model-resource-name> -n <namespace> \
+  --cascade=foreground --wait=true --timeout=180s
+kubectl wait --for=create statefulset/<model-resource-name> \
+  -n <namespace> --timeout=180s
+kubectl rollout status statefulset/<model-resource-name> \
+  -n <namespace> --timeout=600s
+kubectl wait --for=condition=InferenceReady workspace/<model-resource-name> \
+  -n <namespace> --timeout=600s
+kubectl get statefulset <model-resource-name> -n <namespace> \
+  -o jsonpath='{.spec.template.spec.containers[0].args}'
+```
+
+Verify the recreated Pod and actual arguments as well as current Workspace
+readiness. This operation interrupts serving; do not force-delete a Pod or
+delete the cache to obtain an update.

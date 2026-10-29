@@ -1,5 +1,5 @@
 # Reproduces the legacy `core-ai` portfolio chart.
-# core + ai marker. AI workloads are deployed via Radius (Kaito).
+# core + provider-neutral AI marker. KAITO is opt-in.
 features:
   identity:
     enabled: true

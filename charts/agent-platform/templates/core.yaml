@@ -1,0 +1,58 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: adaptive-model-cache
+  annotations:
+    helm.sh/resource-policy: keep
+provisioner: rancher.io/local-path
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adaptive-guardrails-apps
+  annotations:
+    helm.sh/resource-policy: keep
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adaptive-guardrails-platform
+  annotations:
+    helm.sh/resource-policy: keep
+---
+{{- $existing := lookup "networking.k8s.io/v1" "NetworkPolicy" .Release.Namespace "demo-cloud-egress" }}
+{{- $selector := dict "matchLabels" (dict "adaptive.jplck.io/cloud-egress" "true") }}
+{{- $cloudEgress := list (dict
+    "to" (list
+      (dict "ipBlock" (dict "cidr" "0.0.0.0/0" "except" (list "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" "169.254.0.0/16" "127.0.0.0/8")))
+      (dict "ipBlock" (dict "cidr" "::/0" "except" (list "fc00::/7" "fe80::/10" "::1/128"))))
+    "ports" (list (dict "protocol" "TCP" "port" 443))) }}
+{{- if $existing }}
+  {{- if or (ne (index $existing.metadata.labels "adaptive.jplck.io/demo") "cloud-outage")
+      (ne (toJson $existing.spec.podSelector) (toJson $selector))
+      (ne (toJson $existing.spec.policyTypes) (toJson (list "Egress")))
+      (not (empty $existing.spec.ingress))
+      (and (not (empty $existing.spec.egress)) (ne (toJson $existing.spec.egress) (toJson $cloudEgress))) }}
+    {{- fail "Existing demo-cloud-egress policy has unexpected ownership, targets or rules" }}
+  {{- end }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: demo-cloud-egress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    adaptive.jplck.io/demo: cloud-outage
+spec:
+  podSelector:
+    matchLabels:
+      adaptive.jplck.io/cloud-egress: "true"
+  policyTypes: ["Egress"]
+  {{- if and $existing (empty $existing.spec.egress) }}
+  egress: []
+  {{- else }}
+  egress:
+    {{- toYaml $cloudEgress | nindent 4 }}
+  {{- end }}

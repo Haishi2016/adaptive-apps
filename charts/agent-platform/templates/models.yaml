@@ -1,0 +1,225 @@
+{{- if .Values.modelGateway.configs }}
+{{- $auth := required "Model gateway requires explicit native authorization bindings" .Values.modelGateway.authorization }}
+{{- $_ := required "Model gateway issuer is required" $auth.issuer }}
+{{- $_ := required "Model gateway jwksUrl is required" $auth.jwksUrl }}
+{{- $_ := required "Model gateway requires explicit agent client IDs" $auth.clients }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-gateway
+  namespace: {{ .Release.Namespace }}
+data:
+  config.yaml: |
+    include:
+    {{- range $.Values.modelGateway.configs }}
+      - /etc/models/{{ .name }}.yaml
+    {{- end }}
+    router_settings:
+      num_retries: 0
+      allowed_fails: 0
+      cooldown_time: 1
+    litellm_settings:
+      disable_aiohttp_transport: true
+      enable_azure_ad_token_refresh: true
+      telemetry: false
+      num_retries: 0
+    general_settings:
+      master_key: os.environ/LITELLM_MASTER_KEY
+      disable_spend_logs: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: model-gateway
+  namespace: {{ .Release.Namespace }}
+automountServiceAccountToken: false
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: model-gateway
+  namespace: {{ .Release.Namespace }}
+spec:
+  credentialInjection:
+    overwrite: true
+    credential:
+      valueRef:
+        name: model-gateway-auth
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: model-gateway
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: model-gateway
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+          podSelector:
+            matchLabels:
+              gateway.envoyproxy.io/owning-gateway-namespace: {{ .Release.Namespace }}
+              gateway.envoyproxy.io/owning-gateway-name: model-ingress
+      ports:
+        - protocol: TCP
+          port: 4000
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: adaptive.jplck.io/inference
+                operator: Exists
+{{- if .Values.modelGateway.cloudEgress }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-gateway
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: model-gateway
+  ports:
+    - name: http
+      port: 4000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-gateway
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: model-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: model-gateway
+        adaptive.jplck.io/cloud-egress: "true"
+    spec:
+      serviceAccountName: model-gateway
+      automountServiceAccountToken: false
+      dnsConfig:
+        options:
+          - name: edns0
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm@sha256:ff11074add7b1cee63759b90eb2a9e4072763e520297761ea05a911b4a5b251d
+          command: ["/bin/sh", "-ec"]
+          args: ['exec litellm --config /etc/litellm/config.yaml --host 0.0.0.0 --port 4000']
+          env:
+{{- with .Values.modelGateway.identity }}
+            - name: AZURE_CREDENTIAL
+              value: WorkloadIdentityCredential
+            - name: AZURE_CLIENT_ID
+              value: {{ required "Gateway identity.clientId required" .clientId | quote }}
+            - name: AZURE_TENANT_ID
+              value: {{ required "Gateway identity.tenantId required" .tenantId | quote }}
+            - name: AZURE_FEDERATED_TOKEN_FILE
+              value: /var/run/azure/tokens/azure-identity-token
+{{- end }}
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: model-gateway-auth
+                  key: master-key
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: model-gateway-auth
+                  key: openai-api-key
+                  optional: true
+            - name: LITELLM_TELEMETRY
+              value: "False"
+            - name: MODEL_CONFIG_DIGEST
+              value: {{ .Values.modelGateway.configs | toJson | sha256sum | quote }}
+          ports:
+            - name: http
+              containerPort: 4000
+          startupProbe:
+            httpGet:
+              path: /health/liveliness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/litellm
+              readOnly: true
+            - name: models
+              mountPath: /etc/models
+              readOnly: true
+{{- if .Values.modelGateway.identity }}
+            - name: azure-assertion
+              mountPath: /var/run/azure/tokens
+              readOnly: true
+{{- end }}
+      volumes:
+{{- if .Values.modelGateway.identity }}
+        - name: azure-assertion
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: api://AzureADTokenExchange
+                  expirationSeconds: 3600
+                  path: azure-identity-token
+{{- end }}
+        - name: config
+          configMap:
+            name: model-gateway
+        - name: models
+          projected:
+            sources:
+              {{- range .Values.modelGateway.configs }}
+              - configMap:
+                  name: {{ .name }}
+                  items:
+                    - key: config.yaml
+                      path: {{ .name }}.yaml
+              {{- end }}
+{{- end }}

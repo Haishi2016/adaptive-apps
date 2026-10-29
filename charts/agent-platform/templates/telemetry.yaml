@@ -1,0 +1,234 @@
+{{- $telemetry := .Values.telemetry | default dict }}
+{{- if $telemetry.enabled }}
+{{- $storageClass := $telemetry.storageClass | default "local-path" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adaptive-telemetry
+  namespace: {{ .Release.Namespace }}
+data:
+  loki.yaml: |
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /var/loki
+      storage:
+        filesystem:
+          chunks_directory: /var/loki/chunks
+          rules_directory: /var/loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    ingester:
+      wal:
+        enabled: true
+        dir: /var/loki/wal
+    compactor:
+      working_directory: /var/loki/compactor
+      retention_enabled: true
+      delete_request_store: filesystem
+    limits_config:
+      allow_structured_metadata: true
+      retention_period: 168h
+      max_query_lookback: 168h
+      ingestion_rate_mb: 4
+      ingestion_burst_size_mb: 8
+      otlp_config:
+        resource_attributes:
+          ignore_defaults: true
+          attributes_config:
+            - action: index_label
+              attributes: [service.name, service.namespace, adaptive.agent.name]
+            - action: structured_metadata
+              attributes: [adaptive.agent.version, adaptive.agent.deployment, k8s.namespace.name, agent.id]
+    analytics:
+      reporting_enabled: false
+---
+{{- range $store := list
+    (dict "name" "adaptive-traces" "image" "jaegertracing/all-in-one:1.62.0@sha256:836e9b69c88afbedf7683ea7162e179de63b1f981662e83f5ebb68badadc710f" "uid" 10001 "port" 16686 "health" 14269 "path" "/" "mount" "/badger")
+    (dict "name" "adaptive-logs" "image" "grafana/loki:3.3.2@sha256:8af2de1abbdd7aa92b27c9bcc96f0f4140c9096b507c77921ffddf1c6ad6c48f" "uid" 10001 "port" 3100 "health" 3100 "path" "/ready" "mount" "/var/loki") }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $store.name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $store.name }}
+  ports:
+    - name: query
+      port: {{ $store.port }}
+    {{- if eq $store.name "adaptive-traces" }}
+    - name: otlp-grpc
+      port: 4317
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $store.name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  serviceName: {{ $store.name }}
+  replicas: 1
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $store.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $store.name }}
+        adaptive.jplck.io/telemetry-store: "true"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ $store.uid }}
+        fsGroup: {{ $store.uid }}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: store
+          image: {{ $store.image }}
+          {{- if eq $store.name "adaptive-traces" }}
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+            - name: COLLECTOR_OTLP_GRPC_HOST_PORT
+              value: 0.0.0.0:4317
+            - name: QUERY_HTTP_SERVER_HOST_PORT
+              value: 0.0.0.0:16686
+            - name: SPAN_STORAGE_TYPE
+              value: badger
+            - name: BADGER_EPHEMERAL
+              value: "false"
+            - name: BADGER_DIRECTORY_VALUE
+              value: /badger/data
+            - name: BADGER_DIRECTORY_KEY
+              value: /badger/key
+            - name: BADGER_SPAN_STORE_TTL
+              value: 168h
+          {{- else }}
+          args: ["-config.file=/etc/loki/loki.yaml"]
+          {{- end }}
+          ports:
+            - name: query
+              containerPort: {{ $store.port }}
+            {{- if eq $store.name "adaptive-traces" }}
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: health
+              containerPort: {{ $store.health }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: {{ $store.path }}
+              port: {{ $store.health }}
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: {{ $store.path }}
+              port: {{ $store.health }}
+            initialDelaySeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: {{ ternary "2Gi" "512Mi" (eq $store.name "adaptive-traces") }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ $store.mount }}
+            {{- if eq $store.name "adaptive-logs" }}
+            - name: config
+              mountPath: /etc/loki
+              readOnly: true
+            {{- end }}
+      {{- if eq $store.name "adaptive-logs" }}
+      volumes:
+        - name: config
+          configMap:
+            name: adaptive-telemetry
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ $storageClass | quote }}
+        resources:
+          requests:
+            storage: {{ $telemetry.storageSize | default "2Gi" | quote }}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: adaptive-telemetry-stores
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      adaptive.jplck.io/telemetry-store: "true"
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: otel-collector
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 3100
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: platform-api
+      ports:
+        - protocol: TCP
+          port: 16686
+        - protocol: TCP
+          port: 3100
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: adaptive-telemetry-ingest
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $telemetry.agentNamespace | default .Release.Namespace }}
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+{{- end }}

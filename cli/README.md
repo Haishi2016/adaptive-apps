@@ -6,10 +6,12 @@ context is a single command instead of a tutorial walkthrough.
 
 ## Status
 
-Early scaffolding. Currently supports a single command:
+The CLI supports `init`, `agents-config`, `bootstrap`, `oidc`, `radius`,
+`package` and `skill`. Native setup in this branch uses CLI 0.2.0; build it
+locally until that release is published:
 
 ```bash
-ada bootstrap --portfolio <min|min-ai|core|core-ai|ent|ent-ai> [--platform <k3s|k8s|aks|arc|azure-local>]
+ada bootstrap --portfolio <min|min-ai|core|core-ai|ent|ent-ai> [--platform <k3s|k8s|aks|arc|azure-local>] [--with agents]
 ```
 
 ## Install
@@ -50,6 +52,7 @@ The installed tree is:
 ├── bin/ada                 # binary (ada.exe on Windows; absent on Unix when ADA_INSTALL_DIR is /usr/local/bin)
 └── radius/                 # Radius artifacts shipped with the CLI
     ├── app.bicep
+    ├── agents.example.json
     ├── local-env.bicep
     ├── aks-env.bicep
     ├── bicepconfig.json
@@ -91,7 +94,7 @@ By default the chart is pulled from the published OCI registry:
 oci://ghcr.io/microsoft/adaptive-apps/charts/adaptive-apps
 ```
 
-at the version selected by `--version` (default `0.1.0`). The portfolio
+at the version selected by `--version` (default `0.2.0`). The portfolio
 selection becomes a profile file inside the chart — `profiles/<portfolio>.yaml`.
 
 Pass `--chart-root <dir>` to install from a local chart source tree
@@ -146,6 +149,96 @@ ada bootstrap --portfolio min \
 `helm` and `kubectl` must be on `PATH`. The current `kubectl` context is the
 target — switch contexts with `kubectl config use-context <name>` before
 invoking `ada`.
+
+## Native application setup
+
+Follow [Getting Started](../tutorials/getting-started/README.md) for the shared
+CLI/manual flow and [native delivery](../docs/agents/native-radius.md) for
+artifact publishing and immutable releases. No AI or session-local helper is
+needed to prepare inputs:
+
+```bash
+ada agents-config --output agents.json --import-images
+ada init --agents-config agents.json --namespace min-ai --release min-ai
+ada bootstrap --portfolio min-ai --platform k8s --release min-ai --namespace min-ai \
+  --chart-root charts --with-radius --with agents --agents-config agents.json --demo-users
+ada oidc demo-users --namespace min-ai --release min-ai
+```
+
+`ada agents-config` creates `agents.json` from the bundled
+`radius/agents.example.json`, the origin GitHub repository and its newest
+published immutable `recipes-<commit>` release containing `recipes.tgz`.
+Pass `--repository OWNER/REPOSITORY`, `--commit FULL_SHA` or `--template PATH`
+to override those inputs. An explicit commit must already have that release;
+the command fails before writing configuration otherwise. Running it again
+updates only the archive and registry locations, preserving reviewed models,
+explicit image digests and identity settings.
+New configurations contain no model declarations by default. Pass
+`--with-kaito-model` only after installing and validating KAITO/GPU support;
+it opts a new configuration into the pinned Qwen3-0.6B example.
+To use public OpenAI consistently for the trading application and native
+agents, pass `--with-openai-model --openai-api-key-file PATH`, plus optional
+`--openai-model` and `--openai-endpoint` overrides. The generated configuration
+selects `openai-chat`; `ada init` retains the key and derives both the Model
+Gateway Secret and the private Radius application parameter file. The emitted
+deployment command contains no API key and accepts no separate native
+`AI_PARAMS` override.
+
+`--import-images` runs `sudo k3s ctr -n k8s.io images pull` for required images
+that are not already present. It preserves configured immutable `images`
+references and resolves missing components from `imageRegistry`/`imageTag`,
+then persists the complete immutable digest map in `agents.json`. This also
+upgrades older maps when a required component is added. Subsequent `ada init`
+runs no longer depend on mutable tags remaining in local K3s.
+`agentModel` selects the Model Gateway name printed for the application
+deployment. `agentNames` controls the explicit gateway client allowlist;
+`peers` contains actual retained `keycloakClientId`, `agentId` and `targets`.
+For connected provisioning,
+`connected` requires `tenantId`, `provisionerClientId`, `sponsorUserId`,
+`ownerUserId`, `oidcIssuer`, `certificateFile` and `certificatePasswordFile`.
+Supply reviewed credentials; the CLI never invents tenant/issuer IDs or uses
+an Azure CLI Graph bearer. Human Entra federation is a separate reviewed login
+declaration.
+
+`models` contains explicit `{name, properties}` Radius model declarations
+(`localWorkspace`, `localService`, `azure` or captured `members`). Pass
+`ada agents-config --without-models` to clear model declarations from an
+existing configuration. Add reviewed model declarations and refresh derived
+state later. KAITO is never implied by selecting an `*-ai` portfolio, and no
+CPU server is generated.
+Foundry models require a separate `modelGatewayIdentity` with reviewed
+`clientId` and `tenantId`. Configure its exact cluster issuer, namespace
+ServiceAccount federation and scoped inference role before use; this identity
+is independent of `connected` Graph/agent-blueprint provisioning.
+Gateway mounts and rollout input digests are derived from the declared models.
+
+Project `--state-dir` defaults to `.adaptive`, **not** `$ADA_HOME`.
+`init`/native `bootstrap` generate missing secrets, a checked localhost TLS pair,
+secure Radius parameters, `portfolio.values.json` and `secrets.json` under
+`private/`. Native bootstrap prints the complete second-terminal export and
+`rad deploy radius/app.bicep` block; `--keep-port-forward` keeps its HTTPS
+ingress available on `localhost:8444`. Demo seeding saves `demo-users.json`
+before creating users, assigns
+only the API client's `agent.invoke` role, and never resets an existing password.
+Generated files use mode 0600 and the private directory mode 0700 on Unix.
+Unchanged setup is repeatable; mismatching inputs fail rather than overwrite
+existing credentials or declarations. After reviewing an intentional config,
+namespace, release, or generated-schema change, rerun `ada init` with
+`--refresh-derived-state`. This replaces only derived JSON under `private/`;
+retained credentials and the TLS key pair are reused unchanged. Pass the same
+flag to `ada bootstrap` when bootstrap is preparing the changed inputs directly.
+
+The current kube context remains authoritative. `access/` is optional local
+kubeconfig/Radius isolation selected by the user, not regenerated by `init`;
+`diagnostics/` contains actual validation output. Windows additionally requires
+appropriate private-directory ACLs. OpenSSL, imported/pullable image digests,
+published recipes, Envoy-compatible Kubernetes and enforced NetworkPolicies
+are native prerequisites.
+
+Native UI clients remain Terraform-owned. To use the trading frontend on the
+same portfolio, provision its separate confidential master-realm client with
+`ada oidc setup-client --namespace min-ai --release min-ai
+--admin-password-file .adaptive/private/keycloak-admin-password`.
 
 ## Roadmap
 

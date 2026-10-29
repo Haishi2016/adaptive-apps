@@ -1,0 +1,349 @@
+{{- if .Values.runtime.uiImage }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: environment-config
+  namespace: {{ .Release.Namespace }}
+data:
+  environment.json: {{ required "runtime.environmentJson is required" .Values.runtime.environmentJson | quote }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: platform-api
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-api
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "services", "persistentvolumeclaims"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes", "gateways"]
+    verbs: ["get"]
+  - apiGroups: ["agentgateway.dev"]
+    resources: ["agentgatewaypolicies"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["environment-config"]
+    verbs: ["get"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    resourceNames: ["demo-cloud-egress"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: platform-api-catalogue
+  namespace: adaptive-guardrails-platform
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-api-catalogue
+  namespace: adaptive-guardrails-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: platform-api-catalogue
+subjects:
+  - kind: ServiceAccount
+    name: platform-api
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: platform-api
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: platform-api
+subjects:
+  - kind: ServiceAccount
+    name: platform-api
+    namespace: {{ .Release.Namespace }}
+{{- range $component := list "platform-api" "ui" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $component }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $component }}
+  ports:
+    - name: http
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $component }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $component }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $component }}
+    spec:
+      {{- if eq $component "platform-api" }}
+      serviceAccountName: platform-api
+      {{- else }}
+      automountServiceAccountToken: false
+      {{- end }}
+      containers:
+        - name: {{ $component }}
+          image: {{ required (printf "runtime.%sImage is required" $component) (get $.Values.runtime (ternary "apiImage" "uiImage" (eq $component "platform-api"))) | quote }}
+          {{- if eq $component "platform-api" }}
+          env:
+            - name: K8S_NAMESPACE
+              value: {{ $.Release.Namespace | quote }}
+            - name: TRACE_QUERY_ENDPOINT
+              value: http://adaptive-traces.{{ $.Release.Namespace }}.svc.cluster.local:16686
+            - name: LOG_QUERY_ENDPOINT
+              value: http://adaptive-logs.{{ $.Release.Namespace }}.svc.cluster.local:3100
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          {{- else }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            tcpSocket:
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: platform-api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: agent-ingress
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: platform-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  parentRefs:
+    - name: agent-ingress
+  rules:
+    - name: monitor
+      matches:
+        - method: GET
+          path:
+            type: RegularExpression
+            value: ^/v1/agents/[a-z0-9-]+/spans$
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove: ["Authorization", "Cookie"]
+      backendRefs:
+        - name: platform-api
+          port: 8080
+      timeouts: {request: 0s, backendRequest: 0s}
+    - matches:
+        - method: GET
+          path:
+            type: PathPrefix
+            value: /v1
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove: ["Authorization", "Cookie"]
+      backendRefs:
+        - name: platform-api
+          port: 8080
+    - matches:
+        - method: PATCH
+          path:
+            type: Exact
+            value: /v1/connectivity-fault
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            remove: ["Authorization", "Cookie"]
+      backendRefs:
+        - name: platform-api
+          port: 8080
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: platform-api
+  namespace: {{ .Release.Namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: platform-api
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: {{ required "runtime.issuer is required" .Values.runtime.issuer | quote }}
+          audiences: ["api://adaptive-broker"]
+          jwks:
+            remote:
+              backendRef:
+                group: ""
+                kind: Service
+                name: {{ .Values.keycloakService | default (printf "%s-keycloak" .Release.Name) }}
+                namespace: {{ .Release.Namespace }}
+                port: 8080
+              jwksPath: /realms/adaptive/protocol/openid-connect/certs
+              cacheDuration: 5m
+    authorization:
+      action: Allow
+      policy:
+        matchExpressions:
+          - 'jwt.azp in ["adaptive-ui", "adaptive-trading"]'
+          - 'jwt.roles.exists(role, role == "agent.invoke")'
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: ui-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  gatewayClassName: adaptive-envoy
+  listeners:
+    {{- range $listener := list (dict "name" "ui" "port" 8443) (dict "name" "identity" "port" 8444) }}
+    - name: {{ $listener.name }}
+      protocol: HTTPS
+      port: {{ $listener.port }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ required "runtime.certificateSecret is required" $.Values.runtime.certificateSecret }}
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: ui-ingress-default-deny
+  namespace: {{ .Release.Namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: ui-ingress
+  authorization:
+    defaultAction: Deny
+{{- range $listener := list (dict "name" "ui" "service" "ui") (dict "name" "identity" "service" (.Values.keycloakService | default (printf "%s-keycloak" .Release.Name))) }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $listener.name }}-browser
+  namespace: {{ $.Release.Namespace }}
+spec:
+  parentRefs:
+    - name: ui-ingress
+      sectionName: {{ $listener.name }}
+  rules:
+    {{- if eq $listener.name "ui" }}
+    - name: streaming
+      matches:
+        - method: POST
+          path:
+            type: RegularExpression
+            value: ^/agents/[a-z0-9-]+/responses$
+        - method: POST
+          path:
+            type: RegularExpression
+            value: ^/models/v1/(chat/completions|responses)$
+        - method: GET
+          path:
+            type: RegularExpression
+            value: ^/v1/agents/[a-z0-9-]+/spans$
+      backendRefs:
+        - name: ui
+          port: 8080
+      timeouts: {request: 0s, backendRequest: 0s}
+    {{- end }}
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ $listener.service }}
+          port: 8080
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: {{ $listener.name }}-browser
+  namespace: {{ $.Release.Namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: {{ $listener.name }}-browser
+  authorization:
+    defaultAction: Allow
+{{- end }}
+{{- end }}

@@ -1,0 +1,9 @@
+modelGateway:
+  configs: []
+  cloudEgress: false
+runtime:
+  strictResponses: false
+  policyServiceImage: ""
+telemetry:
+  enabled: false
+keycloakService: ""

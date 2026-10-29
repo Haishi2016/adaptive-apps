@@ -1,0 +1,93 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ .Release.Namespace }}-agent-metadata
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["configmaps"]
+  matchConditions:
+    - name: logical-agent
+      expression: >-
+        request.namespace == {{ .Release.Namespace | quote }} &&
+        ((has(object.metadata.labels) &&
+        'adaptive.jplck.io/resource' in object.metadata.labels &&
+        object.metadata.labels['adaptive.jplck.io/resource'] == 'agent') ||
+        (oldObject != null && has(oldObject.metadata.labels) &&
+        'adaptive.jplck.io/resource' in oldObject.metadata.labels &&
+        oldObject.metadata.labels['adaptive.jplck.io/resource'] == 'agent'))
+  validations:
+    - expression: >-
+        has(object.metadata.labels) &&
+        object.metadata.labels['adaptive.jplck.io/resource'] == 'agent' &&
+        has(object.metadata.annotations) &&
+        'radius.resource.id' in object.metadata.annotations &&
+        'radius.identity.id' in object.metadata.annotations &&
+        has(object.data) && 'name' in object.data &&
+        object.data.name.matches('^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$') &&
+        'kind' in object.data && object.data.kind in ['prompt', 'hosted'] &&
+        'identityRef' in object.data && object.data.identityRef != ''
+      message: Agent name, kind, and identity binding must satisfy the native contract.
+    - expression: >-
+        oldObject == null ? true :
+        (object.data.name == oldObject.data.name && object.data.kind == oldObject.data.kind &&
+        object.metadata.annotations['radius.resource.id'] == oldObject.metadata.annotations['radius.resource.id'] &&
+        object.metadata.annotations['radius.identity.id'] == oldObject.metadata.annotations['radius.identity.id'] &&
+        object.data.identityRef == oldObject.data.identityRef)
+      message: Logical ownership and the retained identity binding cannot be replaced.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ .Release.Namespace }}-agent-metadata
+spec:
+  policyName: {{ .Release.Namespace }}-agent-metadata
+  validationActions: ["Deny"]
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ .Release.Namespace }}-agent-runtime
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["statefulsets", "statefulsets/scale"]
+  matchConditions:
+    - name: native-agent-runtime
+      expression: request.namespace == {{ .Release.Namespace | quote }} && object.metadata.name.startsWith('agent-')
+  variables:
+    - name: isScale
+      expression: has(request.subResource) && request.subResource == 'scale'
+  validations:
+    - expression: object.spec.replicas >= 0 && object.spec.replicas <= 1
+      message: A native agent permits at most one state writer.
+    - expression: >-
+        variables.isScale ||
+        object.spec.template.spec.containers.all(c,
+        !has(c.env) || c.env.all(e, c.env.filter(other, other.name == e.name).size() == 1))
+      message: Application environment bindings cannot override platform-supplied variables.
+    - expression: >-
+        variables.isScale ||
+        (object.metadata.annotations['adaptive.jplck.io/identity-owner-uid'] ==
+        object.metadata.labels['adaptive.jplck.io/agent-uid'])
+      message: The runtime must use its exact retained agent identity.
+    - expression: >-
+        variables.isScale || oldObject == null ||
+        object.metadata.annotations['radius.resource.id'] == oldObject.metadata.annotations['radius.resource.id']
+      message: Runtime ownership cannot be replaced.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ .Release.Namespace }}-agent-runtime
+spec:
+  policyName: {{ .Release.Namespace }}-agent-runtime
+  validationActions: ["Deny"]

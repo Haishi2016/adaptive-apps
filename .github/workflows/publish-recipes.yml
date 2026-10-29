@@ -9,12 +9,9 @@ on:
       - '.github/workflows/publish-recipes.yml'
       - 'radius/recipes/**'
 
-env:
-  RECIPE_REGISTRY: 'ghcr.io/${{ github.repository_owner }}/adaptive-apps'
-
 jobs:
   publish-recipes:
-    name: Publish Radius recipes to GHCR
+    name: Publish Bicep recipes to GHCR
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,27 +22,67 @@ jobs:
         include:
           - file: radius/recipes/postgres/kubernetes-trading-postgres.bicep
             tag: recipes/postgres:latest
+            resourceType: Radius.Resources/postgreSqlDatabases
+            implementation: kubernetes
           - file: radius/recipes/mqtt/kubernetes-mosquitto.bicep
             tag: recipes/mqtt:latest
+            resourceType: Radius.Resources/mqttBrokers
+            implementation: kubernetes
           - file: radius/recipes/mqtt/azure-event-grid.bicep
             tag: recipes/mqtt-azure-event-grid:latest
+            resourceType: Radius.Resources/mqttBrokers
+            implementation: azure-event-grid
           - file: radius/recipes/workload-identity/local-noop.bicep
             tag: recipes/workload-identity-local:latest
+            resourceType: Radius.Resources/workloadIdentities
+            implementation: local
           - file: radius/recipes/workload-identity/azure-workload-identity.bicep
             tag: recipes/workload-identity-azure:latest
-          - file: radius/recipes/idp/kubernetes-keycloak.bicep
-            tag: recipes/idp-keycloak:latest
+            resourceType: Radius.Resources/workloadIdentities
+            implementation: azure
           - file: radius/recipes/ai-agent/kubernetes-kaito.bicep
             tag: recipes/ai-agent-kaito:latest
+            resourceType: Radius.Resources/aiModels
+            implementation: kaito
           - file: radius/recipes/ai-agent/azure-openai.bicep
             tag: recipes/ai-agent-azure-openai:latest
-          - file: radius/recipes/service-policies/kubernetes-opa.bicep
-            tag: recipes/service-policies-opa:latest
+            resourceType: Radius.Resources/aiModels
+            implementation: azure-openai
+          - file: radius/recipes/governance/kubernetes-opa.bicep
+            tag: recipes/governance-opa:latest
+            resourceType: Radius.Resources/governance
+            implementation: kubernetes-opa
           - file: radius/recipes/agent-guardrails/kubernetes-agt-sidecar.bicep
             tag: recipes/agent-guardrails-agt:latest
+            resourceType: Radius.Resources/agentGuardrails
+            implementation: agt-sidecar
+          - file: radius/recipes/agents/logical.bicep
+            tag: recipes/agents:0.6.1
+            resourceType: Radius.Resources/agents
+            implementation: native
+          - file: radius/recipes/ai-agent/native-model.bicep
+            tag: recipes/ai-models:0.5.2
+            resourceType: Radius.Resources/aiModels
+            implementation: remote-model
+          - file: radius/recipes/ai-agent/native-model-kaito.bicep
+            tag: recipes/ai-models-kaito:0.5.2
+            resourceType: Radius.Resources/aiModels
+            implementation: kaito
+          - file: radius/recipes/ai-agent/native-gateway.bicep
+            tag: recipes/ai-gateways:0.2.0
+            resourceType: Radius.Resources/aiGateways
+            implementation: litellm
+          - file: radius/recipes/agent-guardrails/native-policy.bicep
+            tag: recipes/agent-guardrails:0.3.0
+            resourceType: Radius.Resources/agentGuardrails
+            implementation: native-policy
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Normalize GHCR registry
+        shell: bash
+        run: echo "RECIPE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/adaptive-apps" >> "$GITHUB_ENV"
 
       - name: Install Radius CLI
         run: |
@@ -59,8 +96,144 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish ${{ matrix.tag }}
+      - name: Publish ${{ matrix.resourceType }} (${{ matrix.implementation }})
         run: |
           rad bicep publish \
             --file ${{ matrix.file }} \
             --target br:${{ env.RECIPE_REGISTRY }}/${{ matrix.tag }}
+
+  publish-terraform-recipes:
+    name: Publish Terraform recipe archive
+    needs: publish-recipes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Normalize GHCR registry
+        shell: bash
+        run: echo "RECIPE_REGISTRY=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/adaptive-apps" >> "$GITHUB_ENV"
+
+      - name: Package immutable Terraform recipes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          tar \
+            --sort=name \
+            --mtime="@${epoch}" \
+            --owner=0 \
+            --group=0 \
+            --numeric-owner \
+            --exclude='.terraform' \
+            --exclude='*.tfstate' \
+            --exclude='*.tfstate.*' \
+            --exclude='tests' \
+            -C radius/recipes \
+            -cf - \
+            identity \
+            identity-local \
+            identity-connected \
+            keycloak-login \
+            foundry-agent |
+            gzip -n > dist/recipes.tgz
+          (
+            cd dist
+            sha256sum recipes.tgz > recipes.tgz.sha256
+          )
+
+      - name: Create native recipe manifest
+        shell: bash
+        env:
+          RELEASE_TAG: recipes-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          archive_sha="$(cut -d ' ' -f 1 dist/recipes.tgz.sha256)"
+          archive_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/recipes.tgz"
+          jq -n \
+            --arg revision "$GITHUB_SHA" \
+            --arg archive "$archive_url" \
+            --arg archiveSha256 "$archive_sha" \
+            --arg registry "${RECIPE_REGISTRY}/recipes" \
+            '{
+              schemaVersion: 1,
+              revision: $revision,
+              terraform: {
+                archive: $archive,
+                sha256: $archiveSha256,
+                modules: [
+                  "identity",
+                  "identity-local",
+                  "identity-connected",
+                  "keycloak-login",
+                  "foundry-agent"
+                ]
+              },
+              bicep: {
+                registry: $registry,
+                recipes: {
+                  "Radius.Resources/agents": {
+                    name: "agents",
+                    version: "0.6.1"
+                  },
+                  "Radius.Resources/aiModels": {
+                    name: "ai-models",
+                    version: "0.5.2",
+                    variants: {
+                      default: "ai-models:0.5.2",
+                      kaito: "ai-models-kaito:0.5.2"
+                    }
+                  },
+                  "Radius.Resources/aiGateways": {
+                    name: "ai-gateways",
+                    version: "0.2.0"
+                  },
+                  "Radius.Resources/agentGuardrails": {
+                    name: "agent-guardrails",
+                    version: "0.3.0"
+                  }
+                }
+              }
+            }' > dist/native-recipes.json
+
+      - name: Publish immutable recipe release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: recipes-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            mkdir -p existing
+            gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir existing \
+              --pattern recipes.tgz.sha256 \
+              --pattern native-recipes.json
+            cmp dist/recipes.tgz.sha256 existing/recipes.tgz.sha256
+            cmp dist/native-recipes.json existing/native-recipes.json
+            echo "Verified existing immutable release $RELEASE_TAG"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Radius recipes ${GITHUB_SHA}" \
+              --notes "Immutable Radius Terraform recipes and native recipe manifest for commit ${GITHUB_SHA}." \
+              --latest=false \
+              dist/recipes.tgz \
+              dist/recipes.tgz.sha256 \
+              dist/native-recipes.json
+          fi
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-recipes-${{ github.sha }}
+          path: |
+            dist/recipes.tgz
+            dist/recipes.tgz.sha256
+            dist/native-recipes.json
+          if-no-files-found: error

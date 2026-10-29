@@ -32,6 +32,10 @@
   {{- $auth = printf "%s/protocol/openid-connect/auth" $base -}}
   {{- $token = printf "%s/protocol/openid-connect/token" $base -}}
   {{- $userinfo = printf "%s/protocol/openid-connect/userinfo" $base -}}
+  {{- if .Values.keycloak.publicUrl -}}
+    {{- $issuer = printf "%s/realms/%s" (trimSuffix "/" .Values.keycloak.publicUrl) $oidc.realm -}}
+    {{- $auth = printf "%s/protocol/openid-connect/auth" $issuer -}}
+  {{- end -}}
 {{- else -}}
   {{- $issuer = $oidc.external.issuer -}}
   {{- $auth = $oidc.external.authEndpoint -}}
@@ -49,7 +53,7 @@ data:
   mode: {{ ternary "keycloak" "external" $kc | quote }}
   issuer: {{ $issuer | quote }}
   authEndpoint: {{ $auth | quote }}
-  browserAuthEndpoint: {{ $oidc.browserAuthEndpoint | quote }}
+  browserAuthEndpoint: {{ default (ternary $auth "" (ne .Values.keycloak.publicUrl "")) $oidc.browserAuthEndpoint | quote }}
   tokenEndpoint: {{ $token | quote }}
   userInfoEndpoint: {{ $userinfo | quote }}
   clientId: {{ $oidc.clientId | quote }}

@@ -1,0 +1,42 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+REGISTRY := env_var_or_default("REGISTRY", "adaptive.local/adaptive")
+TAG := env_var_or_default("TAG", "dev")
+
+_default:
+    @just --list
+
+lint:
+    for package in services/agent-gateway services/platform-api; do just -f "$package/Justfile" lint; done
+    for package in agents/prompt-agent agents/editor services/governance-sidecar; do (cd "$package" && uv run --frozen ruff check . && uv run --frozen ruff format --check . && uv run --frozen mypy src); done
+    cd services/ui && npm run lint
+
+test:
+    for package in services/agent-gateway services/platform-api; do just -f "$package/Justfile" test; done
+    for package in agents/prompt-agent agents/editor services/governance-sidecar; do (cd "$package" && uv run --frozen pytest -q); done
+    cd services/ui && npm test -- --run
+
+build:
+    for package in services/agent-gateway services/platform-api; do just -f "$package/Justfile" build; done
+    for package in agents/prompt-agent agents/editor services/governance-sidecar; do (cd "$package" && uv sync --frozen); done
+    cd services/ui && npm run build
+
+image COMPONENT:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{COMPONENT}}" in
+      prompt-agent|editor) path="agents/{{COMPONENT}}" ;;
+      agent-policy) path="services/agent-gateway" ;;
+      governance-sidecar|platform-api|ui) path="services/{{COMPONENT}}" ;;
+      ui-embedded) path="services/ui" ;;
+      *) printf 'Unsupported native agent component: %s\n' "{{COMPONENT}}" >&2; exit 1 ;;
+    esac
+    if [[ "{{COMPONENT}}" == ui ]]; then
+      docker build --build-arg VITE_AUTH_ENABLED=true --build-arg VITE_KEYCLOAK_AUTHORITY="${VITE_KEYCLOAK_AUTHORITY:?Set the exact HTTPS realm issuer}" --build-arg VITE_KEYCLOAK_CLIENT_ID=adaptive-ui -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" "$path"
+    elif [[ "{{COMPONENT}}" == ui-embedded ]]; then
+      docker build --build-arg VITE_EMBEDDED=true --build-arg VITE_AUTH_ENABLED=false -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" "$path"
+    elif [[ "{{COMPONENT}}" == agent-policy || "{{COMPONENT}}" == platform-api ]]; then
+      docker build -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" "$path"
+    else
+      docker build -f "$path/Dockerfile" -t "{{REGISTRY}}/{{COMPONENT}}:{{TAG}}" .
+    fi

@@ -1,0 +1,46 @@
+[project]
+name = "editor"
+version = "0.1.0"
+description = "Portable hosted Agent Framework writer and auditor demo."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "agent-framework-core==1.19.0",
+    "agent-framework-foundry-hosting==1.0.0b260918",
+    "azure-ai-agentserver-core==2.2.0",
+    "azure-ai-agentserver-responses==2.2.0",
+    "httpx",
+    "openai>=1.30",
+]
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "respx", "ruff", "mypy", "httpx2>=2.12,<3"]
+
+[tool.uv]
+prerelease = "allow"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/editor"]
+
+[tool.ruff]
+extend = "../../pyproject.toml"
+
+[tool.ruff.lint.isort]
+known-first-party = ["editor"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["agent_framework_foundry_hosting", "azure.ai.agentserver.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

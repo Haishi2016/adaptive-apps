@@ -27,11 +27,18 @@ spec:
       hostAliases:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.keycloak.customCert.crt }}
+      {{- if or .Values.keycloak.customCert.crt .Values.features.agents.enabled }}
       volumes:
+        {{- if .Values.keycloak.customCert.crt }}
         - name: keycloak-custom-cert
           secret:
             secretName: {{ include "min.keycloak.serviceName" . }}-custom-cert
+        {{- end }}
+        {{- if .Values.features.agents.enabled }}
+        - name: agent-realm
+          configMap:
+            name: {{ include "adaptive.fullname" . }}-agent-realm
+        {{- end }}
       {{- end }}
       securityContext:
         {{- toYaml .Values.keycloak.podSecurityContext | nindent 8 }}
@@ -46,19 +53,40 @@ spec:
             - --health-enabled=true
             - --hostname-strict=false
             - --proxy-headers=xforwarded
+            {{- if .Values.features.agents.enabled }}
+            - --import-realm
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
           securityContext:
             {{- toYaml .Values.keycloak.securityContext | nindent 12 }}
-          {{- if .Values.keycloak.customCert.crt }}
+          {{- if or .Values.keycloak.customCert.crt .Values.features.agents.enabled }}
           volumeMounts:
+            {{- if .Values.keycloak.customCert.crt }}
             - name: keycloak-custom-cert
               mountPath: {{ .Values.keycloak.customCert.mountPath | quote }}
               readOnly: true
+            {{- end }}
+            {{- if .Values.features.agents.enabled }}
+            - name: agent-realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+            {{- end }}
           {{- end }}
           env:
+            {{- if .Values.keycloak.publicUrl }}
+            - name: KC_HOSTNAME
+              value: {{ .Values.keycloak.publicUrl | quote }}
+            {{- end }}
+            {{- if .Values.features.agents.enabled }}
+            - name: ADAPTIVE_LOGIN_CONFIG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: adaptive-keycloak-login-config
+                  key: client-secret
+            {{- end }}
             - name: KC_DB
               value: postgres
             {{- if .Values.postgresql.enabled }}
@@ -94,12 +122,12 @@ spec:
             - name: KC_BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "min.keycloak.serviceName" . }}-admin
+                  name: {{ .Values.keycloak.existingSecret | default (printf "%s-admin" (include "min.keycloak.serviceName" .)) }}
                   key: username
             - name: KC_BOOTSTRAP_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "min.keycloak.serviceName" . }}-admin
+                  name: {{ .Values.keycloak.existingSecret | default (printf "%s-admin" (include "min.keycloak.serviceName" .)) }}
                   key: password
             - name: KC_CACHE
               value: ispn
