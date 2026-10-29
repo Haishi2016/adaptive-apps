@@ -8,7 +8,7 @@ features:
     mtls: true
   observability:
     enabled: true
-  servicePolicies:
+  governance:
     opa: false
     istioExtAuthz: false
   ai:

@@ -2,7 +2,7 @@
   adaptive-apps unified chart helpers.
 
   Canonical helpers are under the `adaptive.*` namespace. `min.*`, `core.*`,
-  `ent.*` aliases are exposed below so identity/mesh/service policy templates
+  `ent.*` aliases are exposed below so identity/mesh/governance templates
   can be referenced under either name.
 */}}
 
@@ -117,5 +117,5 @@ app.kubernetes.io/component: mesh
 
 {{- define "ent.name" -}}{{ include "adaptive.name" . }}{{- end -}}
 {{- define "ent.labels" -}}{{ include "adaptive.labels" . }}
-app.kubernetes.io/component: service-policies
+app.kubernetes.io/component: governance
 {{- end -}}

@@ -541,9 +541,9 @@ Portfolio-specific operational tutorials build on this baseline:
 * **Service mesh** (`core`, `ent`, `core-ai`, `ent-ai`): authoring
   `AuthorizationPolicy` and `VirtualService` resources, mTLS troubleshooting.
   See [Service mesh — operator tutorial](../service-mesh/README.md).
-* **Service policies** (`ent`, `ent-ai`): enabling OPA via
-  `--set features.servicePolicies.opa=true --set features.servicePolicies.istioExtAuthz=true`
-  and writing Rego policies. See [Service Policies (OPA + Istio) — operator tutorial](../service-policies/README.md).
+* **Governance** (`ent`, `ent-ai`): enabling OPA via
+  `--set features.governance.opa=true --set features.governance.istioExtAuthz=true`
+  and writing Rego policies. See [Governance (OPA + Istio) — operator tutorial](../governance/README.md).
 * **AI** (`*-ai`): swapping Kaito models, sizing GPU memory, switching between
   local and cloud `aiProvider`. *(tutorial coming)*
 * **Observability**: querying traces in Zipkin and metrics in Prometheus,

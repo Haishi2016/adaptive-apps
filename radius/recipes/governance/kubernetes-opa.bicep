@@ -1,5 +1,5 @@
 // kubernetes-opa.bicep
-// Radius Recipe: Radius.Resources/servicePolicies
+// Radius Recipe: Radius.Resources/governance
 //
 // Deploys Open Policy Agent (OPA) with the embedded Envoy External Authorization
 // gRPC plugin as a centralized policy decision point (PDP) in the application
@@ -16,8 +16,8 @@
 //
 // MIGRATION NOTE
 //   This recipe is the portable equivalent of:
-//     - charts/adaptive-apps/templates/service-policies/opa.yaml                       (PDP workload)
-//     - charts/adaptive-apps/templates/service-policies/post-install-istio-extauthz.yaml (mesh wiring)
+//     - charts/adaptive-apps/templates/governance/opa.yaml                       (PDP workload)
+//     - charts/adaptive-apps/templates/governance/post-install-istio-extauthz.yaml (mesh wiring)
 //   When migrating, set `ent.opa.enabled=false` and `ent.istioExtAuthz.enabled=false`
 //   in the Helm values, deploy this recipe with `istioIntegration=true`, and
 //   AuthorizationPolicy resources can continue to use the same provider name
@@ -72,7 +72,7 @@ Name registered for the extensionProvider in the Istio MeshConfig.
 AuthorizationPolicy resources reference this name via `provider.name`.
 When empty (the default), a per-app name is derived from the resource:
 `opa-ext-authz-grpc-<resourceName>`. This guarantees that multiple apps
-with `enableServicePolicies=true` in the same cluster register distinct
+with `enableGovernance=true` in the same cluster register distinct
 entries and do not clobber each other's provider configuration.
 Override only when you intentionally want apps to share a single PDP.
 ''')
@@ -87,7 +87,7 @@ var namespace = context.runtime.kubernetes.namespace
 var applicationName = context.application == null ? '' : context.application.name
 
 // Derive a per-app Istio extensionProvider name when the caller did not
-// override it. Per-app names prevent two apps with `enableServicePolicies=true`
+// override it. Per-app names prevent two apps with `enableGovernance=true`
 // from clobbering each other's MeshConfig.extensionProviders entry.
 var effectiveIstioProviderName = istioProviderName == ''
   ? 'opa-ext-authz-grpc-${resourceBaseName}'
@@ -97,12 +97,12 @@ var commonLabels = {
   app: 'opa'
   resource: context.resource.name
   'radapp.io/application': applicationName
-  'app.kubernetes.io/component': 'service-policies'
+  'app.kubernetes.io/component': 'governance'
   'app.kubernetes.io/managed-by': 'radius'
 }
 
 // Default-allow policy applied when the caller does not supply one. Mirrors
-// the default in charts/adaptive-apps/templates/service-policies/opa.yaml.
+// the default in charts/adaptive-apps/templates/governance/opa.yaml.
 var defaultPolicyRego = '''package envoy.authz
 
 import rego.v1
@@ -172,7 +172,7 @@ resource opaDeployment 'apps/Deployment@v1' = {
     namespace: namespace
     labels: commonLabels
     annotations: {
-      'radapp.io/service-policies-mode': mode
+      'radapp.io/governance-mode': mode
     }
   }
   spec: {
@@ -325,7 +325,7 @@ var decisionServiceDns = '${opaService.metadata.name}.${namespace}.svc.cluster.l
 
 // ------------------------------------------------------------------
 // Optional Istio integration — patch MeshConfig.extensionProviders.
-// Mirrors charts/adaptive-apps/templates/service-policies/post-install-istio-extauthz.yaml.
+// Mirrors charts/adaptive-apps/templates/governance/post-install-istio-extauthz.yaml.
 // All four resources are guarded by `istioIntegration` and only
 // referenced in `output.resources` when present (avoids conditional
 // dependsOn pitfalls).

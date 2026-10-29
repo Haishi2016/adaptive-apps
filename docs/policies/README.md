@@ -22,13 +22,13 @@ The platform wires OPA into the layers where it provides the most value. Each ro
 | Layer                  | Decision point                                                                                                       | Adaptive Apps wiring                                                                                                                                                  |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Kubernetes admission   | [Gatekeeper](https://open-policy-agent.github.io/gatekeeper/website/) — OPA-as-admission-controller                  | On AKS: [Azure Policy for Kubernetes](https://learn.microsoft.com/en-us/azure/governance/policy/overview) (Gatekeeper-based). Off AKS: upstream Gatekeeper.            |
-| Service mesh (L7)      | OPA + [`opa-envoy-plugin`](https://github.com/open-policy-agent/opa-envoy-plugin) registered as an Istio `extensionProvider` of kind `envoyExtAuthzGrpc`. Istio `AuthorizationPolicy` resources with `action: CUSTOM` delegate to the PDP. | `Radius.Resources/servicePolicies` recipe — [`kubernetes-opa.bicep`](../../radius/recipes/service-policies/kubernetes-opa.bicep) — enabled per app via `--parameters enableServicePolicies=true`. |
+| Service mesh (L7)      | OPA + [`opa-envoy-plugin`](https://github.com/open-policy-agent/opa-envoy-plugin) registered as an Istio `extensionProvider` of kind `envoyExtAuthzGrpc`. Istio `AuthorizationPolicy` resources with `action: CUSTOM` delegate to the PDP. | `Radius.Resources/governance` recipe — [`kubernetes-opa.bicep`](../../radius/recipes/governance/kubernetes-opa.bicep) — enabled per app via `--parameters enableGovernance=true`. |
 | AI gateway             | OPA decision evaluated by [LiteLLM](https://docs.litellm.ai/docs/) before forwarding a prompt to a model              | Reference integration only; bring your own LiteLLM deployment.                                                                                                       |
 | AI agent (application) | In-pod [Agent Governance Toolkit](https://microsoft.github.io/agent-governance-toolkit/) sidecar — a complementary, content-aware layer for prompt-injection detection and governed tool calls. AGT is **not** OPA-based, but it shares the same defense-in-depth philosophy. | `Radius.Resources/agentGuardrails` recipe — see [`docs/agents/guard-rail.md`](../agents/guard-rail.md).                                                              |
 
 ## What's implemented in this repo
 
-### 1. Resource type — `Radius.Resources/servicePolicies`
+### 1. Resource type — `Radius.Resources/governance`
 
 Defined in [`radius/resource-types/types.yaml`](../../radius/resource-types/types.yaml) alongside the rest of the custom Radius types. The type lets an application express intent ("deploy a PDP, in this mode, with this policy bundle, optionally wired into the mesh") and publishes the runtime coordinates (`decisionEndpoint`, provider name) that callers need to bind to it.
 
@@ -40,7 +40,7 @@ Defined in [`radius/resource-types/types.yaml`](../../radius/resource-types/type
 | `istioIntegration`   | When `true`, also register the PDP as an Istio `extensionProvider` and roll istiod.            |
 | `istioProviderName`  | Override the per-app provider name. Defaults to `opa-ext-authz-grpc-<resource>` to avoid collisions. |
 
-### 2. Recipe — [`kubernetes-opa.bicep`](../../radius/recipes/service-policies/kubernetes-opa.bicep)
+### 2. Recipe — [`kubernetes-opa.bicep`](../../radius/recipes/governance/kubernetes-opa.bicep)
 
 The Kubernetes-targeted recipe deploys a full PDP into the application namespace:
 
@@ -51,44 +51,44 @@ The Kubernetes-targeted recipe deploys a full PDP into the application namespace
 
 The PDP pod is annotated with `sidecar.istio.io/inject: "false"` — it must not be subject to its own enforcement.
 
-Why a recipe instead of a chart? Recipes make the PDP a first-class part of the application model: every app that opts into service policies ships its own PDP and its own Rego, deployed by the same `rad deploy` invocation that brings up the rest of the app. The recipe also intentionally derives a **per-app** Istio `extensionProvider` name from the resource name, so two policy-enabled apps sharing a cluster cannot clobber each other's `MeshConfig.extensionProviders` entry.
+Why a recipe instead of a chart? Recipes make the PDP a first-class part of the application model: every app that opts into governance ships its own PDP and its own Rego, deployed by the same `rad deploy` invocation that brings up the rest of the app. The recipe also intentionally derives a **per-app** Istio `extensionProvider` name from the resource name, so two policy-enabled apps sharing a cluster cannot clobber each other's `MeshConfig.extensionProviders` entry.
 
 ### 3. Application wiring — [`radius/app.bicep`](../../radius/app.bicep)
 
-When `enableServicePolicies=true` is passed to `rad deploy`, `app.bicep` provisions a `Radius.Resources/servicePolicies` resource named after the app and lets the recipe (with `istioIntegration=true` by default) handle the mesh wiring. Workloads then opt into enforcement by adding an Istio `AuthorizationPolicy` with `action: CUSTOM` and `provider.name` set to the per-app provider, exactly as they would for any other Istio ext_authz target.
+When `enableGovernance=true` is passed to `rad deploy`, `app.bicep` provisions a `Radius.Resources/governance` resource named after the app and lets the recipe (with `istioIntegration=true` by default) handle the mesh wiring. Workloads then opt into enforcement by adding an Istio `AuthorizationPolicy` with `action: CUSTOM` and `provider.name` set to the per-app provider, exactly as they would for any other Istio ext_authz target.
 
-The parameter defaults to `false` — service policies are fully opt-in, even on the `ent`/`ent-ai` portfolios, so apps that don't need them pay no overhead.
+The parameter defaults to `false` — governance are fully opt-in, even on the `ent`/`ent-ai` portfolios, so apps that don't need them pay no overhead.
 
 ## Portfolio defaults
 
-The Helm chart marker `features.servicePolicies.opa` indicates the recommended posture per portfolio. The actual PDP is still per-application (it ships with the app via the Radius recipe), so the marker is purely informational — it tells operators which portfolios are expected to host policy-enabled workloads.
+The Helm chart marker `features.governance.opa` indicates the recommended posture per portfolio. The actual PDP is still per-application (it ships with the app via the Radius recipe), so the marker is purely informational — it tells operators which portfolios are expected to host policy-enabled workloads.
 
-| Portfolio | `features.servicePolicies.opa` | Recommended posture                                              |
+| Portfolio | `features.governance.opa` | Recommended posture                                              |
 | --------- | :-----------------------: | ---------------------------------------------------------------- |
-| `min`     |             —             | n/a — no Istio, no service policy fabric                        |
+| `min`     |             —             | n/a — no Istio, no governance policy fabric                     |
 | `core`    |             —             | n/a — native Istio `AuthorizationPolicy` only (no PDP)           |
-| `ent`     |       Off by default      | **Opt-in** — enable per app via `--parameters enableServicePolicies=true` |
+| `ent`     |       Off by default      | **Opt-in** — enable per app via `--parameters enableGovernance=true` |
 | `min-ai`  |             —             | n/a — no Istio                                                  |
 | `core-ai` |             —             | n/a — native Istio `AuthorizationPolicy` only                    |
 | `ent-ai`  |       Off by default      | **Opt-in** — typically paired with `enableAgentGuardrails=true`  |
 
-See [`docs/portfolios/overview.md`](../portfolios/overview.md#features-by-portfolio) for the full capability matrix and [`tutorials/service-policies/README.md`](../../tutorials/service-policies/README.md) for an operator walkthrough.
+See [`docs/portfolios/overview.md`](../portfolios/overview.md#features-by-portfolio) for the full capability matrix and [`tutorials/governance/README.md`](../../tutorials/governance/README.md) for an operator walkthrough.
 
-## Enabling service policies for a deployment
+## Enabling governance for a deployment
 
 ```bash
 rad deploy radius/app.bicep \
   --group adaptive \
   --environment trading \
   ...other parameters... \
-  --parameters enableServicePolicies=true \
-  --parameters servicePoliciesMode=enforce
+  --parameters enableGovernance=true \
+  --parameters governanceMode=enforce
 ```
 
 Optional overrides:
 
-* `--parameters servicePoliciesIstioIntegration=false` — deploy the PDP but skip the Istio MeshConfig patch (useful when you wire `extensionProviders` out-of-band).
-* Pass an inline Rego bundle by setting the `policy` property on the `servicePolicies` resource in your own Bicep (see [`radius/app.bicep`](../../radius/app.bicep) for the pattern).
+* `--parameters governanceIstioIntegration=false` — deploy the PDP but skip the Istio MeshConfig patch (useful when you wire `extensionProviders` out-of-band).
+* Pass an inline Rego bundle by setting the `policy` property on the `governance` resource in your own Bicep (see [`radius/app.bicep`](../../radius/app.bicep) for the pattern).
 
 To verify the PDP is live and answering decisions:
 
@@ -112,6 +112,6 @@ kubectl get cm istio -n istio-system -o jsonpath='{.data.mesh}' | grep -A2 exten
 
 * [Open Policy Agent documentation](https://www.openpolicyagent.org/docs/latest/) — Rego language, deployment patterns, integrations
 * [`opa-envoy-plugin`](https://github.com/open-policy-agent/opa-envoy-plugin) — the Envoy `ext_authz` gRPC plugin used by the recipe
-* [`tutorials/service-policies/README.md`](../../tutorials/service-policies/README.md) — operator walkthrough for authoring `AuthorizationPolicy` (native + OPA-delegated)
+* [`tutorials/governance/README.md`](../../tutorials/governance/README.md) — operator walkthrough for authoring `AuthorizationPolicy` (native + OPA-delegated)
 * [`docs/agents/guard-rail.md`](../agents/guard-rail.md) — the application-layer companion for AI workloads
 * [`docs/portfolios/overview.md`](../portfolios/overview.md) — which portfolios enable what

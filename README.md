@@ -66,7 +66,7 @@ A horiztonal comparison of portfolios is available [here](./docs/portfolios/over
 
 As a starting point, we define six portfolios, as summarized in the following table:
 
-| Portfolio | Identity | Service mesh (Istio) | Observability | Service policies (OPA) | On-cluster AI (Kaito) |
+| Portfolio | Identity | Service mesh (Istio) | Observability | Governance (OPA) | On-cluster AI (Kaito) |
 | --- | :-: | :-: | :-: | :-: | :-: |
 | [`min`](./docs/portfolios/min.md) | ✓ | ✗ | ✗ | ✗ | ✗ |
 | [`core`](./docs/portfolios/core.md) | ✓ | ✓ | ✓ | ✗ | ✗ |
@@ -104,7 +104,7 @@ Follow our [Getting Started tutorial](./tutorials/getting-started/README.md) to 
 ### Additional tutorials
 
 * [Generate Radius artifacts with the `ada` CLI](./tutorials/cli/README.md) — turn a `docker-compose.yml` into an `app.bicep`, comparing the `compose`, `llm`, and `skill` strategies and the critic loop.
-* [Service Policies](./tutorials/service-policies/README.md) — author `AuthorizationPolicy` (native and OPA-delegated) for the `ent`/`ent-ai` portfolios.
+* [Governance](./tutorials/governance/README.md) — author `AuthorizationPolicy` (native and OPA-delegated) for the `ent`/`ent-ai` portfolios.
 * [Service mesh](./tutorials/service-mesh/README.md) — enroll the app namespace in Istio and verify mesh traffic.
 
 ## Adaptive Apps MicroHack

@@ -4,7 +4,7 @@
 //   • Radius.Resources/postgreSqlDatabases  → PostgreSQL 16 (with trading schema)
 //   • Radius.Resources/mqttBrokers          → Eclipse Mosquitto 2 (MQTT + WS)
 //   • Radius.Resources/aiModels             → AI inference endpoint (only when aiProvider=='local')
-//   • Radius.Resources/servicePolicies      → Service-layer PDP (e.g. OPA + Envoy ext_authz; opt-in)
+//   • Radius.Resources/governance      → Service-layer PDP (e.g. OPA + Envoy ext_authz; opt-in)
 //   • Radius.Resources/agentGuardrails      → In-pod agent governance sidecar (opt-in, only when AI is enabled)
 //   • Applications.Core/containers          → backend (.NET 8), ai-agent (.NET 8), frontend (Node)
 //
@@ -145,21 +145,21 @@ param otelCollectorEndpoint string = ''
 @description('Enable Istio sidecar injection for all containers in the app (requires Istio to be installed in the cluster).')
 param enableIstioInjection bool = true
 
-@description('Deploy a Radius.Resources/servicePolicies resource (policy decision point) for the application. Set to true to migrate the legacy OPA workload from the `ent` Helm portfolio onto the portable Radius recipe.')
-param enableServicePolicies bool = false
+@description('Deploy a Radius.Resources/governance resource (policy decision point) for the application. Set to true to migrate the legacy OPA workload from the `ent` Helm portfolio onto the portable Radius recipe.')
+param enableGovernance bool = false
 
-@description('Enforcement mode passed to the service policies recipe. Recipes may interpret this differently (e.g. OPA decision-log only vs. denying responses).')
+@description('Enforcement mode passed to the governance recipe. Recipes may interpret this differently (e.g. OPA decision-log only vs. denying responses).')
 @allowed([
   'enforce'
   'audit'
   'dryrun'
 ])
-param servicePoliciesMode string = 'enforce'
+param governanceMode string = 'enforce'
 
-@description('When true (and enableServicePolicies is true), the service policies recipe also registers itself as an Istio mesh extensionProvider so AuthorizationPolicy resources with `action: CUSTOM` can delegate to the PDP. Requires Istio to be installed in the cluster.')
-param servicePoliciesIstioIntegration bool = true
+@description('When true (and enableGovernance is true), the governance recipe also registers itself as an Istio mesh extensionProvider so AuthorizationPolicy resources with `action: CUSTOM` can delegate to the PDP. Requires Istio to be installed in the cluster.')
+param governanceIstioIntegration bool = true
 
-@description('Deploy a Radius.Resources/agentGuardrails resource and inject the Agent Governance Toolkit (AGT) sidecar into the ai-agent pod. Application-layer, in-pod governance for the LLM agent (prompt-injection scanning, governed tool execution). Independent of `enableServicePolicies` (service-layer authz). Requires a non-empty `aiProvider`.')
+@description('Deploy a Radius.Resources/agentGuardrails resource and inject the Agent Governance Toolkit (AGT) sidecar into the ai-agent pod. Application-layer, in-pod governance for the LLM agent (prompt-injection scanning, governed tool execution). Independent of `enableGovernance` (service-layer authz). Requires a non-empty `aiProvider`.')
 param enableAgentGuardrails bool = false
 
 @description('Enforcement mode for the agent guardrails sidecar. Surfaced as the AGT_MODE env var on the sidecar container.')
@@ -472,18 +472,18 @@ resource editorAgent 'Radius.Resources/agents@2025-08-01-preview' = if (enableNa
 // ---------------------------------------------------------------------------
 // Governance (policy decision point) — opt-in.
 //
-// When enableServicePolicies=true the registered recipe (default: OPA) deploys a
+// When enableGovernance=true the registered recipe (default: OPA) deploys a
 // PDP into the app namespace. Containers don't take a connection to this
-// resource (service policy is applied at the mesh / sidecar layer, not via env
+// resource (governance policy is applied at the mesh / sidecar layer, not via env
 // vars), so there is no `connections` wiring on the containers below.
 // ---------------------------------------------------------------------------
-resource tradingServicePolicies 'Radius.Resources/servicePolicies@2025-08-01-preview' = if (enableServicePolicies) {
-  name: 'trading-service-policies'
+resource tradingGovernance 'Radius.Resources/governance@2025-08-01-preview' = if (enableGovernance) {
+  name: 'trading-governance'
   properties: {
     environment: environment
     application: tradingApp.id
-    mode: servicePoliciesMode
-    istioIntegration: servicePoliciesIstioIntegration
+    mode: governanceMode
+    istioIntegration: governanceIstioIntegration
   }
 }
 

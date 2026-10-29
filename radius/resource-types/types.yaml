@@ -547,7 +547,7 @@ types:
 
   governance:
     description: |
-      The Radius.Resources/servicePolicies Resource Type adds a service-layer
+      The Radius.Resources/governance Resource Type adds a service-layer
       policy decision point (PDP) to an application. It is provider-agnostic:
       a Recipe materializes the type into a concrete request-authorization
       mechanism such as Open Policy Agent (OPA) or service mesh
@@ -566,14 +566,14 @@ types:
 
         rad recipe register default \
           --environment <env> \
-          --resource-type Radius.Resources/servicePolicies \
+          --resource-type Radius.Resources/governance \
           --template-kind bicep \
-          --template-path br:<registry>/service-policies-opa:latest
+          --template-path br:<registry>/governance-opa:latest
 
       Application model usage:
 
-        resource policies 'Radius.Resources/servicePolicies@2025-08-01-preview' = {
-          name: 'service-policies'
+        resource policies 'Radius.Resources/governance@2025-08-01-preview' = {
+          name: 'governance'
           properties: {
             environment: environment
             application: app.id
@@ -671,7 +671,7 @@ types:
       application-layer policy/safety proxy that the agent container talks to
       over `localhost` (e.g. the Microsoft Agent Governance Toolkit "OpenClaw
       sidecar" pattern). It is intentionally distinct from
-      Radius.Resources/servicePolicies, which models a service-mesh / external
+      Radius.Resources/governance, which models a service-mesh / external
       authorization PDP at the network layer; the two can be enabled together.
 
       Because a sidecar must live inside the agent's own pod, this Resource

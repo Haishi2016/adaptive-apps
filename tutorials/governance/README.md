@@ -1,4 +1,4 @@
-# Service Policies (OPA + Istio) — Operator Tutorial
+# Governance (OPA + Istio) — Operator Tutorial
 
 This tutorial covers authoring request-level allow/deny rules on top of the
 Istio service mesh. It picks up where the
@@ -153,9 +153,9 @@ If the entry is missing, the post-install Job didn't run — confirm the gates
 are on:
 
 ```bash
-helm get values $RELEASE -n $NAMESPACE | grep -A2 servicePolicies
+helm get values $RELEASE -n $NAMESPACE | grep -A2 governance
 # Expect:
-#   servicePolicies:
+#   governance:
 #     opa: true
 #     istioExtAuthz: true
 ```
@@ -261,7 +261,7 @@ istioctl x authz check deploy/frontend.$APP_NAMESPACE
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `CUSTOM` policy applied but every request is allowed | `extensionProviders` entry missing in MeshConfig | Re-run the chart with `--set features.servicePolicies.opa=true --set features.servicePolicies.istioExtAuthz=true`; confirm the post-install Job succeeded |
+| `CUSTOM` policy applied but every request is allowed | `extensionProviders` entry missing in MeshConfig | Re-run the chart with `--set features.governance.opa=true --set features.governance.istioExtAuthz=true`; confirm the post-install Job succeeded |
 | OPA logs show "no policy loaded" | `opa-policies` ConfigMap missing or empty | Re-apply the ConfigMap; check `kubectl -n $NAMESPACE get cm opa-policies -o yaml` |
 | Rego change didn't take effect | OPA didn't pick up the ConfigMap update (volume cache) | `kubectl -n $NAMESPACE rollout restart deployment/opa` |
 | Native `ALLOW` policy locks out everything | Selector matched a wider set of pods than expected; remember that adding an `ALLOW` policy implicitly denies everything not matched | Narrow the `selector.matchLabels`, or add a complementary `ALLOW` for system traffic |
