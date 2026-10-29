@@ -10,7 +10,7 @@ use crate::{commands::agents, home};
 
 #[derive(Debug, Args)]
 pub struct InitArgs {
-    /// Prepare native-agent inputs for either CLI bootstrap or manual deployment.
+    /// Prepare portable-agent inputs for either CLI bootstrap or manual deployment.
     #[arg(long)]
     agents_config: Option<std::path::PathBuf>,
     #[arg(long, default_value = ".adaptive")]

@@ -1,4 +1,4 @@
-//! Deterministic native-agent inputs for the existing CLI/manual bootstrap paths.
+//! Deterministic portable-agent inputs for the existing CLI/manual bootstrap paths.
 
 use std::collections::BTreeMap;
 use std::fs;

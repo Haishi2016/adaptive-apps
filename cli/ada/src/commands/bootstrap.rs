@@ -206,7 +206,7 @@ pub struct BootstrapArgs {
     #[arg(long, default_value = ".adaptive")]
     state_dir: PathBuf,
 
-    /// Replace derived native-agent JSON state after reviewing changed inputs.
+    /// Replace derived portable-agent JSON state after reviewing changed inputs.
     #[arg(long, requires = "agents_config")]
     refresh_derived_state: bool,
 
@@ -314,7 +314,7 @@ pub fn run(args: BootstrapArgs) -> Result<()> {
             Portfolio::Min | Portfolio::Core | Portfolio::Ent
         )
     {
-        bail!("Select an AI portfolio for the native agent capability");
+        bail!("Select an AI portfolio for the portable-agent capability");
     }
 
     // Platform automation: switch Azure subscription if requested, derive

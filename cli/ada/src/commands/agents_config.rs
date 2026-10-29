@@ -1,4 +1,4 @@
-//! Generate the public native-agent configuration from repository metadata.
+//! Generate the public portable-agent configuration from repository metadata.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -47,7 +47,7 @@ pub struct AgentsConfigArgs {
     )]
     with_kaito_model: bool,
 
-    /// Configure public OpenAI for both native agents and the trading application.
+    /// Configure public OpenAI for both portable agents and the trading application.
     #[arg(
         long,
         conflicts_with_all = ["without_models", "with_kaito_model"]
