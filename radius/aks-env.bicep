@@ -102,18 +102,20 @@ resource aksEnv 'Applications.Core/environments@2023-10-01-preview' = {
           templatePath: '${recipeRegistry}/ai-agent-azure-openai:latest'
         }
       }
-      // ── Governance — Open Policy Agent (PDP) ───────────────────────────
-      'Radius.Resources/governance': {
+      // ── Service policies — Open Policy Agent (PDP) ─────────────────────
+      'Radius.Resources/servicePolicies': {
         default: {
           templateKind: 'bicep'
-          templatePath: '${recipeRegistry}/governance-opa:latest'
+          templatePath: '${recipeRegistry}/service-policies-opa:latest'
         }
-      }      // ── Agent guardrails — AGT in-pod sidecar ─────────────────────
+      }
+      // ── Agent guardrails — AGT in-pod sidecar ──────────────────────────
       'Radius.Resources/agentGuardrails': {
         default: {
           templateKind: 'bicep'
           templatePath: '${recipeRegistry}/agent-guardrails-agt:latest'
         }
-      }    }
+      }
+    }
   }
 }

@@ -547,10 +547,11 @@ types:
 
   governance:
     description: |
-      The Radius.Resources/governance Resource Type adds a policy decision point
-      (PDP) to an application. It is provider-agnostic: a Recipe materializes the
-      type into a concrete enforcement mechanism such as Open Policy Agent (OPA),
-      service mesh AuthorizationPolicy generation, or a sidecar governance toolkit.
+      The Radius.Resources/servicePolicies Resource Type adds a service-layer
+      policy decision point (PDP) to an application. It is provider-agnostic:
+      a Recipe materializes the type into a concrete request-authorization
+      mechanism such as Open Policy Agent (OPA) or service mesh
+      AuthorizationPolicy generation.
 
       Recipes provided in this repository:
 
@@ -565,14 +566,14 @@ types:
 
         rad recipe register default \
           --environment <env> \
-          --resource-type Radius.Resources/governance \
+          --resource-type Radius.Resources/servicePolicies \
           --template-kind bicep \
-          --template-path br:<registry>/governance-opa:latest
+          --template-path br:<registry>/service-policies-opa:latest
 
       Application model usage:
 
-        resource gov 'Radius.Resources/governance@2025-08-01-preview' = {
-          name: 'gov'
+        resource policies 'Radius.Resources/servicePolicies@2025-08-01-preview' = {
+          name: 'service-policies'
           properties: {
             environment: environment
             application: app.id
@@ -580,9 +581,9 @@ types:
           }
         }
 
-      Output properties (consumed by mesh / sidecar integrations that wire the
+      Output properties (consumed by service-mesh integrations that wire the
       PDP into the data plane — e.g. an Istio extensionProvider patch):
-        - provider           — implementation kind (opa | agntcy-sidecar | istio-authz)
+        - provider           — implementation kind (opa | istio-authz)
         - decisionService    — cluster-internal DNS hostname of the PDP
         - decisionPort       — gRPC ext_authz port
         - decisionEndpoint   — "<service>:<port>" string
@@ -634,7 +635,7 @@ types:
               readOnly: true
               description: >
                 (Read Only) Implementation provider materialized by the recipe.
-                Examples: "opa", "agntcy-sidecar", "istio-authz".
+                Examples: "opa", "istio-authz".
             decisionService:
               type: string
               readOnly: true
@@ -670,7 +671,7 @@ types:
       application-layer policy/safety proxy that the agent container talks to
       over `localhost` (e.g. the Microsoft Agent Governance Toolkit "OpenClaw
       sidecar" pattern). It is intentionally distinct from
-      Radius.Resources/governance, which models a service-mesh / external
+      Radius.Resources/servicePolicies, which models a service-mesh / external
       authorization PDP at the network layer; the two can be enabled together.
 
       Because a sidecar must live inside the agent's own pod, this Resource

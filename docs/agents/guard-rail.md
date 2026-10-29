@@ -2,7 +2,7 @@
 
 Adaptive Apps integrates Microsoft's [Agent Governance Toolkit (AGT)](https://microsoft.github.io/agent-governance-toolkit/) as an **application-layer**, **in-pod** guardrail for AI workloads. This document explains what is wired up, why it lives where it does, and how to turn it on.
 
-## Why a second governance layer?
+## Why a second policy layer?
 
 The platform already provides a **mesh-layer** policy decision point through OPA + Istio `extensionProvider` (see [`docs/policies/README.md`](../policies/README.md)). That layer answers "is this _request_ allowed?" — coarse-grained authorization at the network boundary.
 
@@ -10,7 +10,7 @@ Mesh policy can't see what the LLM is being _asked to do_. Prompt-injection, jai
 
 | Layer            | Decision point                                            | What it controls                                | Implementation                                                                                                                                  |
 | ---------------- | --------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mesh (L7)        | Envoy / Istio `ext_authz` → OPA                           | Who can call which service over what route      | `Radius.Resources/governance` recipe ([`radius/recipes/governance/`](../../radius/recipes/governance/))                                          |
+| Mesh (L7)        | Envoy / Istio `ext_authz` → OPA                           | Who can call which service over what route      | `Radius.Resources/servicePolicies` recipe ([`radius/recipes/service-policies/`](../../radius/recipes/service-policies/))                          |
 | Application (L7) | In-pod AGT sidecar via `localhost:8081` HTTP API          | Prompt-injection detection, governed tool calls | `Radius.Resources/agentGuardrails` recipe ([`radius/recipes/agent-guardrails/`](../../radius/recipes/agent-guardrails/)) + ai-agent code        |
 
 Both layers can be enabled independently; on the `ent-ai` portfolio they run together.

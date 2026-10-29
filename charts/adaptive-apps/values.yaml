@@ -16,7 +16,7 @@ features:
     mtls: true           # Apply mesh-wide STRICT PeerAuthentication
   observability:
     enabled: false       # OTel Collector + Prometheus + Zipkin
-  governance:
+  servicePolicies:
     opa: false           # Deploy OPA (with Envoy ext_authz plugin)
     istioExtAuthz: false # Patch Istio extensionProvider to use OPA
   ai:
@@ -125,7 +125,7 @@ agents:
     enabled: false
 
 # =============================================================================
-# Governance (OPA + Istio ext authz) — used when features.governance.opa
+# Service policies (OPA + Istio ext authz) — used when features.servicePolicies.opa
 # =============================================================================
 opa:
   name: opa

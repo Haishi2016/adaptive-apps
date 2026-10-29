@@ -1,7 +1,7 @@
 # adaptive-apps (unified capability chart)
 
 A single Helm chart that delivers all Adaptive Apps capability portfolios.
-Capability stacks (identity, mesh, observability, governance, AI marker)
+Capability stacks (identity, mesh, observability, service policies, AI marker)
 are toggled via `features.*` flags, and the six [`profiles/`](./profiles)
 overlays realize the `min`, `core`, `ent`, `min-ai`, `core-ai`, `ent-ai`
 portfolios.
@@ -34,15 +34,15 @@ helm install core charts/adaptive-apps \
   -n core --create-namespace
 ```
 
-Mix-and-match by stacking overrides — e.g. core + governance on,
+Mix-and-match by stacking overrides — e.g. core + service policies on,
 observability off:
 
 ```bash
 helm install custom charts/adaptive-apps \
   -f charts/adaptive-apps/profiles/core.yaml \
   --set features.observability.enabled=false \
-  --set features.governance.opa=true \
-  --set features.governance.istioExtAuthz=true \
+  --set features.servicePolicies.opa=true \
+  --set features.servicePolicies.istioExtAuthz=true \
   -n custom --create-namespace
 ```
 
@@ -59,7 +59,7 @@ helm install core charts/adaptive-apps \
 
 ## Profile → flag mapping
 
-| Profile | identity | istio.install | istio.mtls | observability | governance.opa | ai |
+| Profile | identity | istio.install | istio.mtls | observability | servicePolicies.opa | ai |
 | --- | :-: | :-: | :-: | :-: | :-: | :-: |
 | `min` | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | `core` | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ |
@@ -87,14 +87,14 @@ charts/adaptive-apps/
     ├── identity/        # Keycloak + PostgreSQL + OIDC ConfigMap + ingress
     ├── mesh/            # Istio install + STRICT PeerAuthentication
     ├── observability/   # OTel + Prometheus + Zipkin
-    └── governance/      # OPA + Istio extensionProvider patch
+    └── service-policies/ # OPA + Istio extensionProvider patch
 ```
 
 ## Notes
 
 * `_helpers.tpl` exposes `min.*` / `core.*` / `ent.*` named-template
   aliases pointing at the shared `adaptive.*` helpers, so identity / mesh /
-  governance templates can be referenced under either name.
+  service policy templates can be referenced under either name.
 * The `features.ai.enabled` flag exists for downstream tooling (CLI,
   Radius recipes) to detect intent; no manifests are gated on it inside
   the chart today.
