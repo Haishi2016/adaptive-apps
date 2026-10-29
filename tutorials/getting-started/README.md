@@ -177,8 +177,9 @@ and Radius environment. Pick **one**:
     # --with-kaito-model only after completing GPU + KAITO preparation.
     # Omit both --with-* flags to prepare identity and agents without a model.
     # Use --without-models to clear models from an existing configuration.
-    # This uses the origin GitHub repository and its newest published
-    # recipes-<commit> release containing recipes.tgz. An explicit --commit
+    # This uses the current branch's tracked GitHub remote (falling back to
+    # origin) and its newest published recipes-<commit> release containing
+    # recipes.tgz. An explicit --commit
     # must already have been published by .github/workflows/publish-recipes.yml.
     # Use --repository OWNER/REPOSITORY to select another repository.
     # Prefer an explicit `images` map containing the seven immutable fork image

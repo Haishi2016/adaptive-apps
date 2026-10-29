@@ -21,7 +21,7 @@ pub struct AgentsConfigArgs {
     #[arg(long)]
     template: Option<PathBuf>,
 
-    /// GitHub repository in OWNER/REPOSITORY form. Defaults to origin.
+    /// GitHub repository in OWNER/REPOSITORY form. Defaults to the tracked branch remote, then origin.
     #[arg(long)]
     repository: Option<String>,
 
@@ -76,10 +76,7 @@ struct OpenAiModelInput {
 pub fn run(args: AgentsConfigArgs) -> Result<()> {
     let repository = match args.repository {
         Some(repository) => validate_repository(&repository)?,
-        None => {
-            let remote = git_output(&["config", "--get", "remote.origin.url"])?;
-            repository_from_remote(&remote)?
-        }
+        None => repository_from_git()?,
     };
     let commit = resolve_recipe_commit(&repository, args.commit.as_deref())?;
     let template = match args.template {
@@ -151,6 +148,47 @@ fn git_output(args: &[&str]) -> Result<String> {
         .context("git returned non-UTF-8 output")?
         .trim()
         .to_owned())
+}
+
+fn git_config(key: &str) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .args(["config", "--get", key])
+        .output()
+        .with_context(|| format!("failed to run git config --get {key}"))?;
+    if output.status.success() {
+        return Ok(Some(
+            String::from_utf8(output.stdout)
+                .context("git returned non-UTF-8 output")?
+                .trim()
+                .to_owned(),
+        ));
+    }
+    if output.status.code() == Some(1) {
+        return Ok(None);
+    }
+    let error = String::from_utf8_lossy(&output.stderr);
+    bail!("git config --get {key} failed: {}", error.trim());
+}
+
+fn repository_from_git() -> Result<String> {
+    let branch = git_output(&["branch", "--show-current"])?;
+    let branch_remote = if branch.is_empty() {
+        None
+    } else {
+        git_config(&format!("branch.{branch}.remote"))?
+    };
+    let remote_name = preferred_remote_name(branch_remote.as_deref());
+    let remote = git_config(&format!("remote.{remote_name}.url"))?.with_context(|| {
+        format!("Git remote {remote_name} has no URL; pass --repository OWNER/REPOSITORY")
+    })?;
+    repository_from_remote(&remote)
+}
+
+fn preferred_remote_name(branch_remote: Option<&str>) -> &str {
+    match branch_remote {
+        Some(remote) if !remote.is_empty() && remote != "." => remote,
+        _ => "origin",
+    }
 }
 
 fn repository_from_remote(remote: &str) -> Result<String> {
@@ -517,6 +555,14 @@ mod tests {
             );
         }
         assert!(repository_from_remote("https://example.test/owner/repo.git").is_err());
+    }
+
+    #[test]
+    fn prefers_tracked_remote_and_falls_back_to_origin() {
+        assert_eq!(preferred_remote_name(Some("fork")), "fork");
+        assert_eq!(preferred_remote_name(Some(".")), "origin");
+        assert_eq!(preferred_remote_name(Some("")), "origin");
+        assert_eq!(preferred_remote_name(None), "origin");
     }
 
     #[test]
